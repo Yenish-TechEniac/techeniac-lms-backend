@@ -16,10 +16,14 @@ Techeniac LMS Backend provides the REST API, domain business logic, and PostgreS
 
 - `npm run typecheck`: Run static type checking via TypeScript compiler (`tsc --noEmit`).
 - `npm run build`: Compile TypeScript source code to `dist/`.
-- `npm start`: *(coming soon)* Run the compiled backend application.
-- `npm run dev`: *(coming soon)* Run the development server with live reload.
-- `npm test`: *(coming soon)* Run automated test suite.
-- `npm run migration:run`: *(coming soon)* Run TypeORM database migrations.
+- `npm run lint`: Lint source files with ESLint (`--max-warnings 0`).
+- `npm run lint:test-rules`: Test ESLint fixtures against expected rule IDs.
+- `npm run format`: Format code with Prettier.
+- `npm run format:check`: Check code formatting with Prettier.
+- `npm start`: _(coming soon)_ Run the compiled backend application.
+- `npm run dev`: _(coming soon)_ Run the development server with live reload.
+- `npm test`: _(coming soon)_ Run automated test suite.
+- `npm run migration:run`: _(coming soon)_ Run TypeORM database migrations.
 
 ## Non-Negotiable Rules
 

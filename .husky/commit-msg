@@ -1,0 +1,15 @@
+#!/usr/bin/env sh
+
+commit_regex='^(feat|fix|bug|docs|style|refactor|test|chore|perf|ci|build|revert)(\(.+\))?: .{1,50}$'
+
+if ! grep -qE "$commit_regex" "$1"; then
+  echo "Invalid commit message format!"
+  echo ""
+  echo "Required format: <type>(<optional scope>): <description>"
+  echo "Description must contain 1–50 characters."
+  echo "Allowed types: feat, fix, bug, docs, style, refactor, test, chore, perf, ci, build, revert"
+  echo "Example: feat: implement user authentication"
+  exit 1
+fi
+
+echo "Commit message format is valid!"

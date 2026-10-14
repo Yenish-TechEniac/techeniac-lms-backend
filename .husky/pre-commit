@@ -1,0 +1,17 @@
+#!/usr/bin/env sh
+
+# Fail if Gitleaks is missing
+if ! command -v gitleaks >/dev/null 2>&1; then
+  echo "ERROR: Gitleaks is required for pre-commit verification but was not found in PATH." >&2
+  echo "Please install Gitleaks: https://github.com/gitleaks/gitleaks#installing" >&2
+  exit 1
+fi
+
+# Run Gitleaks against staged changes only
+gitleaks protect --staged --verbose
+
+# Run lint-staged (ESLint and Prettier on staged files)
+npx lint-staged
+
+# Run project typecheck
+npm run typecheck

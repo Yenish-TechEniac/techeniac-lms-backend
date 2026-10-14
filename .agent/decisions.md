@@ -1,6 +1,7 @@
 # Architecture Decision Records (ADRs)
 
 ## ADR-001: Node.js 24 LTS Runtime
+
 - **Date**: 2026-10-14
 - **Status**: Accepted
 - **Context**: The backend requires a stable, long-term supported Node.js execution runtime that offers high performance, modern ECMAScript standard support, and long-term security maintenance.
@@ -15,6 +16,7 @@
 ---
 
 ## ADR-002: Module System Selection (CommonJS)
+
 - **Date**: 2026-10-14
 - **Status**: Accepted
 - **Context**: Node.js and TypeScript support both CommonJS (CJS) and ECMAScript Modules (ESM). The project depends on TypeORM CLI for schema migrations and metadata reflection (`emitDecoratorMetadata`).
@@ -28,6 +30,7 @@
 ---
 
 ## ADR-003: TypeScript Compiler Strictness Flags
+
 - **Date**: 2026-10-14
 - **Status**: Accepted
 - **Context**: We need to establish static analysis guarantees in `tsconfig.json` while evaluating specific strictness flags (`noUncheckedIndexedAccess`, `noImplicitOverride`, `exactOptionalPropertyTypes`).
@@ -46,6 +49,7 @@
 ---
 
 ## ADR-004: Decoupled Repositories vs Monorepo
+
 - **Date**: 2026-10-14
 - **Status**: Accepted
 - **Context**: The Techeniac LMS consists of an API backend and a separate user-facing frontend. We must choose repository organization.
@@ -63,6 +67,7 @@
 ---
 
 ## ADR-005: Squash Merging for Feature Branches
+
 - **Date**: 2026-10-14
 - **Status**: Accepted
 - **Context**: A Git branching and merging policy is required to maintain a readable, bisectable commit history on the default branch.
@@ -76,3 +81,27 @@
   - Produces a single, atomic commit per pull request formatted with Conventional Commits.
   - Simplifies rollbacks (`git revert`) and git bisect operations.
 - **Consequences**: Developers can commit frequently on their feature branches; upon PR approval, all commits are collapsed into one clean semantic commit on `main`.
+
+---
+
+## ADR-006: Quality Gates, Static Analysis, and Hook Pipeline
+
+- **Date**: 2026-10-14
+- **Status**: Accepted
+- **Context**: To maintain codebase health, prevent secret leakage, and enforce architectural boundaries across contributions, automated static analysis and pre-commit checks are required.
+- **Options**:
+  1. Manual PR reviews and ad-hoc linting.
+  2. Legacy ESLint rc configuration with standard formatting plugins.
+  3. ESLint 9 flat configuration (`eslint.config.mjs`) with type-aware TypeScript rules, custom in-config architectural boundary enforcement, Prettier separation, Gitleaks pre-commit secret detection, and commitlint hook validation.
+- **Choice**: Option 3.
+- **Reasons**:
+  - ESLint flat configuration is the standard modern configuration format for ESLint 9+.
+  - Type-aware TypeScript rules catch subtle promise mishandling (`no-floating-promises`, `no-misused-promises`) and unsafe types (`no-explicit-any`).
+  - Custom in-config ESLint architecture rules provide automated enforcement of repository query confinement (`architecture/raw-queries-only-in-repositories`) and modular encapsulation (`architecture/cross-module-index-imports`) without extra external dependencies.
+  - Prettier handles code formatting deterministically, with `eslint-config-prettier` preventing rule collisions.
+  - Pre-commit scanning with Gitleaks guarantees secrets are caught locally before reaching remotes, with fallback detection failing clearly if Gitleaks is uninstalled.
+  - Commitlint enforces Conventional Commits standard on commit messages to ensure squash-merged history remains structured and semantically versionable.
+- **Consequences**:
+  - Developers must have Gitleaks installed locally to commit.
+  - Commits that introduce unresolved promises, raw SQL queries outside repositories, or direct internal module imports will fail static checks.
+  - `lint-fixtures/` is excluded from standard lint/formatting runs and tested separately via `npm run lint:test-rules`.
