@@ -105,3 +105,91 @@
   - Developers must have Gitleaks installed locally to commit.
   - Commits that introduce unresolved promises, raw SQL queries outside repositories, or direct internal module imports will fail static checks.
   - `lint-fixtures/` is excluded from standard lint/formatting runs and tested separately via `npm run lint:test-rules`.
+
+---
+
+## ADR-007: Background Job Processing with BullMQ and Redis
+
+- **Date**: 2026-10-15
+- **Status**: Accepted
+- **Context**: The LMS backend requires asynchronous background task processing for decoupled, fault-tolerant operations such as notification/email delivery, asynchronous file generation, data imports, and scheduled maintenance tasks.
+- **Options**:
+  1. In-process Node.js event emitters or setTimeout-based queues.
+  2. Heavy message brokers (RabbitMQ, Apache Kafka).
+  3. BullMQ backed by Redis.
+- **Choice**: Option 3 (BullMQ backed by Redis).
+- **Reasons**:
+  - In-process queues lose state on application restarts or crashes and cannot distribute load across multiple horizontal API instances.
+  - Enterprise brokers like Kafka or RabbitMQ introduce substantial infrastructure complexity disproportionate to current requirements.
+  - BullMQ provides battle-tested, high-throughput Redis-backed queues with Lua script atomicity, built-in exponential backoff, job retention management, and first-class TypeScript support.
+  - In local development on Linux, Redis runs natively as a system daemon without requiring Docker overhead.
+  - In production, BullMQ connects seamlessly to managed Redis services or self-hosted Redis servers with password and TLS support.
+- **Consequences**:
+  - Core queue and worker factories reside in `src/core/queue/`.
+  - Redis connection configurations are centralized and validated via `src/core/config/`.
+  - Local development environments require a running Redis instance.
+  - Production deployments require configured `REDIS_HOST` or `REDIS_URL` connection parameters.
+
+---
+
+## ADR-008: Centralized Reusable Validation Primitives with Zod
+
+- **Date**: 2026-10-15
+- **Status**: Accepted
+- **Context**: Across domain modules, input validation rules for common data types risk duplication, inconsistency, and divergent security requirements if implemented ad-hoc per endpoint.
+- **Options**:
+  1. Define individual Zod schemas inside each domain module independently.
+  2. Implement validation using annotations or class-validator decorators.
+  3. Establish a single source of truth for reusable atomic schemas and HTTP validation middleware in `src/core/validation/`.
+- **Choice**: Option 3 (Single source of truth in `src/core/validation/`).
+- **Reasons**:
+  - Enforces uniform security criteria across the entire platform.
+  - Reduces redundant code and simplifies future schema alignment between backend and frontend.
+  - Provides a standard `validateRequest` middleware that normalizes 400 Bad Request error payloads with precise field errors.
+  - Zod offers runtime type safety with direct TypeScript inference without decorator reflection overhead.
+- **Consequences**:
+  - Domain modules must import standard primitives from `src/core/validation`.
+  - Changes to platform-wide constraints are centralized in one file.
+
+---
+
+## ADR-009: Continuous Integration (CI) Pipeline for Pull Requests
+
+- **Date**: 2026-10-15
+- **Status**: Accepted
+- **Context**: Automated quality gates are required on all pull requests across all branches to prevent broken builds, formatting deviations, secret leakages, or architectural boundary violations from entering the codebase.
+- **Options**:
+  1. Manual pre-merge checklists.
+  2. Heavy CI pipeline requiring Docker container orchestration and live DB services before DB setup is complete.
+  3. Lightweight, container-free GitHub Actions CI workflow running Node 24, Gitleaks, type checking, ESLint 9 with architectural boundary tests, Prettier format verification, and TypeScript build compilation.
+- **Choice**: Option 3 (`.github/workflows/ci.yml`).
+- **Reasons**:
+  - Automatically triggers on all pull requests from any branch to any branch (`pull_request: types: [opened, synchronize, reopened]`).
+  - Matches the Node 24 LTS runtime specified in ADR-001.
+  - Enforces Gitleaks pre-commit rules remotely in CI to ensure no secrets or `.env` variables are merged.
+  - Executes strict static analysis (`tsc --noEmit`), ESLint with architecture rules, fixture rule checks, Prettier checks, and production compilation (`tsc`).
+  - Excludes container dependencies until database persistence and migration setup are fully established.
+- **Consequences**:
+  - Pull requests must pass all static verification stages before merging.
+  - Future database migration tests (`up -> down -> up`) can be cleanly appended once database configurations are wired.
+
+---
+
+## ADR-010: Multi-Stage Branching Strategy and Direct Commit Protection
+
+- **Date**: 2026-10-15
+- **Status**: Accepted
+- **Context**: To establish a reliable software delivery lifecycle, direct commits to critical branches (`main`, `staging`, `dev`) must be prevented, and promotion must follow a structured pipeline (`feature` -> `dev` -> `staging` -> `main`).
+- **Options**:
+  1. Trunk-based development with direct commits to `main`.
+  2. Multi-stage promotion (`dev` -> `staging` -> `main`) without automated branch guards.
+  3. Tiered promotion hierarchy with dual-layer commit protection (local Husky `pre-commit` hook aborting direct commits on `main`, `staging`, and `dev`; GitHub Rulesets blocking direct pushes and requiring passing CI status checks).
+- **Choice**: Option 3.
+- **Reasons**:
+  - Prevents unintended breaking changes from directly entering integration, staging, or production.
+  - Gives developers a safety net locally through `.husky/pre-commit` which blocks accidental commits while on `main`, `staging`, or `dev`.
+  - Enforces review, squash merging, and CI validation across each promotion stage.
+- **Consequences**:
+  - Developers must branch from `dev` (`feat/*`, `fix/*`, `chore/*`) and submit Pull Requests.
+  - Promotion between stages requires Pull Requests.
+  - GitHub branch protection rules must be kept active on remote repository settings.
