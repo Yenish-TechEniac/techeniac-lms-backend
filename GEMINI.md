@@ -20,10 +20,13 @@ Techeniac LMS Backend provides the REST API, domain business logic, and PostgreS
 - `npm run lint:test-rules`: Test ESLint fixtures against expected rule IDs.
 - `npm run format`: Format code with Prettier.
 - `npm run format:check`: Check code formatting with Prettier.
-- `npm start`: _(coming soon)_ Run the compiled backend application.
-- `npm run dev`: _(coming soon)_ Run the development server with live reload.
+- `npm run dev`: Run the development server with live reload (`tsx watch src/main.ts`).
+- `npm start`: Run the compiled backend application (`node dist/main.js`).
+- `npm run migration:run`: Run TypeORM database migrations via direct connection.
+- `npm run migration:revert`: Revert the most recently executed migration.
+- `npm run migration:generate`: Generate a new migration from entity changes.
+- `npm run migration:create`: Create a blank migration file.
 - `npm test`: _(coming soon)_ Run automated test suite.
-- `npm run migration:run`: _(coming soon)_ Run TypeORM database migrations.
 
 ## Non-Negotiable Rules
 

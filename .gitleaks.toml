@@ -1,8 +1,2 @@
 [extend]
 useDefault = true
-
-[allowlist]
-description = "Allowlist for documented .env.example placeholders"
-paths = [
-  '''^\.env\.example$'''
-]

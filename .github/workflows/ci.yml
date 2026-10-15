@@ -41,7 +41,12 @@ jobs:
           sudo mv /tmp/gitleaks /usr/local/bin/gitleaks
 
       - name: gitleaks scan
-        run: gitleaks detect --verbose --redact
+        run: |
+          if gitleaks git --help >/dev/null 2>&1; then
+            gitleaks git --verbose --redact
+          else
+            gitleaks detect --verbose --redact
+          fi
 
       - name: Run npm ci
         run: npm ci

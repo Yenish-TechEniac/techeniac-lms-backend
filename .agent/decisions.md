@@ -111,7 +111,7 @@
 ## ADR-007: Background Job Processing with BullMQ and Redis
 
 - **Date**: 2026-10-15
-- **Status**: Accepted
+- **Status**: Proposed
 - **Context**: The LMS backend requires asynchronous background task processing for decoupled, fault-tolerant operations such as notification/email delivery, asynchronous file generation, data imports, and scheduled maintenance tasks.
 - **Options**:
   1. In-process Node.js event emitters or setTimeout-based queues.
@@ -122,20 +122,22 @@
   - In-process queues lose state on application restarts or crashes and cannot distribute load across multiple horizontal API instances.
   - Enterprise brokers like Kafka or RabbitMQ introduce substantial infrastructure complexity disproportionate to current requirements.
   - BullMQ provides battle-tested, high-throughput Redis-backed queues with Lua script atomicity, built-in exponential backoff, job retention management, and first-class TypeScript support.
-  - In local development on Linux, Redis runs natively as a system daemon without requiring Docker overhead.
+  - In local development:
+    - On Linux, Redis can run natively as a system daemon (`sudo systemctl start redis-server`).
+    - On macOS, Redis can run via Homebrew (`brew install redis && brew services start redis`) or Docker (`docker run -d -p 6379:6379 --name redis redis:alpine`).
   - In production, BullMQ connects seamlessly to managed Redis services or self-hosted Redis servers with password and TLS support.
 - **Consequences**:
-  - Core queue and worker factories reside in `src/core/queue/`.
-  - Redis connection configurations are centralized and validated via `src/core/config/`.
-  - Local development environments require a running Redis instance.
-  - Production deployments require configured `REDIS_HOST` or `REDIS_URL` connection parameters.
+  - Implementation of core queue and worker factories in `src/core/queue/` is planned for a dedicated future PR.
+  - Redis connection configurations will be centralized and validated via `src/core/config/` once implemented.
+  - Local development environments will require a running Redis instance once this capability is introduced.
+  - Production deployments will require configured `REDIS_HOST` or `REDIS_URL` connection parameters.
 
 ---
 
 ## ADR-008: Centralized Reusable Validation Primitives with Zod
 
 - **Date**: 2026-10-15
-- **Status**: Accepted
+- **Status**: Proposed
 - **Context**: Across domain modules, input validation rules for common data types risk duplication, inconsistency, and divergent security requirements if implemented ad-hoc per endpoint.
 - **Options**:
   1. Define individual Zod schemas inside each domain module independently.
@@ -148,8 +150,9 @@
   - Provides a standard `validateRequest` middleware that normalizes 400 Bad Request error payloads with precise field errors.
   - Zod offers runtime type safety with direct TypeScript inference without decorator reflection overhead.
 - **Consequences**:
-  - Domain modules must import standard primitives from `src/core/validation`.
-  - Changes to platform-wide constraints are centralized in one file.
+  - Implementation of shared validation primitives and `validateRequest` middleware in `src/core/validation/` is planned for a dedicated validation PR.
+  - Once implemented, domain modules will import standard primitives from `src/core/validation`.
+  - Changes to platform-wide constraints will be centralized in one location.
 
 ---
 

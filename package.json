@@ -6,12 +6,19 @@
     "node": ">=24 <25"
   },
   "scripts": {
+    "dev": "tsx watch src/main.ts",
+    "start": "node dist/main.js",
     "build": "tsc",
     "typecheck": "tsc --noEmit",
     "lint": "eslint . --max-warnings 0",
     "lint:test-rules": "node scripts/test-lint-rules.mjs",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
+    "typeorm": "typeorm-ts-node-commonjs",
+    "migration:run": "typeorm-ts-node-commonjs migration:run -d src/core/db/migration-source.ts",
+    "migration:revert": "typeorm-ts-node-commonjs migration:revert -d src/core/db/migration-source.ts",
+    "migration:generate": "typeorm-ts-node-commonjs migration:generate -d src/core/db/migration-source.ts",
+    "migration:create": "typeorm-ts-node-commonjs migration:create",
     "prepare": "husky"
   },
   "dependencies": {

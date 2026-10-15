@@ -1,3 +1,4 @@
+import path from 'node:path';
 import tseslint from 'typescript-eslint';
 import prettierConfig from 'eslint-config-prettier';
 import simpleImportSort from 'eslint-plugin-simple-import-sort';
@@ -61,50 +62,36 @@ const crossModuleImportsRule = {
   },
   create(context) {
     const filename = (context.filename ?? context.getFilename?.() ?? '').replace(/\\/g, '/');
-    const moduleMatch = filename.match(/\/src\/modules\/([^/]+)\//);
 
     return {
       ImportDeclaration(node) {
         const importPath = node.source.value;
         if (typeof importPath !== 'string') return;
 
-        // Check relative imports traversing to another module: ../other-module/subpath
-        const relativeModuleMatch = importPath.match(/^\.\.\/([^/]+)\/(.+)$/);
-        if (relativeModuleMatch) {
-          const subPath = relativeModuleMatch[2];
-          if (subPath !== 'index' && subPath !== 'index.ts' && subPath !== 'index.js') {
-            context.report({
-              node: node.source,
-              messageId: 'internalImport',
-              data: { importPath },
-            });
-            return;
-          }
+        const toRepo = (p) => path.relative(context.cwd, p).replace(/\\/g, '/');
+        const selfMatch = toRepo(filename).match(/(?:^|\/)modules\/([^/]+)\//);
+
+        // Check relative imports
+        if (importPath.startsWith('.')) {
+          const resolvedTarget = toRepo(path.resolve(path.dirname(filename), importPath));
+          const targetMatch = resolvedTarget.match(/(?:^|\/)modules\/([^/]+)\/(.+)$/);
+          if (!targetMatch || targetMatch[1] === selfMatch?.[1]) return; // not a module, or within same module
+          if (/^index(\.[jt]s)?$/.test(targetMatch[2])) return; // public entry point
+          context.report({
+            node: node.source,
+            messageId: 'internalImport',
+            data: { importPath },
+          });
+          return;
         }
 
-        // Check module imports targeting internal paths: src/modules/<mod>/<subpath> or @modules/<mod>/<subpath>
-        const explicitModuleMatch = importPath.match(/^(?:src\/modules|@modules)\/([^/]+)\/(.+)$/);
-        if (explicitModuleMatch) {
-          const targetModule = explicitModuleMatch[1];
-          const subPath = explicitModuleMatch[2];
-          if (subPath !== 'index' && subPath !== 'index.ts' && subPath !== 'index.js') {
-            if (!moduleMatch || moduleMatch[1] !== targetModule) {
-              context.report({
-                node: node.source,
-                messageId: 'internalImport',
-                data: { importPath },
-              });
-              return;
-            }
-          }
-        }
-
-        // Check fixtures importing internal files
-        if (filename.includes('lint-fixtures') && importPath.includes('/modules/')) {
-          const fixtureMatch = importPath.match(/\/modules\/([^/]+)\/(.+)$/);
-          if (fixtureMatch) {
-            const subPath = fixtureMatch[2];
-            if (subPath !== 'index' && subPath !== 'index.ts' && subPath !== 'index.js') {
+        // Check explicit alias or root imports targeting modules: src/modules/<mod>/<subpath> or @modules/<mod>/<subpath>
+        const explicitMatch = importPath.match(/^(?:src\/modules|@modules)\/([^/]+)\/(.+)$/);
+        if (explicitMatch) {
+          const targetModule = explicitMatch[1];
+          const subPath = explicitMatch[2];
+          if (!selfMatch || selfMatch[1] !== targetModule) {
+            if (!/^index(\.[jt]s)?$/.test(subPath)) {
               context.report({
                 node: node.source,
                 messageId: 'internalImport',

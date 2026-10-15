@@ -37,6 +37,18 @@ const fixtures = [
     file: 'lint-fixtures/cross-module-import.ts',
     expectedRule: 'architecture/cross-module-index-imports',
   },
+  {
+    file: 'lint-fixtures/valid/modules/users/controllers/user.controller.ts',
+    expectedRule: null,
+  },
+  {
+    file: 'lint-fixtures/valid/modules/users/services/user.service.ts',
+    expectedRule: null,
+  },
+  {
+    file: 'lint-fixtures/valid/modules/users/user.repository.ts',
+    expectedRule: null,
+  },
 ];
 
 async function runFixtureTests() {
@@ -88,6 +100,18 @@ async function runFixtureTests() {
 
     const messages = fileResult.messages;
     const ruleIds = messages.map((m) => m.ruleId).filter(Boolean);
+
+    if (expectedRule === null) {
+      if (messages.length === 0) {
+        console.log(`[PASS] ${file} passed with zero lint errors as expected`);
+      } else {
+        console.error(
+          `[FAIL] ${file} was expected to produce 0 lint errors, but produced: [${ruleIds.join(', ')}]`,
+        );
+        totalFailures++;
+      }
+      continue;
+    }
 
     if (messages.length === 0) {
       console.error(`[FAIL] ${file} passed but was expected to fail with ${expectedRule}`);
