@@ -3,6 +3,7 @@ import { DataSource } from 'typeorm';
 import { logger } from '../logging';
 import { AppDataSource } from './data-source';
 
+export { BaseEntity } from './base.entity';
 export { AppDataSource } from './data-source';
 
 export async function initializeDatabase(): Promise<DataSource> {

@@ -196,3 +196,22 @@
   - Developers must branch from `dev` (`feat/*`, `fix/*`, `chore/*`) and submit Pull Requests.
   - Promotion between stages requires Pull Requests.
   - GitHub branch protection rules must be kept active on remote repository settings.
+
+---
+
+## ADR-011: Standardized BaseEntity for Database Persistence
+
+- **Date**: 2026-10-16
+- **Status**: Accepted
+- **Context**: The LMS database schema requires uniform auditing and identification columns across all tables: UUID primary keys (`gen_random_uuid()`), timestamp with time zone creation and update tracking (`CURRENT_TIMESTAMP`), and soft delete support via `deleted_at`.
+- **Options**:
+  1. Define `id`, `created_at`, `updated_at`, and `deleted_at` independently on each TypeORM entity.
+  2. Implement an abstract `BaseEntity` in `src/core/db/base.entity.ts` that all domain entities inherit.
+- **Choice**: Option 2 (`BaseEntity` in `src/core/db/base.entity.ts`).
+- **Reasons**:
+  - Eliminates duplicate column definitions across domain entity schemas.
+  - Guarantees consistent PostgreSQL data types (`uuid`, `timestamptz`) and snake_case column names.
+  - Native TypeORM `@CreateDateColumn`, `@UpdateDateColumn`, and `@DeleteDateColumn` support automated timestamp management and soft delete querying without boilerplate.
+- **Consequences**:
+  - All domain entities created in `src/modules/*/entities/` must extend `BaseEntity`.
+  - Auditing and soft-delete semantics are applied consistently throughout the repository.

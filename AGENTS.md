@@ -23,6 +23,18 @@ These rules and guidelines apply to all AI agents and developers working on the 
 - **Security**: Never commit, inspect, or log real `.env` contents or credentials.
 - **Workflow**: Document architectural choices in `.agent/decisions.md`.
 
+## Database & Entity Architecture Rules
+
+### Mandatory BaseEntity Inheritance
+
+- **Base Entity**: All database domain entities created in `src/modules/*/entities/*.entity.ts` (or any table entities across the system) **must extend `BaseEntity`** exported from `src/core/db`.
+- **Standard Columns Provided by `BaseEntity`**:
+  - `id`: `uuid` primary key (`@PrimaryGeneratedColumn('uuid')`, PostgreSQL `gen_random_uuid()`)
+  - `created_at`: `timestamptz`, not null (managed by `@CreateDateColumn`, default `CURRENT_TIMESTAMP`)
+  - `updated_at`: `timestamptz`, not null (managed by `@UpdateDateColumn`, default `CURRENT_TIMESTAMP`)
+  - `deleted_at`: `timestamptz`, nullable (managed by `@DeleteDateColumn` for soft delete)
+- **Prohibition**: Never manually declare duplicate `id`, `created_at`, `updated_at`, or `deleted_at` fields in individual entity classes. Always inherit from `BaseEntity`.
+
 ## Governance Links
 
 - [GEMINI.md](GEMINI.md)

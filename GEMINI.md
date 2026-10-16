@@ -35,6 +35,7 @@ Techeniac LMS Backend provides the REST API, domain business logic, and PostgreS
 - **Branch Pre-Flight & Approval Protocol**: Before implementing any feature, module, or change, determine the required branch. If creating a new branch, obtain explicit user approval first. For large features needing multiple branches, outline all required branches and secure approval. Always switch to the relevant branch before editing code.
 - **Security**: Never commit, inspect, or log real `.env` contents or credentials.
 - **Workflow**: Document architectural choices in `.agent/decisions.md`.
+- **Mandatory BaseEntity**: All domain database entities must extend `BaseEntity` (`src/core/db`), standardizing UUID primary keys (`gen_random_uuid()`), `created_at`, `updated_at`, and soft-delete `deleted_at` timestamps.
 
 ## Agent Governance Links
 
