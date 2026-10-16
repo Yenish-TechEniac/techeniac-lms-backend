@@ -31,11 +31,14 @@ Techeniac LMS Backend provides the REST API, domain business logic, and PostgreS
 ## Non-Negotiable Rules
 
 - **Git Safety**: Never execute state-changing Git/GitHub commands without per-command approval. Prohibit `git add .`, `git add -A`, `git push --force`, `git reset --hard`, and `--no-verify`.
+- **Branch Diff Limit (<400 Lines)**: Changes in a single branch or Pull Request must not exceed ~400 lines of code. If a planned implementation or task requires changing or adding more than 400 lines of code in a single branch, the agent must ask the user for explicit confirmation before making those changes.
+- **Branch Pre-Flight & Approval Protocol**: Before implementing any feature, module, or change, determine the required branch. If creating a new branch, obtain explicit user approval first. For large features needing multiple branches, outline all required branches and secure approval. Always switch to the relevant branch before editing code.
 - **Security**: Never commit, inspect, or log real `.env` contents or credentials.
 - **Workflow**: Document architectural choices in `.agent/decisions.md`.
 
 ## Agent Governance Links
 
+- [Agents Guide](AGENTS.md)
 - [Git Safety Rules](.agent/rules/git-safety.md)
 - [Security Rules](.agent/rules/security.md)
 - [Architecture Overview](.agent/architecture.md)
