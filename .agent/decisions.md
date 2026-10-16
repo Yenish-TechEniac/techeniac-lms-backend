@@ -75,12 +75,12 @@
   1. Merge commits (`git merge --no-ff`)
   2. Rebase and fast-forward
   3. Squash merge via Pull Requests
-- **Choice**: Squash merging for all feature branches merged into `main`.
+- **Choice**: Squash merging for all feature branches merged into `dev`, with structured PR promotion across `dev` -> `staging` -> `main`.
 - **Reasons**:
-  - Eliminates messy intermediate development commits ("wip", "fix typo") from the main history.
+  - Eliminates messy intermediate development commits ("wip", "fix typo") from the integration history.
   - Produces a single, atomic commit per pull request formatted with Conventional Commits.
   - Simplifies rollbacks (`git revert`) and git bisect operations.
-- **Consequences**: Developers can commit frequently on their feature branches; upon PR approval, all commits are collapsed into one clean semantic commit on `main`.
+- **Consequences**: Developers can commit frequently on their feature branches; upon PR approval, commits are collapsed into one clean semantic commit on `dev`. Promotional releases from `dev` to `staging` and `main` preserve release traceability.
 
 ---
 
@@ -236,3 +236,23 @@
 - **Consequences**:
   - All route handlers and middlewares must use `StatusCodes.*` from `http-status-codes` (or `src/core/http`).
   - No file outside `src/core/config/` is permitted to reference `process.env`.
+
+---
+
+## ADR-013: Express 5 Adoption and Native Node 24 Environment Loading
+
+- **Date**: 2026-10-16
+- **Status**: Accepted
+- **Context**: Express 4 requires boilerplate try-catch or wrapper libraries (e.g. `express-async-handler`) to handle asynchronous errors and forward rejected promises to error middleware. In addition, Node 24 LTS provides standard built-in `.env` file loading via `process.loadEnvFile()`, making the third-party `dotenv` dependency redundant.
+- **Options**:
+  1. Retain Express 4 with async route wrapper utilities and `dotenv`.
+  2. Adopt Express 5 and native Node 24 `process.loadEnvFile()`.
+- **Choice**: Option 2.
+- **Reasons**:
+  - Express 5 is the modern stable major line and natively routes rejected promises in async route handlers directly to Express error middleware without wrapper functions.
+  - Using Node 24's native `process.loadEnvFile()` eliminates third-party runtime dependencies, shrinking the attack surface and reducing maintenance overhead.
+  - Native loading integrates directly with standard Node configuration patterns.
+- **Consequences**:
+  - `express` is upgraded to `^5.0.0` with `@types/express` `^5.0.0`.
+  - `dotenv` is completely removed from dependencies.
+  - Async route handlers no longer require manual try-catch wrappers to forward rejected promises.

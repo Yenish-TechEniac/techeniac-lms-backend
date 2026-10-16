@@ -22,8 +22,7 @@
     "prepare": "husky"
   },
   "dependencies": {
-    "dotenv": "^16.4.7",
-    "express": "^4.21.2",
+    "express": "^5.3.0",
     "http-status-codes": "^2.3.0",
     "pg": "^8.13.3",
     "reflect-metadata": "^0.2.2",
@@ -33,7 +32,7 @@
   "devDependencies": {
     "@commitlint/cli": "^19.8.0",
     "@commitlint/config-conventional": "^19.8.0",
-    "@types/express": "^4.17.21",
+    "@types/express": "^5.0.6",
     "@types/node": "^24.0.0",
     "@types/pg": "^8.11.11",
     "eslint": "^9.21.0",

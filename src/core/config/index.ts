@@ -1,9 +1,14 @@
-import dotenv from 'dotenv';
+import fs from 'node:fs';
+import path from 'node:path';
+
 import { z } from 'zod';
 
 import { logger } from '../logging';
 
-dotenv.config();
+const envPath = path.resolve(process.cwd(), '.env');
+if (fs.existsSync(envPath)) {
+  process.loadEnvFile(envPath);
+}
 
 const envSchema = z.object({
   NODE_ENV: z.enum(['development', 'test', 'production']).default('development'),

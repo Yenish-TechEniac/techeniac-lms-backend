@@ -11,8 +11,6 @@ For feature and maintenance work (post-foundation setup), use semantic branch pr
 - `refactor/<short-description>`: Code restructuring without functional behavior changes.
 - `test/<short-description>`: Adding or modifying test suites.
 
-_Note_: For TASK B0, work was explicitly authorized to occur directly on `main` to establish the initial repository baseline.
-
 ## Commit Standards
 
 Follow the [Conventional Commits](https://www.conventionalcommits.org/) specification:

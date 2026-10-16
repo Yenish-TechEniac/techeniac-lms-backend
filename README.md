@@ -23,7 +23,7 @@ npm run prepare
 
 Husky manages automated commit quality gates:
 
-- **`pre-commit`**: Executes `gitleaks protect --staged`, followed by `lint-staged` (ESLint and Prettier), and `npm run typecheck`. Fails with actionable instructions if Gitleaks is not found in `PATH`.
+- **`pre-commit`**: Executes `gitleaks git --staged`, followed by `lint-staged` (ESLint and Prettier), and `npm run typecheck`. Fails with actionable instructions if Gitleaks is not found in `PATH`.
 - **`commit-msg`**: Validates commit messages using `@commitlint/cli` and Conventional Commits.
 
 ## Environment
