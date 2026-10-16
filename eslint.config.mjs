@@ -142,6 +142,13 @@ export default tseslint.config(
       'simple-import-sort/exports': 'error',
       'architecture/raw-queries-only-in-repositories': 'error',
       'architecture/cross-module-index-imports': 'error',
+      'no-process-env': 'error',
+    },
+  },
+  {
+    files: ['src/core/config/**'],
+    rules: {
+      'no-process-env': 'off',
     },
   },
   prettierConfig,

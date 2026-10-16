@@ -215,3 +215,24 @@
 - **Consequences**:
   - All domain entities created in `src/modules/*/entities/` must extend `BaseEntity`.
   - Auditing and soft-delete semantics are applied consistently throughout the repository.
+
+---
+
+## ADR-012: Standardized HTTP Status Codes and Centralized Environment Configuration
+
+- **Date**: 2026-10-16
+- **Status**: Accepted
+- **Context**: HTTP status codes were represented as literal numbers in route handlers and middleware. Additionally, direct access to `process.env` across disparate domain modules risks runtime configuration drift, unvalidated inputs, and tight coupling to host environments.
+- **Options**:
+  1. Continue using literal status codes (e.g. `200`, `503`, `204`) and allow ad-hoc `process.env` access.
+  2. Implement a custom status code enum and manual convention for environment access.
+  3. Adopt the battle-tested `http-status-codes` library across all controllers/middlewares (re-exported via `src/core/http`), enforce centralized environment loading via `src/core/config/` (Zod validation), and automate restriction via ESLint `no-process-env`.
+- **Choice**: Option 3.
+- **Reasons**:
+  - `http-status-codes` eliminates magic status numbers and aligns with industry TypeScript standards.
+  - Re-exporting `StatusCodes` via `src/core/http` provides seamless core module cohesion.
+  - Centralizing environment parsing through Zod in `src/core/config/` guarantees strongly typed configuration at startup.
+  - Automating enforcement via the ESLint `no-process-env` rule (with override only for `src/core/config/**`) ensures zero modules can bypass the centralized configuration.
+- **Consequences**:
+  - All route handlers and middlewares must use `StatusCodes.*` from `http-status-codes` (or `src/core/http`).
+  - No file outside `src/core/config/` is permitted to reference `process.env`.

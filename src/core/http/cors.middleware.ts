@@ -1,11 +1,12 @@
 import { NextFunction, Request, Response } from 'express';
+import { StatusCodes } from 'http-status-codes';
 
-import { config } from '../config';
+import { env } from '../config';
 
 export function corsMiddleware(req: Request, res: Response, next: NextFunction): void {
   const origin = req.headers.origin;
 
-  if (origin && config.CORS_ORIGINS.includes(origin)) {
+  if (origin && env.CORS_ORIGINS.includes(origin)) {
     res.setHeader('Access-Control-Allow-Origin', origin);
     res.setHeader('Access-Control-Allow-Credentials', 'true');
     res.setHeader(
@@ -16,7 +17,7 @@ export function corsMiddleware(req: Request, res: Response, next: NextFunction):
   }
 
   if (req.method === 'OPTIONS') {
-    res.status(204).end();
+    res.status(StatusCodes.NO_CONTENT).end();
     return;
   }
 

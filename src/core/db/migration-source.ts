@@ -4,11 +4,11 @@ import path from 'node:path';
 
 import { DataSource } from 'typeorm';
 
-import { config } from '../config';
+import { env } from '../config';
 
 export const MigrationDataSource = new DataSource({
   type: 'postgres',
-  url: config.DIRECT_URL,
+  url: env.DIRECT_URL,
   ssl: {
     rejectUnauthorized: false,
   },

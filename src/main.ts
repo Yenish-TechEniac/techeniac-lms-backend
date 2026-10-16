@@ -1,5 +1,5 @@
 import { app } from './app';
-import { config } from './core/config';
+import { env } from './core/config';
 import { closeDatabase, initializeDatabase } from './core/db';
 import { logger } from './core/logging';
 
@@ -7,9 +7,9 @@ export async function bootstrap(): Promise<void> {
   try {
     await initializeDatabase();
 
-    const server = app.listen(config.PORT, () => {
+    const server = app.listen(env.PORT, () => {
       logger.info(
-        `Server running in ${config.NODE_ENV} mode on port ${config.PORT} (http://localhost:${config.PORT})`,
+        `Server running in ${env.NODE_ENV} mode on port ${env.PORT} (http://localhost:${env.PORT})`,
       );
     });
 

@@ -38,6 +38,10 @@ const fixtures = [
     expectedRule: 'architecture/cross-module-index-imports',
   },
   {
+    file: 'lint-fixtures/no-process-env.ts',
+    expectedRule: 'no-process-env',
+  },
+  {
     file: 'lint-fixtures/valid/modules/users/controllers/user.controller.ts',
     expectedRule: null,
   },
@@ -80,6 +84,7 @@ async function runFixtureTests() {
           'simple-import-sort/exports': 'error',
           'architecture/raw-queries-only-in-repositories': 'error',
           'architecture/cross-module-index-imports': 'error',
+          'no-process-env': 'error',
         },
       },
     ],
