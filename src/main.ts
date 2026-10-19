@@ -7,10 +7,20 @@ export async function bootstrap(): Promise<void> {
   try {
     await initializeDatabase();
 
-    const server = app.listen(env.PORT, () => {
+    const server = app.listen(env.PORT, (error?: Error) => {
+      if (error) {
+        logger.error({ err: error }, 'HTTP server failed to start');
+        process.exit(1);
+      }
+
       logger.info(
         `Server running in ${env.NODE_ENV} mode on port ${env.PORT} (http://localhost:${env.PORT})`,
       );
+    });
+
+    server.on('error', (err: Error) => {
+      logger.error({ err }, 'HTTP server encountered a runtime error');
+      process.exit(1);
     });
 
     const shutdown = (signal: string): void => {

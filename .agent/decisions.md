@@ -282,3 +282,23 @@
   - `pino` is added as a runtime dependency in `src/core/logging`.
   - Loggers must pass the error object itself (`logger.error({ err }, 'message')`) rather than just `err.message`.
   - Log output is emitted as machine-readable JSON in all environments.
+
+---
+
+## ADR-015: Standardized JSON Error Hierarchy and Global Error Middleware
+
+- **Date**: 2026-10-19
+- **Status**: Accepted
+- **Context**: An enterprise API requires consistent machine-readable error envelopes (`{ error: { code, message, details? } }`) across all responses. Without explicit error middleware, Express emits HTML stack trace pages on malformed client JSON or unhandled exceptions, leaking server paths and breaking frontend JSON parsing. Additionally, default Express headers (`X-Powered-By`) expose server implementation details.
+- **Options**:
+  1. Rely on Express default HTML error pages and ad-hoc error formatting per route.
+  2. Implement custom global `notFoundMiddleware`, `errorMiddleware`, `app.disable('x-powered-by')`, and a centralized `AppError` hierarchy in `src/core/errors/`.
+- **Choice**: Option 2.
+- **Reasons**:
+  - Enforces a predictable JSON error contract across all endpoints.
+  - Intercepts body-parser syntax errors (400) and unhandled routes (404), converting them to JSON instead of HTML.
+  - Sanitizes 500 internal server errors to prevent stack trace leaks to API consumers while logging full traces with Pino.
+  - Disables the `X-Powered-By` header to prevent technology fingerprinting.
+- **Consequences**:
+  - All errors thrown in domain modules, middleware, or services must inherit from `AppError` (`src/core/errors`).
+  - Terminal middleware chain in `src/app.ts` must always conclude with `notFoundMiddleware` followed by `errorMiddleware`.

@@ -3,11 +3,12 @@ import { StatusCodes } from 'http-status-codes';
 
 import { env } from './core/config';
 import { healthRouter } from './core/health';
-import { corsMiddleware } from './core/http';
+import { corsMiddleware, errorMiddleware, notFoundMiddleware } from './core/http';
 
 export function createApp(): Express {
   const app = express();
 
+  app.disable('x-powered-by');
   app.set('trust proxy', env.TRUST_PROXY_HOPS);
 
   app.use(corsMiddleware);
@@ -23,6 +24,9 @@ export function createApp(): Express {
       status: 'operational',
     });
   });
+
+  app.use(notFoundMiddleware);
+  app.use(errorMiddleware);
 
   return app;
 }
