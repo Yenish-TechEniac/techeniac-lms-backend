@@ -1,0 +1,99 @@
+name: CI
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+  push:
+    branches:
+      - main
+      - staging
+      - dev
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  pull-requests: read
+
+jobs:
+  build:
+    name: build
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: password
+          POSTGRES_DB: techeniac_lms
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Node.js 24
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: 'npm'
+
+      - name: Install gitleaks
+        run: |
+          GITLEAKS_VERSION="8.24.3"
+          GITLEAKS_CHECKSUM="9991e0b2903da4c8f6122b5c3186448b927a5da4deef1fe45271c3793f4ee29c"
+          curl -sSL "https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz" -o /tmp/gitleaks.tar.gz
+          echo "${GITLEAKS_CHECKSUM}  /tmp/gitleaks.tar.gz" | sha256sum -c -
+          tar -xzf /tmp/gitleaks.tar.gz -C /tmp
+          sudo mv /tmp/gitleaks /usr/local/bin/gitleaks
+          rm -f /tmp/gitleaks.tar.gz
+
+      - name: gitleaks scan
+        run: |
+          if gitleaks git --help >/dev/null 2>&1; then
+            gitleaks git --verbose --redact
+          else
+            gitleaks detect --verbose --redact
+          fi
+
+      - name: Run npm ci
+        run: npm ci
+
+      - name: Run npm run typecheck
+        run: npm run typecheck
+
+      - name: Run npm run lint
+        run: npm run lint
+
+      - name: Run npm run lint:test-rules
+        run: npm run lint:test-rules
+
+      - name: Run npm run format:check
+        run: npm run format:check
+
+      - name: Run npm run build
+        run: npm run build
+
+      - name: Verify migrations and schema consistency
+        env:
+          DATABASE_URL: postgres://postgres:password@localhost:5432/techeniac_lms?sslmode=disable
+          DIRECT_URL: postgres://postgres:password@localhost:5432/techeniac_lms?sslmode=disable
+          NODE_ENV: test
+        run: |
+          npm run migration:run
+          # down() must work: revert everything, then re-apply
+          while npm run -s typeorm -- migration:show -d src/core/db/migration-source.ts | grep -q '\[X\]'; do npm run migration:revert; done
+          npm run migration:run
+          # entity ↔ migration drift: fails if an entity changed without a generated migration
+          npm run typeorm -- migration:generate -d src/core/db/migration-source.ts src/migrations/Drift --check

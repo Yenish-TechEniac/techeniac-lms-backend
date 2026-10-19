@@ -1,0 +1,29 @@
+#!/usr/bin/env sh
+
+# Disallow direct commits to protected branches (main, staging, dev)
+CURRENT_BRANCH="$(git rev-parse --abbrev-ref HEAD 2>/dev/null)"
+if [ "$CURRENT_BRANCH" = "main" ] || [ "$CURRENT_BRANCH" = "staging" ] || [ "$CURRENT_BRANCH" = "dev" ]; then
+  echo "❌ ERROR: Direct commits to '$CURRENT_BRANCH' are prohibited!" >&2
+  echo "Please create a feature branch first (e.g. feat/your-feature-name) and submit a Pull Request." >&2
+  exit 1
+fi
+
+# Fail if Gitleaks is missing
+if ! command -v gitleaks >/dev/null 2>&1; then
+  echo "ERROR: Gitleaks is required for pre-commit verification but was not found in PATH." >&2
+  echo "Please install Gitleaks: https://github.com/gitleaks/gitleaks#installing" >&2
+  exit 1
+fi
+
+# Run Gitleaks against staged changes only (use modern 'git' subcommand if available)
+if gitleaks git --help >/dev/null 2>&1; then
+  gitleaks git --staged --verbose
+else
+  gitleaks protect --staged --verbose
+fi
+
+# Run lint-staged (ESLint and Prettier on staged files)
+npx lint-staged
+
+# Run project typecheck
+npm run typecheck
