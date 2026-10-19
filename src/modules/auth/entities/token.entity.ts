@@ -39,7 +39,7 @@ export class Token extends AuditableEntity {
   userId!: string;
 
   @ManyToOne(() => User, { onDelete: 'CASCADE' })
-  @JoinColumn({ name: 'user_id' })
+  @JoinColumn({ name: 'user_id', foreignKeyConstraintName: 'FK_tokens_user_id' })
   user!: User;
 
   @Column({
@@ -49,7 +49,7 @@ export class Token extends AuditableEntity {
   })
   tokenType!: TokenType;
 
-  @Index({ unique: true })
+  @Index('IDX_tokens_jti', { unique: true })
   @Column({ name: 'jti', type: 'uuid' })
   jti!: string;
 
@@ -60,7 +60,10 @@ export class Token extends AuditableEntity {
   replacedById!: string | null;
 
   @ManyToOne(() => Token, { onDelete: 'SET NULL', nullable: true })
-  @JoinColumn({ name: 'replaced_by_id' })
+  @JoinColumn({
+    name: 'replaced_by_id',
+    foreignKeyConstraintName: 'FK_tokens_replaced_by_id',
+  })
   replacedBy!: Token | null;
 
   @Column({ name: 'token_version', type: 'int', nullable: true })
@@ -69,7 +72,7 @@ export class Token extends AuditableEntity {
   @Column({
     name: 'issued_at',
     type: 'timestamptz',
-    default: () => 'CURRENT_TIMESTAMP',
+    default: () => 'now()',
   })
   issuedAt!: Date;
 

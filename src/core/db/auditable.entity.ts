@@ -12,14 +12,14 @@ export abstract class AuditableEntity {
   @CreateDateColumn({
     name: 'created_at',
     type: 'timestamptz',
-    default: () => 'CURRENT_TIMESTAMP',
+    default: () => 'now()',
   })
   createdAt!: Date;
 
   @UpdateDateColumn({
     name: 'updated_at',
     type: 'timestamptz',
-    default: () => 'CURRENT_TIMESTAMP',
+    default: () => 'now()',
   })
   updatedAt!: Date;
 

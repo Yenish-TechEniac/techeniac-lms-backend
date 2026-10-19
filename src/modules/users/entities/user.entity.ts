@@ -14,7 +14,7 @@ export class User extends AuditableEntity {
   @Column({ name: 'name', type: 'varchar', length: 100 })
   name!: string;
 
-  @Index({ unique: true })
+  @Index('IDX_users_email', { unique: true })
   @Column({ name: 'email', type: 'varchar', length: 254 })
   email!: string;
 
