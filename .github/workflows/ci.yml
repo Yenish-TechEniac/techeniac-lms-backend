@@ -85,9 +85,15 @@ jobs:
       - name: Run npm run build
         run: npm run build
 
-      - name: Run database migrations
+      - name: Verify migrations and schema consistency
         env:
           DATABASE_URL: postgres://postgres:password@localhost:5432/techeniac_lms?sslmode=disable
           DIRECT_URL: postgres://postgres:password@localhost:5432/techeniac_lms?sslmode=disable
           NODE_ENV: test
-        run: npm run migration:run
+        run: |
+          npm run migration:run
+          # down() must work: revert everything, then re-apply
+          while npm run -s typeorm -- migration:show -d src/core/db/migration-source.ts | grep -q '\[X\]'; do npm run migration:revert; done
+          npm run migration:run
+          # entity ↔ migration drift: fails if an entity changed without a generated migration
+          npm run typeorm -- migration:generate -d src/core/db/migration-source.ts src/migrations/Drift --check
