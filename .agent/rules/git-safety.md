@@ -16,8 +16,8 @@ These rules are non-negotiable and apply to all agents and automated tools worki
 
 ## Branch Discipline
 
-- For TASK B0, work is conducted directly on the existing `main` branch as explicitly requested by the user. Do not create a feature branch.
-- For standard future development workflows, feature branches should follow branch naming conventions and use pull requests with squash merging.
+- Work must never be committed directly to protected branches (`main`, `staging`, `dev`). All changes must be developed on dedicated feature, fix, or chore branches (`feat/*`, `fix/*`, `chore/*`) branched off `dev`.
+- Pull Requests must target `dev` using squash merging with Conventional Commits.
 - **Diff Size Limit (<400 Lines) & User Confirmation**: Changes in a single branch or PR must not exceed ~400 lines of code. If a planned implementation or task requires more than 400 lines of code change in a single branch, the agent must ask the user for explicit permission/confirmation before making those changes (or propose splitting them into smaller PRs).
 - **Mandatory Branch Pre-Flight Check**: When building any feature or module or implementing changes (for the user or collaborators), the agent must first determine the target branch.
 - **Branch Creation Approval**: If a new branch is needed (e.g. `feat/<name>`, `fix/<name>` branched off `dev`), the agent must communicate the branch name and purpose and obtain explicit user permission before creating it or writing code.
