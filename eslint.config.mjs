@@ -21,7 +21,9 @@ const rawQueriesRule = {
     const isAllowed =
       filename.endsWith('.repository.ts') ||
       filename.includes('/src/core/db/') ||
-      filename.startsWith('src/core/db/');
+      filename.startsWith('src/core/db/') ||
+      filename.includes('/src/migrations/') ||
+      filename.startsWith('src/migrations/');
 
     if (isAllowed) {
       return {};

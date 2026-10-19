@@ -32,6 +32,17 @@ const envSchema = z.object({
     .string()
     .optional()
     .transform((val) => (val && val.trim().length > 0 ? val.trim() : 'local-dev')),
+  JWT_ACCESS_SECRET: z
+    .string()
+    .min(32)
+    .default('default_access_token_secret_minimum_32_characters_long_for_dev'),
+  JWT_REFRESH_SECRET: z
+    .string()
+    .min(32)
+    .default('default_refresh_token_secret_minimum_32_characters_long_for_dev'),
+  JWT_ALGORITHM: z.literal('HS256').default('HS256'),
+  ACCESS_TOKEN_TTL: z.string().default('15m'),
+  REFRESH_TOKEN_TTL: z.string().default('7d'),
 });
 
 export type Env = z.infer<typeof envSchema>;

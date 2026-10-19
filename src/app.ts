@@ -1,9 +1,11 @@
+import cookieParser from 'cookie-parser';
 import express, { Express } from 'express';
 import { StatusCodes } from 'http-status-codes';
 
 import { env } from './core/config';
 import { healthRouter } from './core/health';
 import { corsMiddleware, errorMiddleware, notFoundMiddleware } from './core/http';
+import { authRouter } from './modules/auth';
 
 export function createApp(): Express {
   const app = express();
@@ -12,6 +14,7 @@ export function createApp(): Express {
   app.set('trust proxy', env.TRUST_PROXY_HOPS);
 
   app.use(corsMiddleware);
+  app.use(cookieParser());
   app.use(express.json());
   app.use(express.urlencoded({ extended: true }));
 
@@ -24,6 +27,8 @@ export function createApp(): Express {
       status: 'operational',
     });
   });
+
+  app.use('/api/v1/auth', authRouter);
 
   app.use(notFoundMiddleware);
   app.use(errorMiddleware);
