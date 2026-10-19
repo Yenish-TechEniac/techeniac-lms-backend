@@ -22,6 +22,21 @@ jobs:
     name: build
     runs-on: ubuntu-latest
 
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: password
+          POSTGRES_DB: techeniac_lms
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -65,3 +80,10 @@ jobs:
 
       - name: Run npm run build
         run: npm run build
+
+      - name: Run database migrations
+        env:
+          DATABASE_URL: postgres://postgres:password@localhost:5432/techeniac_lms?sslmode=disable
+          DIRECT_URL: postgres://postgres:password@localhost:5432/techeniac_lms?sslmode=disable
+          NODE_ENV: test
+        run: npm run migration:run

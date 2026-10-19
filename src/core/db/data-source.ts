@@ -1,22 +1,18 @@
 import 'reflect-metadata';
 
-import path from 'node:path';
-
 import { DataSource } from 'typeorm';
 
 import { env } from '../config';
+import { baseDataSourceOptions } from './data-source.options';
 
+// TLS is configured by the connection string: Neon → ?sslmode=verify-full, local Postgres → ?sslmode=disable
 export const AppDataSource = new DataSource({
-  type: 'postgres',
+  ...baseDataSourceOptions,
   url: env.DATABASE_URL,
-  ssl: {
-    rejectUnauthorized: false,
-  },
-  synchronize: false,
   logging: env.LOG_LEVEL === 'debug',
-  entities: [path.join(__dirname, '../../modules/**/*.entity.{ts,js}')],
   extra: {
     max: 10,
     idleTimeoutMillis: 30000,
+    connectionTimeoutMillis: 5000,
   },
 });

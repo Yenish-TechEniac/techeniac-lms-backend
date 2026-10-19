@@ -5,16 +5,13 @@ import path from 'node:path';
 import { DataSource } from 'typeorm';
 
 import { env } from '../config';
+import { baseDataSourceOptions } from './data-source.options';
 
+// TLS is configured by the connection string: Neon → ?sslmode=verify-full, local Postgres → ?sslmode=disable
 export const MigrationDataSource = new DataSource({
-  type: 'postgres',
+  ...baseDataSourceOptions,
   url: env.DIRECT_URL,
-  ssl: {
-    rejectUnauthorized: false,
-  },
-  synchronize: false,
   logging: true,
-  entities: [path.join(__dirname, '../../modules/**/*.entity.{ts,js}')],
   migrations: [path.join(__dirname, '../../migrations/*.{ts,js}')],
 });
 

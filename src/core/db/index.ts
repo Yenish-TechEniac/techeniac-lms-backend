@@ -3,7 +3,7 @@ import { DataSource } from 'typeorm';
 import { logger } from '../logging';
 import { AppDataSource } from './data-source';
 
-export { BaseEntity } from './base.entity';
+export { AuditableEntity } from './auditable.entity';
 export { AppDataSource } from './data-source';
 
 export async function initializeDatabase(): Promise<DataSource> {
@@ -15,11 +15,9 @@ export async function initializeDatabase(): Promise<DataSource> {
     const dataSource = await AppDataSource.initialize();
     logger.info('Database connection established successfully via Neon connection pooler');
     return dataSource;
-  } catch (error) {
-    logger.error('Failed to establish database connection', {
-      error: error instanceof Error ? error.message : String(error),
-    });
-    throw error;
+  } catch (err) {
+    logger.error({ err }, 'Failed to establish database connection');
+    throw err;
   }
 }
 

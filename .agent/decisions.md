@@ -199,22 +199,25 @@
 
 ---
 
-## ADR-011: Standardized BaseEntity for Database Persistence
+## ADR-011: Standardized AuditableEntity for Database Persistence
 
-- **Date**: 2026-10-16
+- **Date**: 2026-10-16 (Updated 2026-10-19)
 - **Status**: Accepted
-- **Context**: The LMS database schema requires uniform auditing and identification columns across all tables: UUID primary keys (`gen_random_uuid()`), timestamp with time zone creation and update tracking (`CURRENT_TIMESTAMP`), and soft delete support via `deleted_at`.
+- **Context**: The LMS database schema requires uniform auditing and identification columns across all tables: UUID primary keys (`gen_random_uuid()`), timestamp with time zone creation and update tracking (`CURRENT_TIMESTAMP`), soft delete support via `deleted_at`, and audit actor tracking (`created_by`, `updated_by`). Additionally, naming must not shadow TypeORM's built-in `BaseEntity` (Active Record class) to prevent auto-import collisions and startup errors.
 - **Options**:
-  1. Define `id`, `created_at`, `updated_at`, and `deleted_at` independently on each TypeORM entity.
-  2. Implement an abstract `BaseEntity` in `src/core/db/base.entity.ts` that all domain entities inherit.
-- **Choice**: Option 2 (`BaseEntity` in `src/core/db/base.entity.ts`).
+  1. Define `id`, `created_at`, `updated_at`, `deleted_at`, `created_by`, and `updated_by` independently on each TypeORM entity.
+  2. Implement an abstract `BaseEntity` in `src/core/db/base.entity.ts`.
+  3. Implement an abstract `AuditableEntity` in `src/core/db/auditable.entity.ts` that includes UUID primary key, timestamps, soft delete, and actor audit fields without shadowing TypeORM's `BaseEntity`.
+- **Choice**: Option 3 (`AuditableEntity` in `src/core/db/auditable.entity.ts`).
 - **Reasons**:
   - Eliminates duplicate column definitions across domain entity schemas.
+  - Prevents IDE auto-import conflicts with TypeORM's own Active Record `BaseEntity`.
   - Guarantees consistent PostgreSQL data types (`uuid`, `timestamptz`) and snake_case column names.
+  - Pre-provisions `created_by` and `updated_by` nullable UUID audit columns across all tables before domain entities are created.
   - Native TypeORM `@CreateDateColumn`, `@UpdateDateColumn`, and `@DeleteDateColumn` support automated timestamp management and soft delete querying without boilerplate.
 - **Consequences**:
-  - All domain entities created in `src/modules/*/entities/` must extend `BaseEntity`.
-  - Auditing and soft-delete semantics are applied consistently throughout the repository.
+  - All domain entities created in `src/modules/*/entities/` must extend `AuditableEntity`.
+  - Auditing, soft-delete, and actor tracking semantics are applied consistently throughout the repository.
 
 ---
 
@@ -256,3 +259,26 @@
   - `express` is upgraded to `^5.0.0` with `@types/express` `^5.0.0`.
   - `dotenv` is completely removed from dependencies.
   - Async route handlers no longer require manual try-catch wrappers to forward rejected promises.
+
+---
+
+## ADR-014: Structured Logging with Pino
+
+- **Date**: 2026-10-19
+- **Status**: Accepted
+- **Context**: Production observability requires structured JSON log outputs with standard severity levels, ISO timestamps, request correlation via child loggers, and full error stack preservation. The initial logger implementation printed string-interpolated logs and dropped error stack traces.
+- **Options**:
+  1. Continue using custom `console`-based wrapper with string interpolation.
+  2. Adopt Winston.
+  3. Adopt Pino (`pino`).
+- **Choice**: Option 3 (Pino).
+- **Reasons**:
+  - Pino is an industry-standard, high-performance structured JSON logger for Node.js with near-zero overhead.
+  - Built-in `err` serializer captures full Error stack traces, error names, and cause chains without manual stringification.
+  - First-class support for child loggers (`logger.child({ requestId })`) enables granular request-scoped correlation.
+  - Dynamic log level adjustments via `logger.level`.
+  - Seamless ingestion by modern observability platforms (Datadog, CloudWatch, GCP Cloud Logging).
+- **Consequences**:
+  - `pino` is added as a runtime dependency in `src/core/logging`.
+  - Loggers must pass the error object itself (`logger.error({ err }, 'message')`) rather than just `err.message`.
+  - Log output is emitted as machine-readable JSON in all environments.

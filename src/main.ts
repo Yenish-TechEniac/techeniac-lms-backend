@@ -24,9 +24,7 @@ export async function bootstrap(): Promise<void> {
             process.exit(0);
           })
           .catch((err) => {
-            logger.error('Error closing database during shutdown', {
-              error: err instanceof Error ? err.message : String(err),
-            });
+            logger.error({ err }, 'Error closing database during shutdown');
             process.exit(1);
           });
       });
@@ -44,10 +42,8 @@ export async function bootstrap(): Promise<void> {
     process.on('SIGTERM', () => {
       shutdown('SIGTERM');
     });
-  } catch (error) {
-    logger.error('Application bootstrap failed', {
-      error: error instanceof Error ? error.message : String(error),
-    });
+  } catch (err) {
+    logger.error({ err }, 'Application bootstrap failed');
     process.exit(1);
   }
 }

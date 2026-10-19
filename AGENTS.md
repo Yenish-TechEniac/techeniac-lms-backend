@@ -25,15 +25,17 @@ These rules and guidelines apply to all AI agents and developers working on the 
 
 ## Database & Entity Architecture Rules
 
-### Mandatory BaseEntity Inheritance
+### Mandatory AuditableEntity Inheritance
 
-- **Base Entity**: All database domain entities created in `src/modules/*/entities/*.entity.ts` (or any table entities across the system) **must extend `BaseEntity`** exported from `src/core/db`.
-- **Standard Columns Provided by `BaseEntity`**:
+- **Base Entity**: All database domain entities created in `src/modules/*/entities/*.entity.ts` (or any table entities across the system) **must extend `AuditableEntity`** exported from `src/core/db`.
+- **Standard Columns Provided by `AuditableEntity`**:
   - `id`: `uuid` primary key (`@PrimaryGeneratedColumn('uuid')`, PostgreSQL `gen_random_uuid()`)
   - `created_at`: `timestamptz`, not null (managed by `@CreateDateColumn`, default `CURRENT_TIMESTAMP`)
   - `updated_at`: `timestamptz`, not null (managed by `@UpdateDateColumn`, default `CURRENT_TIMESTAMP`)
   - `deleted_at`: `timestamptz`, nullable (managed by `@DeleteDateColumn` for soft delete)
-- **Prohibition**: Never manually declare duplicate `id`, `created_at`, `updated_at`, or `deleted_at` fields in individual entity classes. Always inherit from `BaseEntity`.
+  - `created_by`: `uuid`, nullable (`@Column({ type: 'uuid', nullable: true })` for actor tracking)
+  - `updated_by`: `uuid`, nullable (`@Column({ type: 'uuid', nullable: true })` for actor tracking)
+- **Prohibition**: Never manually declare duplicate `id`, `created_at`, `updated_at`, `deleted_at`, `created_by`, or `updated_by` fields in individual entity classes. Always inherit from `AuditableEntity`.
 
 ## Governance Links
 
