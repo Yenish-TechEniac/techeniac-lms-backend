@@ -16,3 +16,4 @@ export {
   refreshTokenSchema,
   resetPasswordSchema,
 } from './schemas/auth.schemas';
+export { TokenRepository, tokenRepository } from './token.repository';

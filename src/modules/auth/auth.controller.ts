@@ -1,6 +1,9 @@
-import type { NextFunction, Request, Response } from 'express';
+import type { CookieOptions, NextFunction, Request, Response } from 'express';
 import { StatusCodes } from 'http-status-codes';
 
+import { env } from '../../core/config';
+import { NotFoundError, UnauthorizedError } from '../../core/errors';
+import { UserRepository, userRepository } from '../users';
 import { AuthService, authService } from './auth.service';
 import type {
   ChangePasswordInput,
@@ -9,12 +12,38 @@ import type {
   ResetPasswordInput,
 } from './schemas/auth.schemas';
 
+const isProduction = env.NODE_ENV === 'production';
+
+const cookieDefaults: CookieOptions = {
+  httpOnly: true,
+  secure: isProduction,
+  sameSite: 'lax',
+  path: '/',
+};
+
+const accessCookieOptions: CookieOptions = {
+  ...cookieDefaults,
+  maxAge: 15 * 60 * 1000,
+};
+
+const refreshCookieOptions: CookieOptions = {
+  ...cookieDefaults,
+  maxAge: 7 * 24 * 60 * 60 * 1000,
+};
+
 export class AuthController {
-  constructor(private readonly service: AuthService = authService) {}
+  constructor(
+    private readonly service: AuthService = authService,
+    private readonly userRepo: UserRepository = userRepository,
+  ) {}
 
   public login = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
       const result = await this.service.login(req.body as LoginInput);
+
+      res.cookie('accessToken', result.tokens.accessToken, accessCookieOptions);
+      res.cookie('refreshToken', result.tokens.refreshToken, refreshCookieOptions);
+
       res.status(StatusCodes.OK).json({ success: true, data: result });
     } catch (error) {
       next(error);
@@ -26,7 +55,12 @@ export class AuthController {
       const cookies = (req.cookies ?? {}) as Record<string, string | undefined>;
       const body = (req.body ?? {}) as Record<string, string | undefined>;
       const token = cookies.refreshToken ?? body.refreshToken ?? '';
+
       const result = await this.service.refresh(token);
+
+      res.cookie('accessToken', result.tokens.accessToken, accessCookieOptions);
+      res.cookie('refreshToken', result.tokens.refreshToken, refreshCookieOptions);
+
       res.status(StatusCodes.OK).json({ success: true, data: result });
     } catch (error) {
       next(error);
@@ -38,8 +72,41 @@ export class AuthController {
       const cookies = (req.cookies ?? {}) as Record<string, string | undefined>;
       const body = (req.body ?? {}) as Record<string, string | undefined>;
       const token = cookies.refreshToken ?? body.refreshToken;
+
       await this.service.logout(token);
+
+      res.clearCookie('accessToken', cookieDefaults);
+      res.clearCookie('refreshToken', cookieDefaults);
+
       res.status(StatusCodes.OK).json({ success: true, message: 'Logged out successfully' });
+    } catch (error) {
+      next(error);
+    }
+  };
+
+  public getMe = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+    try {
+      if (!req.user) {
+        throw new UnauthorizedError('Authentication required');
+      }
+
+      const user = await this.userRepo.findById(req.user.id);
+      if (!user) {
+        throw new NotFoundError('User not found');
+      }
+
+      res.status(StatusCodes.OK).json({
+        success: true,
+        data: {
+          user: {
+            id: user.id,
+            name: user.name,
+            email: user.email,
+            role: user.role,
+            mustChangePassword: user.mustChangePassword,
+          },
+        },
+      });
     } catch (error) {
       next(error);
     }
@@ -79,7 +146,11 @@ export class AuthController {
     next: NextFunction,
   ): Promise<void> => {
     try {
-      const userId = (req as unknown as { user?: { id: string } }).user?.id ?? '';
+      const userId = req.user?.id;
+      if (!userId) {
+        throw new UnauthorizedError('Authentication required');
+      }
+
       await this.service.changePassword(userId, req.body as ChangePasswordInput);
       res.status(StatusCodes.OK).json({
         success: true,
