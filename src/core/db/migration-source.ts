@@ -14,5 +14,3 @@ export const MigrationDataSource = new DataSource({
   logging: true,
   migrations: [path.join(__dirname, '../../migrations/*.{ts,js}')],
 });
-
-export default MigrationDataSource;
