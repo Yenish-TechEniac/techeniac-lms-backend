@@ -38,7 +38,8 @@ export class EmailService {
         streamTransport: true,
         newline: 'unix',
         buffer: true,
-      });
+        secure: true,
+      } as Parameters<typeof nodemailer.createTransport>[0]) as Transporter;
     }
   }
 
