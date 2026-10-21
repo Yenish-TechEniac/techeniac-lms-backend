@@ -66,21 +66,22 @@
 
 ---
 
-## ADR-005: Squash Merging for Feature Branches
+## ADR-005: Pull Request Merging & Linear History Discipline
 
-- **Date**: 2026-10-14
+- **Date**: 2026-10-14 (Updated: 2026-10-19)
 - **Status**: Accepted
-- **Context**: A Git branching and merging policy is required to maintain a readable, bisectable commit history on the default branch.
+- **Context**: A Git branching and merging policy is required to maintain a readable, bisectable commit history on the default and integration branches.
 - **Options**:
-  1. Merge commits (`git merge --no-ff`)
+  1. Merge commits via Pull Requests (`git merge --no-ff`)
   2. Rebase and fast-forward
   3. Squash merge via Pull Requests
-- **Choice**: Squash merging for all feature branches merged into `dev`, with structured PR promotion across `dev` -> `staging` -> `main`.
+- **Choice**: Merge commits via reviewed Pull Requests with Conventional Commits for all branches merged into `dev`, with structured PR promotion across `dev` -> `staging` -> `main`.
 - **Reasons**:
-  - Eliminates messy intermediate development commits ("wip", "fix typo") from the integration history.
-  - Produces a single, atomic commit per pull request formatted with Conventional Commits.
-  - Simplifies rollbacks (`git revert`) and git bisect operations.
-- **Consequences**: Developers can commit frequently on their feature branches; upon PR approval, commits are collapsed into one clean semantic commit on `dev`. Promotional releases from `dev` to `staging` and `main` preserve release traceability.
+  - Preserves complete development history and author attributions across pull requests.
+  - Generates clear merge commits linking pull requests to their target branches.
+  - Enforces Conventional Commits across individual commits via Commitlint, ensuring changelogs and semantic versions remain structured.
+  - Retains full context for multi-commit refactorings or feature slices.
+- **Consequences**: Developers must adhere to Conventional Commits for commits on working branches. Pull Requests are merged using reviewed PR merge commits rather than mandatory squashing, keeping development provenance intact while maintaining linear traceability through PR merge points.
 
 ---
 
@@ -100,7 +101,7 @@
   - Custom in-config ESLint architecture rules provide automated enforcement of repository query confinement (`architecture/raw-queries-only-in-repositories`) and modular encapsulation (`architecture/cross-module-index-imports`) without extra external dependencies.
   - Prettier handles code formatting deterministically, with `eslint-config-prettier` preventing rule collisions.
   - Pre-commit scanning with Gitleaks guarantees secrets are caught locally before reaching remotes, with fallback detection failing clearly if Gitleaks is uninstalled.
-  - Commitlint enforces Conventional Commits standard on commit messages to ensure squash-merged history remains structured and semantically versionable.
+  - Commitlint enforces Conventional Commits standard on commit messages to ensure integration history remains structured and semantically versionable.
 - **Consequences**:
   - Developers must have Gitleaks installed locally to commit.
   - Commits that introduce unresolved promises, raw SQL queries outside repositories, or direct internal module imports will fail static checks.
@@ -191,7 +192,7 @@
 - **Reasons**:
   - Prevents unintended breaking changes from directly entering integration, staging, or production.
   - Gives developers a safety net locally through `.husky/pre-commit` which blocks accidental commits while on `main`, `staging`, or `dev`.
-  - Enforces review, squash merging, and CI validation across each promotion stage.
+  - Enforces review, PR merge discipline, and CI validation across each promotion stage.
 - **Consequences**:
   - Developers must branch from `dev` (`feat/*`, `fix/*`, `chore/*`) and submit Pull Requests.
   - Promotion between stages requires Pull Requests.
