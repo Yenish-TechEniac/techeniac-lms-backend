@@ -7,23 +7,23 @@ export class CreateUserRoleHistoryTable1792420000000 implements MigrationInterfa
     await queryRunner.query(`
       CREATE TABLE IF NOT EXISTS "user_role_history" (
         "id" uuid DEFAULT gen_random_uuid() NOT NULL,
-        "created_at" TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP,
-        "updated_at" TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        "created_at" TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT now(),
+        "updated_at" TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT now(),
         "deleted_at" TIMESTAMP WITH TIME ZONE,
         "user_id" uuid NOT NULL,
         "role" character varying(20) NOT NULL,
-        "from_at" TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        "from_at" TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT now(),
         "to_at" TIMESTAMP WITH TIME ZONE,
         "changed_by" uuid,
         "reason" character varying(500) NOT NULL,
         CONSTRAINT "PK_user_role_history_id" PRIMARY KEY ("id"),
-        CONSTRAINT "FK_user_role_history_user_id" FOREIGN KEY ("user_id") REFERENCES "users"("id") ON DELETE CASCADE
+        CONSTRAINT "FK_8b8b6fbb08f7b9910d70d199299" FOREIGN KEY ("user_id") REFERENCES "users"("id") ON DELETE CASCADE ON UPDATE NO ACTION
       );
     `);
 
     await queryRunner.query(`
       CREATE UNIQUE INDEX IF NOT EXISTS "idx_user_role_history_active" ON "user_role_history" ("user_id")
-      WHERE to_at IS NULL AND deleted_at IS NULL;
+      WHERE ((to_at IS NULL) AND (deleted_at IS NULL));
     `);
   }
 
