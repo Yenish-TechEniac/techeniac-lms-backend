@@ -2,14 +2,8 @@ import type { NextFunction, Request, Response } from 'express';
 
 import { userRepository } from '../../modules/users';
 import { ForbiddenError, UnauthorizedError } from '../errors';
+import type { AuthenticatedUser } from './auth.types';
 import { verifyAccessToken } from './jwt';
-
-export interface AuthenticatedUser {
-  id: string;
-  email: string;
-  role: string;
-  tokenVersion: number;
-}
 
 /* eslint-disable @typescript-eslint/no-namespace */
 declare global {
