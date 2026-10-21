@@ -10,10 +10,20 @@ export function validate(schema: AnyZodObject) {
         body: req.body as unknown,
         query: req.query as unknown,
         params: req.params as unknown,
-      })) as { body?: unknown };
+      })) as { body?: unknown; query?: unknown; params?: unknown };
 
       if (parsed.body !== undefined) {
         req.body = parsed.body;
+      }
+      if (parsed.query !== undefined && typeof parsed.query === 'object' && parsed.query !== null) {
+        Object.assign(req.query, parsed.query);
+      }
+      if (
+        parsed.params !== undefined &&
+        typeof parsed.params === 'object' &&
+        parsed.params !== null
+      ) {
+        Object.assign(req.params, parsed.params);
       }
       next();
     } catch (error) {
