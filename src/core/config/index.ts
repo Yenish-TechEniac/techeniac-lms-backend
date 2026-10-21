@@ -33,13 +33,11 @@ const envSchema = z.object({
     .optional()
     .transform((val) => (val && val.trim().length > 0 ? val.trim() : 'local-dev')),
   JWT_ACCESS_SECRET: z
-    .string()
-    .min(32)
-    .default('default_access_token_secret_minimum_32_characters_long_for_dev'),
+    .string({ required_error: 'JWT_ACCESS_SECRET is required' })
+    .min(32, 'JWT_ACCESS_SECRET must be at least 32 characters long'),
   JWT_REFRESH_SECRET: z
-    .string()
-    .min(32)
-    .default('default_refresh_token_secret_minimum_32_characters_long_for_dev'),
+    .string({ required_error: 'JWT_REFRESH_SECRET is required' })
+    .min(32, 'JWT_REFRESH_SECRET must be at least 32 characters long'),
   JWT_ALGORITHM: z.literal('HS256').default('HS256'),
   ACCESS_TOKEN_TTL: z.string().default('15m'),
   REFRESH_TOKEN_TTL: z.string().default('7d'),

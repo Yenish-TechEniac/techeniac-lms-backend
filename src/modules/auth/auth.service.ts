@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto';
 
 import {
   hashPassword,
+  RefreshTokenPayload,
   signAccessToken,
   signPasswordResetToken,
   signRefreshToken,
@@ -9,6 +10,7 @@ import {
   verifyPasswordResetToken,
   verifyRefreshToken,
 } from '../../core/auth';
+import { AppDataSource } from '../../core/db';
 import { emailService } from '../../core/email';
 import { ForbiddenError, NotFoundError, UnauthorizedError } from '../../core/errors';
 import { UserRepository, userRepository, UserRole } from '../users';
@@ -120,80 +122,112 @@ export class AuthService implements IAuthService {
       throw new UnauthorizedError('Refresh token is required');
     }
 
-    let payload;
+    let payload: RefreshTokenPayload;
     try {
       payload = verifyRefreshToken(rawRefreshToken);
     } catch {
       throw new UnauthorizedError('Invalid or expired refresh token');
     }
 
-    const tokenRow = await this.tokenRepo.findByJti(payload.jti);
-    if (!tokenRow || tokenRow.tokenType !== TokenType.REFRESH) {
-      throw new UnauthorizedError('Invalid refresh token');
-    }
-
-    // Reuse detection: if the token was already revoked, terminate the entire family
-    if (tokenRow.revokedAt !== null) {
-      if (tokenRow.familyId) {
-        await this.tokenRepo.revokeFamily(tokenRow.familyId, TokenRevokeReason.REUSE_DETECTED);
+    return AppDataSource.transaction(async (manager) => {
+      // Row-level locking to prevent race condition when concurrent /refresh requests arrive
+      const tokenRow = await this.tokenRepo.findByJti(payload.jti, { lock: true, manager });
+      if (!tokenRow || tokenRow.tokenType !== TokenType.REFRESH) {
+        throw new UnauthorizedError('Invalid refresh token');
       }
-      throw new UnauthorizedError(
-        'Token reuse detected. All sessions in this family have been terminated.',
+
+      // Reuse detection: if the token was already revoked, terminate the entire family
+      if (tokenRow.revokedAt !== null) {
+        if (tokenRow.familyId) {
+          await this.tokenRepo.revokeFamily(
+            tokenRow.familyId,
+            TokenRevokeReason.REUSE_DETECTED,
+            manager,
+          );
+        }
+        throw new UnauthorizedError(
+          'Token reuse detected. All sessions in this family have been terminated.',
+        );
+      }
+
+      if (tokenRow.expiresAt < new Date()) {
+        throw new UnauthorizedError('Refresh token has expired');
+      }
+
+      const user = await this.userRepo.findById(tokenRow.userId, manager);
+      if (!user || !user.isActive || user.tokenVersion !== tokenRow.tokenVersion) {
+        await this.tokenRepo.revokeByJti(
+          tokenRow.jti,
+          TokenRevokeReason.ROLE_CHANGED,
+          undefined,
+          manager,
+        );
+        throw new UnauthorizedError('Session is no longer valid');
+      }
+
+      // Token rotation: issue new token with same family_id first, then link replaced_by_id
+      const newJti = randomUUID();
+      const newExpiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
+
+      const newToken = await this.tokenRepo.createToken(
+        {
+          userId: user.id,
+          tokenType: TokenType.REFRESH,
+          jti: newJti,
+          familyId: tokenRow.familyId,
+          tokenVersion: user.tokenVersion,
+          expiresAt: newExpiresAt,
+        },
+        manager,
       );
-    }
 
-    if (tokenRow.expiresAt < new Date()) {
-      throw new UnauthorizedError('Refresh token has expired');
-    }
+      const revoked = await this.tokenRepo.revokeByJti(
+        tokenRow.jti,
+        TokenRevokeReason.ROTATED,
+        newToken.id,
+        manager,
+      );
+      if (!revoked) {
+        if (tokenRow.familyId) {
+          await this.tokenRepo.revokeFamily(
+            tokenRow.familyId,
+            TokenRevokeReason.REUSE_DETECTED,
+            manager,
+          );
+        }
+        throw new UnauthorizedError(
+          'Token reuse detected. All sessions in this family have been terminated.',
+        );
+      }
 
-    const user = await this.userRepo.findById(tokenRow.userId);
-    if (!user || !user.isActive || user.tokenVersion !== tokenRow.tokenVersion) {
-      await this.tokenRepo.revokeByJti(tokenRow.jti, TokenRevokeReason.ROLE_CHANGED);
-      throw new UnauthorizedError('Session is no longer valid');
-    }
-
-    // Token rotation: issue new token with same family_id first, then link replaced_by_id
-    const newJti = randomUUID();
-    const newExpiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
-
-    const newToken = await this.tokenRepo.createToken({
-      userId: user.id,
-      tokenType: TokenType.REFRESH,
-      jti: newJti,
-      familyId: tokenRow.familyId,
-      tokenVersion: user.tokenVersion,
-      expiresAt: newExpiresAt,
-    });
-
-    await this.tokenRepo.revokeByJti(tokenRow.jti, TokenRevokeReason.ROTATED, newToken.id);
-
-    const accessToken = signAccessToken({
-      sub: user.id,
-      email: user.email,
-      role: user.role,
-      tokenVersion: user.tokenVersion,
-    });
-
-    const refreshToken = signRefreshToken({
-      sub: user.id,
-      jti: newJti,
-      familyId: tokenRow.familyId ?? newJti,
-      tokenVersion: user.tokenVersion,
-    });
-
-    return {
-      user: {
-        id: user.id,
-        name: user.name,
+      const accessToken = signAccessToken({
+        sub: user.id,
         email: user.email,
         role: user.role,
-        mustChangePassword: user.mustChangePassword,
-      },
-      tokens: {
-        accessToken,
-        refreshToken,
-      },
-    };
+        tokenVersion: user.tokenVersion,
+      });
+
+      const refreshToken = signRefreshToken({
+        sub: user.id,
+        jti: newJti,
+        familyId: tokenRow.familyId ?? newJti,
+        tokenVersion: user.tokenVersion,
+      });
+
+      return {
+        user: {
+          id: user.id,
+          name: user.name,
+          email: user.email,
+          role: user.role,
+          mustChangePassword: user.mustChangePassword,
+        },
+        tokens: {
+          accessToken,
+          refreshToken,
+        },
+      };
+    });
   }
 
   public async logout(rawRefreshToken?: string): Promise<void> {
@@ -215,8 +249,8 @@ export class AuthService implements IAuthService {
       return;
     }
 
-    // Revoke previous unused reset tokens
-    await this.tokenRepo.revokeAllForUser(user.id, TokenRevokeReason.PASSWORD_RESET);
+    // Revoke previous unused reset tokens only (preserve active refresh sessions)
+    await this.tokenRepo.revokeResetTokensForUser(user.id);
 
     const jti = randomUUID();
     const expiresAt = new Date(Date.now() + 30 * 60 * 1000);
@@ -262,12 +296,15 @@ export class AuthService implements IAuthService {
     }
 
     const passwordHash = await hashPassword(input.newPassword);
-    await this.userRepo.updatePassword(user.id, passwordHash);
-    await this.tokenRepo.markPasswordResetUsed(tokenRow.jti);
 
-    // Invalidate all existing refresh tokens across all sessions
-    await this.userRepo.incrementTokenVersion(user.id);
-    await this.tokenRepo.revokeAllForUser(user.id, TokenRevokeReason.PASSWORD_RESET);
+    await AppDataSource.transaction(async (manager) => {
+      await this.userRepo.updatePassword(user.id, passwordHash, manager);
+      await this.tokenRepo.markPasswordResetUsed(tokenRow.jti, manager);
+
+      // Invalidate all existing refresh tokens across all sessions atomically
+      await this.userRepo.incrementTokenVersion(user.id, manager);
+      await this.tokenRepo.revokeAllForUser(user.id, TokenRevokeReason.PASSWORD_RESET, manager);
+    });
   }
 
   public async changePassword(userId: string, input: ChangePasswordInput): Promise<void> {
@@ -282,10 +319,12 @@ export class AuthService implements IAuthService {
     }
 
     const passwordHash = await hashPassword(input.newPassword);
-    await this.userRepo.updatePassword(user.id, passwordHash);
 
-    // Revoke previous refresh sessions on password change
-    await this.tokenRepo.revokeAllForUser(user.id, TokenRevokeReason.PASSWORD_CHANGED);
+    await AppDataSource.transaction(async (manager) => {
+      await this.userRepo.updatePassword(user.id, passwordHash, manager);
+      await this.userRepo.incrementTokenVersion(user.id, manager);
+      await this.tokenRepo.revokeAllForUser(user.id, TokenRevokeReason.PASSWORD_CHANGED, manager);
+    });
   }
 }
 

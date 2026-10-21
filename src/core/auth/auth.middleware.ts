@@ -5,6 +5,7 @@ import { ForbiddenError, UnauthorizedError } from '../errors';
 import type { AuthenticatedUser } from './auth.types';
 import { verifyAccessToken } from './jwt';
 
+// Augment Express.Request interface to type user context attached by auth middleware
 /* eslint-disable @typescript-eslint/no-namespace */
 declare global {
   namespace Express {
@@ -15,13 +16,15 @@ declare global {
 }
 /* eslint-enable @typescript-eslint/no-namespace */
 
+const BEARER_PREFIX = 'Bearer ';
+
 export async function requireAuth(req: Request, _res: Response, next: NextFunction): Promise<void> {
   const cookies = (req.cookies ?? {}) as Record<string, string | undefined>;
   const authHeader = req.headers.authorization;
 
   let token = cookies.accessToken;
-  if (!token && authHeader && authHeader.startsWith('Bearer ')) {
-    token = authHeader.substring(7);
+  if (!token && authHeader && authHeader.startsWith(BEARER_PREFIX)) {
+    token = authHeader.substring(BEARER_PREFIX.length);
   }
 
   if (!token) {
@@ -60,7 +63,9 @@ export async function requireAuth(req: Request, _res: Response, next: NextFuncti
   }
 }
 
-export function requireRole(...allowedRoles: string[]) {
+export function requireRole(
+  ...allowedRoles: string[]
+): (req: Request, _res: Response, next: NextFunction) => void {
   return (req: Request, _res: Response, next: NextFunction): void => {
     if (!req.user) {
       next(new UnauthorizedError('Authentication required'));

@@ -1,4 +1,4 @@
-import { DataSource, Repository } from 'typeorm';
+import { DataSource, EntityManager, Repository } from 'typeorm';
 
 import { AppDataSource } from '../../core/db';
 import { User, UserRole } from './entities/user.entity';
@@ -9,6 +9,8 @@ export interface CreateUserData {
   passwordHash: string;
   role?: UserRole;
   mustChangePassword?: boolean;
+  createdBy?: string | null;
+  updatedBy?: string | null;
 }
 
 export class UserRepository {
@@ -18,20 +20,25 @@ export class UserRepository {
     this.repo = dataSource.getRepository(User);
   }
 
-  public async findByEmail(email: string): Promise<User | null> {
-    return this.repo.findOne({
+  private getRepo(manager?: EntityManager): Repository<User> {
+    return manager ? manager.getRepository(User) : this.repo;
+  }
+
+  public async findByEmail(email: string, manager?: EntityManager): Promise<User | null> {
+    return this.getRepo(manager).findOne({
       where: { email: email.trim().toLowerCase() },
     });
   }
 
-  public async findById(id: string): Promise<User | null> {
-    return this.repo.findOne({
+  public async findById(id: string, manager?: EntityManager): Promise<User | null> {
+    return this.getRepo(manager).findOne({
       where: { id },
     });
   }
 
-  public async create(data: CreateUserData): Promise<User> {
-    const user = this.repo.create({
+  public async create(data: CreateUserData, manager?: EntityManager): Promise<User> {
+    const repo = this.getRepo(manager);
+    const user = repo.create({
       name: data.name.trim(),
       email: data.email.trim().toLowerCase(),
       passwordHash: data.passwordHash,
@@ -39,25 +46,31 @@ export class UserRepository {
       mustChangePassword: data.mustChangePassword ?? false,
       tokenVersion: 0,
       isActive: true,
+      createdBy: data.createdBy ?? null,
+      updatedBy: data.updatedBy ?? null,
     });
-    return this.repo.save(user);
+    return repo.save(user);
   }
 
-  public async updateLastLogin(id: string): Promise<void> {
-    await this.repo.update(id, {
+  public async updateLastLogin(id: string, manager?: EntityManager): Promise<void> {
+    await this.getRepo(manager).update(id, {
       lastLoginAt: new Date(),
     });
   }
 
-  public async updatePassword(id: string, passwordHash: string): Promise<void> {
-    await this.repo.update(id, {
+  public async updatePassword(
+    id: string,
+    passwordHash: string,
+    manager?: EntityManager,
+  ): Promise<void> {
+    await this.getRepo(manager).update(id, {
       passwordHash,
       mustChangePassword: false,
     });
   }
 
-  public async incrementTokenVersion(id: string): Promise<void> {
-    await this.repo.increment({ id }, 'tokenVersion', 1);
+  public async incrementTokenVersion(id: string, manager?: EntityManager): Promise<void> {
+    await this.getRepo(manager).increment({ id }, 'tokenVersion', 1);
   }
 }
 

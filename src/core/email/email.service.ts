@@ -10,7 +10,7 @@ export interface SendPasswordResetOptions {
 }
 
 export class EmailService {
-  private transporter: Transporter;
+  private readonly transporter: Transporter;
   private readonly isConfigured: boolean;
 
   constructor() {
@@ -105,16 +105,15 @@ The Techeniac Team`;
       if (!this.isConfigured) {
         logger.info(
           {
-            to,
             resetUrl,
           },
           'SMTP not configured in environment. Password reset link generated for local development',
         );
       } else {
-        logger.info({ to }, 'Password reset email dispatched successfully via SMTP');
+        logger.info('Password reset email dispatched successfully via SMTP');
       }
     } catch (error) {
-      logger.error({ err: error, to }, 'Failed to dispatch password reset email');
+      logger.error({ err: error }, 'Failed to dispatch password reset email');
       // Do not rethrow in a way that leaks email delivery details to caller
     }
   }
