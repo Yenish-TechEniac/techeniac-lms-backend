@@ -36,7 +36,7 @@ export class TokenRepository {
       expiresAt: data.expiresAt,
       issuedAt: new Date(),
     });
-    return repo.save(token);
+    return await repo.save(token);
   }
 
   public async findByJti(
@@ -44,7 +44,7 @@ export class TokenRepository {
     options?: { lock?: boolean; manager?: EntityManager },
   ): Promise<Token | null> {
     const repo = this.getRepo(options?.manager);
-    return repo.findOne({
+    return await repo.findOne({
       where: { jti },
       ...(options?.lock ? { lock: { mode: 'pessimistic_write' } } : {}),
     });

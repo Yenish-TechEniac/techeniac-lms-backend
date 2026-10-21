@@ -8,10 +8,10 @@ export function parseDurationMs(duration: string | number, defaultMs: number): n
     return defaultMs;
   }
   const match = /^(\d+)\s*(ms|s|m|h|d|w)?$/i.exec(duration.trim());
-  if (!match || !match[1]) {
+  if (!match?.[1]) {
     return defaultMs;
   }
-  const val = parseInt(match[1], 10);
+  const val = Number.parseInt(match[1], 10);
   const unit = (match[2] || 'ms').toLowerCase();
   switch (unit) {
     case 'ms':

@@ -146,7 +146,7 @@ export class AuthService implements IAuthService {
       throw new UnauthorizedError('Invalid or expired refresh token');
     }
 
-    return AppDataSource.transaction(async (manager) => {
+    return await AppDataSource.transaction(async (manager) => {
       // Row-level locking to prevent race condition when concurrent /refresh requests arrive
       const tokenRow = await this.tokenRepo.findByJti(payload.jti, { lock: true, manager });
       if (!tokenRow || tokenRow.tokenType !== TokenType.REFRESH) {
@@ -172,7 +172,7 @@ export class AuthService implements IAuthService {
       }
 
       const user = await this.userRepo.findById(tokenRow.userId, manager);
-      if (!user || !user.isActive || user.tokenVersion !== tokenRow.tokenVersion) {
+      if (!user?.isActive || user.tokenVersion !== tokenRow.tokenVersion) {
         await this.tokenRepo.revokeByJti(
           tokenRow.jti,
           TokenRevokeReason.ROLE_CHANGED,
@@ -262,7 +262,7 @@ export class AuthService implements IAuthService {
 
   public async forgotPassword(input: ForgotPasswordInput): Promise<void> {
     const user = await this.userRepo.findByEmail(input.email);
-    if (!user || !user.isActive) {
+    if (!user?.isActive) {
       return;
     }
 
@@ -311,7 +311,7 @@ export class AuthService implements IAuthService {
     }
 
     const user = await this.userRepo.findById(tokenRow.userId);
-    if (!user || !user.isActive) {
+    if (!user?.isActive) {
       throw new UnauthorizedError('Invalid or expired password reset token');
     }
 

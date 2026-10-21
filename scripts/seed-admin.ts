@@ -54,8 +54,18 @@ async function seedAdmin(): Promise<void> {
   await closeDatabase();
 }
 
-seedAdmin().catch(async (err) => {
-  logger.error({ err }, 'Failed to seed Super Admin.');
-  await closeDatabase().catch(() => {});
-  process.exit(1);
-});
+async function run(): Promise<void> {
+  try {
+    await seedAdmin();
+  } catch (err) {
+    logger.error({ err }, 'Failed to seed Super Admin.');
+    try {
+      await closeDatabase();
+    } catch {
+      // Ignore database close errors during fatal process failure
+    }
+    process.exit(1);
+  }
+}
+
+void run();

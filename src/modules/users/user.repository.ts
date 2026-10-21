@@ -25,13 +25,13 @@ export class UserRepository {
   }
 
   public async findByEmail(email: string, manager?: EntityManager): Promise<User | null> {
-    return this.getRepo(manager).findOne({
+    return await this.getRepo(manager).findOne({
       where: { email: email.trim().toLowerCase() },
     });
   }
 
   public async findById(id: string, manager?: EntityManager): Promise<User | null> {
-    return this.getRepo(manager).findOne({
+    return await this.getRepo(manager).findOne({
       where: { id },
     });
   }
@@ -51,7 +51,7 @@ export class UserRepository {
       createdBy: data.createdBy ?? null,
       updatedBy: data.updatedBy ?? null,
     });
-    return repo.save(user);
+    return await repo.save(user);
   }
 
   public async updateLastLogin(id: string, manager?: EntityManager): Promise<void> {

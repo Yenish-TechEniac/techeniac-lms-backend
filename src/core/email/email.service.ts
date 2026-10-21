@@ -22,6 +22,7 @@ export class EmailService {
         host: env.SMTP_HOST,
         port: env.SMTP_PORT,
         secure,
+        requireTLS: env.SMTP_PORT === 587,
         auth:
           env.SMTP_USER && env.SMTP_PASS
             ? {

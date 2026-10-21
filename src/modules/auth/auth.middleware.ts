@@ -22,7 +22,7 @@ export async function requireAuth(req: Request, _res: Response, next: NextFuncti
   const authHeader = req.headers.authorization;
 
   let token = cookies.accessToken;
-  if (!token && authHeader && authHeader.startsWith(BEARER_PREFIX)) {
+  if (!token && authHeader?.startsWith(BEARER_PREFIX)) {
     token = authHeader.substring(BEARER_PREFIX.length);
   }
 
@@ -36,7 +36,7 @@ export async function requireAuth(req: Request, _res: Response, next: NextFuncti
 
     // FR-1.6: Verify tokenVersion and active state against live user row on every request
     const user = await userRepository.findById(payload.sub);
-    if (!user || !user.isActive) {
+    if (!user?.isActive) {
       next(new UnauthorizedError('Account is inactive or disabled'));
       return;
     }
