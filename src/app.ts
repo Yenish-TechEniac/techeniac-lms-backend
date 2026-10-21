@@ -1,5 +1,6 @@
 import cookieParser from 'cookie-parser';
 import express, { Express } from 'express';
+import helmet from 'helmet';
 import { StatusCodes } from 'http-status-codes';
 
 import { env } from './core/config';
@@ -13,6 +14,7 @@ export function createApp(): Express {
   app.disable('x-powered-by');
   app.set('trust proxy', env.TRUST_PROXY_HOPS);
 
+  app.use(helmet());
   app.use(corsMiddleware);
   app.use(cookieParser());
   app.use(express.json());

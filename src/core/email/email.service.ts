@@ -104,16 +104,16 @@ The Techeniac Team`;
 
       if (!this.isConfigured) {
         logger.info(
-          {
-            resetUrl,
-          },
-          'SMTP not configured in environment. Password reset link generated for local development',
+          'SMTP not configured in environment. Password reset email skipped in development.',
         );
       } else {
         logger.info('Password reset email dispatched successfully via SMTP');
       }
     } catch (error) {
-      logger.error({ err: error }, 'Failed to dispatch password reset email');
+      logger.error(
+        { err: error, event: 'EMAIL_DISPATCH_FAILURE', service: 'smtp' },
+        'Failed to dispatch password reset email',
+      );
       // Do not rethrow in a way that leaks email delivery details to caller
     }
   }

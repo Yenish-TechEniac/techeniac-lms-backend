@@ -22,7 +22,10 @@ export const emailValidation = z
 export const loginSchema = z.object({
   body: z.object({
     email: emailValidation,
-    password: z.string({ required_error: 'Password is required' }).min(1, 'Password is required'),
+    password: z
+      .string({ required_error: 'Password is required' })
+      .min(1, 'Password is required')
+      .max(128, 'Password is too long'),
   }),
 });
 

@@ -8,8 +8,15 @@ export async function bootstrap(): Promise<void> {
   try {
     await initializeDatabase();
 
-    // Register BullMQ recurring scheduled jobs and workers
-    await registerScheduledJobs();
+    // Register BullMQ recurring scheduled jobs and workers without blocking HTTP startup if Redis is unavailable
+    try {
+      await registerScheduledJobs();
+    } catch (jobErr) {
+      logger.warn(
+        { err: jobErr },
+        'Failed to register BullMQ scheduled jobs. Running HTTP server with background jobs disabled.',
+      );
+    }
 
     const server = app.listen(env.PORT, (error?: Error) => {
       if (error) {

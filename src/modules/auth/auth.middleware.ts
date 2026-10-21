@@ -1,9 +1,8 @@
 import type { NextFunction, Request, Response } from 'express';
 
-import { userRepository } from '../../modules/users';
-import { ForbiddenError, UnauthorizedError } from '../errors';
-import type { AuthenticatedUser } from './auth.types';
-import { verifyAccessToken } from './jwt';
+import { type AuthenticatedUser, verifyAccessToken } from '../../core/auth';
+import { ForbiddenError, UnauthorizedError } from '../../core/errors';
+import { userRepository } from '../users';
 
 // Augment Express.Request interface to type user context attached by auth middleware
 /* eslint-disable @typescript-eslint/no-namespace */

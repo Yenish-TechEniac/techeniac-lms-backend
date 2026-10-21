@@ -43,7 +43,9 @@ export class UserRepository {
       email: data.email.trim().toLowerCase(),
       passwordHash: data.passwordHash,
       role: data.role ?? UserRole.MENTEE,
-      mustChangePassword: data.mustChangePassword ?? false,
+      ...(data.mustChangePassword !== undefined
+        ? { mustChangePassword: data.mustChangePassword }
+        : {}),
       tokenVersion: 0,
       isActive: true,
       createdBy: data.createdBy ?? null,

@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto';
 
 import {
   hashPassword,
+  PasswordResetTokenPayload,
   REFRESH_TOKEN_TTL_MS,
   RefreshTokenPayload,
   signAccessToken,
@@ -291,15 +292,14 @@ export class AuthService implements IAuthService {
   }
 
   public async resetPassword(input: ResetPasswordInput): Promise<void> {
-    let jti = input.token;
+    let payload: PasswordResetTokenPayload;
     try {
-      const payload = verifyPasswordResetToken(input.token);
-      jti = payload.jti;
+      payload = verifyPasswordResetToken(input.token);
     } catch {
-      // Token is looked up as jti
+      throw new UnauthorizedError('Invalid or expired password reset token');
     }
 
-    const tokenRow = await this.tokenRepo.findByJti(jti);
+    const tokenRow = await this.tokenRepo.findByJti(payload.jti);
     if (
       !tokenRow ||
       tokenRow.tokenType !== TokenType.PASSWORD_RESET ||
@@ -311,8 +311,8 @@ export class AuthService implements IAuthService {
     }
 
     const user = await this.userRepo.findById(tokenRow.userId);
-    if (!user) {
-      throw new NotFoundError('User not found');
+    if (!user || !user.isActive) {
+      throw new UnauthorizedError('Invalid or expired password reset token');
     }
 
     const passwordHash = await hashPassword(input.newPassword);

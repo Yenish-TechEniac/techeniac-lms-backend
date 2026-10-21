@@ -90,6 +90,8 @@ jobs:
           DATABASE_URL: postgres://postgres:password@localhost:5432/techeniac_lms?sslmode=disable
           DIRECT_URL: postgres://postgres:password@localhost:5432/techeniac_lms?sslmode=disable
           NODE_ENV: test
+          JWT_ACCESS_SECRET: ci_test_jwt_access_secret_minimum_32_characters_for_migration_check
+          JWT_REFRESH_SECRET: ci_test_jwt_refresh_secret_minimum_32_characters_for_migration_check
         run: |
           npm run migration:run
           # down() must work: revert everything, then re-apply
