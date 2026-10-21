@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto';
 
+import { logAudit } from '../../core/audit';
 import {
   hashPassword,
   signAccessToken,
@@ -11,6 +12,7 @@ import {
 } from '../../core/auth';
 import { emailService } from '../../core/email';
 import { ForbiddenError, NotFoundError, UnauthorizedError } from '../../core/errors';
+import { AuditType } from '../audit';
 import { UserRepository, userRepository, UserRole } from '../users';
 import { TokenRevokeReason, TokenType } from './entities/token.entity';
 import type {
@@ -57,11 +59,26 @@ export class AuthService implements IAuthService {
   public async login(input: LoginInput): Promise<AuthResult> {
     const user = await this.userRepo.findByEmail(input.email);
     if (!user) {
+      await logAudit({
+        actorId: null,
+        type: AuditType.AUTH,
+        entity: 'User',
+        action: 'FAILED_LOGIN',
+        oldValue: { email: input.email },
+      });
       throw new UnauthorizedError('Invalid email or password');
     }
 
     const isValidPassword = await verifyPassword(user.passwordHash, input.password);
     if (!isValidPassword) {
+      await logAudit({
+        actorId: user.id,
+        type: AuditType.AUTH,
+        entity: 'User',
+        entityId: user.id,
+        action: 'FAILED_LOGIN',
+        oldValue: { email: input.email },
+      });
       throw new UnauthorizedError('Invalid email or password');
     }
 
@@ -98,6 +115,15 @@ export class AuthService implements IAuthService {
       jti,
       familyId,
       tokenVersion: user.tokenVersion,
+    });
+
+    await logAudit({
+      actorId: user.id,
+      type: AuditType.AUTH,
+      entity: 'User',
+      entityId: user.id,
+      action: 'LOGIN',
+      newValue: { email: user.email, role: user.role },
     });
 
     return {

@@ -46,7 +46,7 @@ export class AuditRepository {
     }
 
     if (params.actorId) {
-      qb.andWhere('audit.actor_id = :actorId', { actorId: params.actorId });
+      qb.andWhere('audit.actorId = :actorId', { actorId: params.actorId });
     }
 
     if (params.entity) {
@@ -58,16 +58,19 @@ export class AuditRepository {
     }
 
     if (params.startDate) {
-      qb.andWhere('audit.created_at >= :startDate', { startDate: new Date(params.startDate) });
+      qb.andWhere('audit.createdAt >= :startDate', { startDate: new Date(params.startDate) });
     }
 
     if (params.endDate) {
-      qb.andWhere('audit.created_at <= :endDate', { endDate: new Date(params.endDate) });
+      qb.andWhere('audit.createdAt <= :endDate', { endDate: new Date(params.endDate) });
     }
 
-    qb.orderBy('audit.created_at', 'DESC')
-      .skip((params.page - 1) * params.limit)
-      .take(params.limit);
+    const page = Math.max(1, Number(params.page) || 1);
+    const limit = Math.max(1, Math.min(100, Number(params.limit) || 20));
+
+    qb.orderBy('audit.createdAt', 'DESC')
+      .skip((page - 1) * limit)
+      .take(limit);
 
     const [items, total] = await qb.getManyAndCount();
     return { items, total };
