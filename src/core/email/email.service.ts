@@ -9,6 +9,13 @@ export interface SendPasswordResetOptions {
   resetToken: string;
 }
 
+export interface SendInviteEmailOptions {
+  to: string;
+  name: string;
+  temporaryPassword: string;
+  role: string;
+}
+
 export class EmailService {
   private readonly transporter: Transporter | null;
 
@@ -109,6 +116,87 @@ The Techeniac Team`;
         'Failed to dispatch password reset email',
       );
       // Do not rethrow in a way that leaks email delivery details to caller
+    }
+  }
+
+  public async sendInviteEmail(options: SendInviteEmailOptions): Promise<void> {
+    const { to, name, temporaryPassword, role } = options;
+    const loginUrl = `${env.FRONTEND_URL}/login`;
+    const recipientName = name || 'User';
+
+    const subject = 'Welcome to Techeniac LMS – Your Account Details';
+    const text = `Hello ${recipientName},
+
+Welcome to Techeniac LMS! An account has been created for you with the role: ${role}.
+
+Your temporary credentials:
+Email: ${to}
+Temporary Password: ${temporaryPassword}
+
+Please log in at ${loginUrl} to access your dashboard. You will be required to choose a new password upon your first sign in.
+
+Best regards,
+The Techeniac Team`;
+
+    const html = `
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>Your Techeniac LMS Account</title>
+  <style>
+    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; background-color: #f8fafc; margin: 0; padding: 24px; color: #1e293b; }
+    .container { max-width: 560px; margin: 0 auto; background-color: #ffffff; border-radius: 12px; border: 1px solid #e2e8f0; padding: 32px; }
+    .logo { font-size: 20px; font-weight: 700; color: #1e293b; margin-bottom: 24px; }
+    .cred-box { background-color: #f1f5f9; border-radius: 8px; padding: 16px; margin: 20px 0; font-family: monospace; font-size: 14px; }
+    .btn { display: inline-block; background-color: #3b82f6; color: #ffffff !important; font-weight: 600; font-size: 14px; text-decoration: none; padding: 12px 24px; border-radius: 8px; margin: 20px 0; }
+    .footer { margin-top: 32px; padding-top: 16px; border-top: 1px solid #f1f5f9; font-size: 12px; color: #64748b; line-height: 1.5; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="logo">Techeniac LMS</div>
+    <h2 style="font-size: 18px; margin-top: 0; color: #0f172a;">Welcome to Techeniac LMS</h2>
+    <p>Hello ${recipientName},</p>
+    <p>An account has been created for you with the role of <strong>${role}</strong>.</p>
+    <div class="cred-box">
+      <div><strong>Email:</strong> ${to}</div>
+      <div style="margin-top: 8px;"><strong>Temporary Password:</strong> <code>${temporaryPassword}</code></div>
+    </div>
+    <p>Click the button below to log in. You will be prompted to change your temporary password immediately upon your first sign in:</p>
+    <div>
+      <a href="${loginUrl}" class="btn" target="_blank" rel="noopener noreferrer">Log In to Techeniac LMS</a>
+    </div>
+    <div class="footer">
+      Techeniac LMS • Learning Management System<br>
+      This is an automated notification with temporary credentials. Please do not reply directly.
+    </div>
+  </div>
+</body>
+</html>`;
+
+    try {
+      await this.transporter.sendMail({
+        from: env.SMTP_FROM,
+        to,
+        subject,
+        text,
+        html,
+      });
+
+      if (!this.isConfigured) {
+        logger.info(
+          {
+            to,
+            temporaryPassword,
+          },
+          'SMTP not configured in environment. User invitation generated for local development',
+        );
+      } else {
+        logger.info({ to }, 'User invitation email dispatched successfully via SMTP');
+      }
+    } catch (error) {
+      logger.error({ err: error, to }, 'Failed to dispatch user invitation email');
     }
   }
 }
