@@ -1,9 +1,9 @@
 import type { CookieOptions, Request, Response } from 'express';
 import { StatusCodes } from 'http-status-codes';
 
+import { ACCESS_TOKEN_TTL_MS, REFRESH_TOKEN_TTL_MS } from '../../core/auth';
 import { env } from '../../core/config';
-import { NotFoundError, UnauthorizedError } from '../../core/errors';
-import { UserRepository, userRepository } from '../users';
+import { UnauthorizedError } from '../../core/errors';
 import { AuthService, authService } from './auth.service';
 import type {
   ChangePasswordInput,
@@ -23,19 +23,16 @@ const cookieDefaults: CookieOptions = {
 
 const accessCookieOptions: CookieOptions = {
   ...cookieDefaults,
-  maxAge: 15 * 60 * 1000,
+  maxAge: ACCESS_TOKEN_TTL_MS,
 };
 
 const refreshCookieOptions: CookieOptions = {
   ...cookieDefaults,
-  maxAge: 7 * 24 * 60 * 60 * 1000,
+  maxAge: REFRESH_TOKEN_TTL_MS,
 };
 
 export class AuthController {
-  constructor(
-    private readonly service: AuthService = authService,
-    private readonly userRepo: UserRepository = userRepository,
-  ) {}
+  constructor(private readonly service: AuthService = authService) {}
 
   public login = async (req: Request, res: Response): Promise<void> => {
     const result = await this.service.login(req.body as LoginInput);
@@ -77,22 +74,11 @@ export class AuthController {
       throw new UnauthorizedError('Authentication required');
     }
 
-    const user = await this.userRepo.findById(req.user.id);
-    if (!user) {
-      throw new NotFoundError('User not found');
-    }
+    const user = await this.service.getCurrentUser(req.user.id);
 
     res.status(StatusCodes.OK).json({
       success: true,
-      data: {
-        user: {
-          id: user.id,
-          name: user.name,
-          email: user.email,
-          role: user.role,
-          mustChangePassword: user.mustChangePassword,
-        },
-      },
+      data: { user },
     });
   };
 

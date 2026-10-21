@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto';
 
 import {
   hashPassword,
+  REFRESH_TOKEN_TTL_MS,
   RefreshTokenPayload,
   signAccessToken,
   signPasswordResetToken,
@@ -45,6 +46,7 @@ export interface IAuthService {
   login(input: LoginInput): Promise<AuthResult>;
   refresh(refreshToken: string): Promise<AuthResult>;
   logout(refreshToken?: string): Promise<void>;
+  getCurrentUser(userId: string): Promise<AuthUserPayload>;
   forgotPassword(input: ForgotPasswordInput): Promise<void>;
   resetPassword(input: ResetPasswordInput): Promise<void>;
   changePassword(userId: string, input: ChangePasswordInput): Promise<void>;
@@ -56,14 +58,23 @@ export class AuthService implements IAuthService {
     private readonly tokenRepo: TokenRepository = tokenRepository,
   ) {}
 
+  public async getCurrentUser(userId: string): Promise<AuthUserPayload> {
+    const user = await this.userRepo.findById(userId);
+    if (!user) {
+      throw new NotFoundError('User not found');
+    }
+    return {
+      id: user.id,
+      name: user.name,
+      email: user.email,
+      role: user.role,
+      mustChangePassword: user.mustChangePassword,
+    };
+  }
+
   public async login(input: LoginInput): Promise<AuthResult> {
     const user = await this.userRepo.findByEmail(input.email);
     if (!user) {
-      throw new UnauthorizedError('Invalid email or password');
-    }
-
-    const isValidPassword = await verifyPassword(user.passwordHash, input.password);
-    if (!isValidPassword) {
       throw new UnauthorizedError('Invalid email or password');
     }
 
@@ -73,11 +84,16 @@ export class AuthService implements IAuthService {
       );
     }
 
+    const isValidPassword = await verifyPassword(user.passwordHash, input.password);
+    if (!isValidPassword) {
+      throw new UnauthorizedError('Invalid email or password');
+    }
+
     await this.userRepo.updateLastLogin(user.id);
 
     const jti = randomUUID();
     const familyId = randomUUID();
-    const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
+    const expiresAt = new Date(Date.now() + REFRESH_TOKEN_TTL_MS);
 
     await this.tokenRepo.createToken({
       userId: user.id,
@@ -167,7 +183,7 @@ export class AuthService implements IAuthService {
 
       // Token rotation: issue new token with same family_id first, then link replaced_by_id
       const newJti = randomUUID();
-      const newExpiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
+      const newExpiresAt = new Date(Date.now() + REFRESH_TOKEN_TTL_MS);
 
       const newToken = await this.tokenRepo.createToken(
         {
@@ -250,7 +266,11 @@ export class AuthService implements IAuthService {
     }
 
     // Revoke previous unused reset tokens only (preserve active refresh sessions)
-    await this.tokenRepo.revokeResetTokensForUser(user.id);
+    await this.tokenRepo.revokeAllForUser(
+      user.id,
+      TokenRevokeReason.PASSWORD_RESET,
+      TokenType.PASSWORD_RESET,
+    );
 
     const jti = randomUUID();
     const expiresAt = new Date(Date.now() + 30 * 60 * 1000);
@@ -303,7 +323,12 @@ export class AuthService implements IAuthService {
 
       // Invalidate all existing refresh tokens across all sessions atomically
       await this.userRepo.incrementTokenVersion(user.id, manager);
-      await this.tokenRepo.revokeAllForUser(user.id, TokenRevokeReason.PASSWORD_RESET, manager);
+      await this.tokenRepo.revokeAllForUser(
+        user.id,
+        TokenRevokeReason.PASSWORD_RESET,
+        undefined,
+        manager,
+      );
     });
   }
 
@@ -323,7 +348,12 @@ export class AuthService implements IAuthService {
     await AppDataSource.transaction(async (manager) => {
       await this.userRepo.updatePassword(user.id, passwordHash, manager);
       await this.userRepo.incrementTokenVersion(user.id, manager);
-      await this.tokenRepo.revokeAllForUser(user.id, TokenRevokeReason.PASSWORD_CHANGED, manager);
+      await this.tokenRepo.revokeAllForUser(
+        user.id,
+        TokenRevokeReason.PASSWORD_CHANGED,
+        undefined,
+        manager,
+      );
     });
   }
 }

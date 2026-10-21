@@ -86,11 +86,16 @@ export class TokenRepository {
   public async revokeAllForUser(
     userId: string,
     reason: TokenRevokeReason,
+    tokenType?: TokenType,
     manager?: EntityManager,
   ): Promise<void> {
     const repo = this.getRepo(manager);
     await repo.update(
-      { userId, revokedAt: IsNull() },
+      {
+        userId,
+        ...(tokenType ? { tokenType } : {}),
+        revokedAt: IsNull(),
+      },
       {
         revokedAt: new Date(),
         revokedReason: reason,
