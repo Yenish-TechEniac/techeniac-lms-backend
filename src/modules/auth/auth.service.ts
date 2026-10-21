@@ -149,7 +149,7 @@ export class AuthService implements IAuthService {
     return await AppDataSource.transaction(async (manager) => {
       // Row-level locking to prevent race condition when concurrent /refresh requests arrive
       const tokenRow = await this.tokenRepo.findByJti(payload.jti, { lock: true, manager });
-      if (!tokenRow || tokenRow.tokenType !== TokenType.REFRESH) {
+      if (tokenRow?.tokenType !== TokenType.REFRESH) {
         throw new UnauthorizedError('Invalid refresh token');
       }
 
@@ -301,8 +301,7 @@ export class AuthService implements IAuthService {
 
     const tokenRow = await this.tokenRepo.findByJti(payload.jti);
     if (
-      !tokenRow ||
-      tokenRow.tokenType !== TokenType.PASSWORD_RESET ||
+      tokenRow?.tokenType !== TokenType.PASSWORD_RESET ||
       tokenRow.revokedAt !== null ||
       tokenRow.passwordResetUsedAt !== null ||
       tokenRow.expiresAt < new Date()
