@@ -5,6 +5,7 @@ import { StatusCodes } from 'http-status-codes';
 import { env } from './core/config';
 import { healthRouter } from './core/health';
 import { corsMiddleware, errorMiddleware, notFoundMiddleware } from './core/http';
+import { auditRouter } from './modules/audit';
 import { authRouter } from './modules/auth';
 
 export function createApp(): Express {
@@ -29,6 +30,7 @@ export function createApp(): Express {
   });
 
   app.use('/api/v1/auth', authRouter);
+  app.use('/api/v1/audit-logs', auditRouter);
 
   app.use(notFoundMiddleware);
   app.use(errorMiddleware);
