@@ -46,7 +46,11 @@ const envSchema = z.object({
   FRONTEND_URL: z.string().url().default('http://localhost:3000'),
   SMTP_HOST: z.string().optional(),
   SMTP_PORT: z.coerce.number().int().positive().default(587),
-  SMTP_SECURE: z.coerce.boolean().default(false),
+  SMTP_SECURE: z
+    .string()
+    .optional()
+    .transform((val) => val === 'true' || val === '1')
+    .pipe(z.boolean()),
   SMTP_USER: z.string().optional(),
   SMTP_PASS: z.string().optional(),
   SMTP_FROM: z.string().default('Techeniac LMS <noreply@techeniac.com>'),
