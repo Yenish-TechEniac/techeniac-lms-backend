@@ -43,6 +43,13 @@ const envSchema = z.object({
   JWT_ALGORITHM: z.literal('HS256').default('HS256'),
   ACCESS_TOKEN_TTL: z.string().default('15m'),
   REFRESH_TOKEN_TTL: z.string().default('7d'),
+  FRONTEND_URL: z.string().url().default('http://localhost:3000'),
+  SMTP_HOST: z.string().optional(),
+  SMTP_PORT: z.coerce.number().int().positive().default(587),
+  SMTP_SECURE: z.coerce.boolean().default(false),
+  SMTP_USER: z.string().optional(),
+  SMTP_PASS: z.string().optional(),
+  SMTP_FROM: z.string().default('Techeniac LMS <noreply@techeniac.com>'),
 });
 
 export type Env = z.infer<typeof envSchema>;

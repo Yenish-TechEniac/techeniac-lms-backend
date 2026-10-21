@@ -2,10 +2,21 @@ import { app } from './app';
 import { env } from './core/config';
 import { closeDatabase, initializeDatabase } from './core/db';
 import { logger } from './core/logging';
+import { tokenRepository } from './modules/auth';
 
 export async function bootstrap(): Promise<void> {
   try {
     await initializeDatabase();
+
+    // FR-1.9: Recurring hourly job to delete expired tokens
+    const tokenCleanupInterval = setInterval(
+      () => {
+        tokenRepository.cleanupExpiredTokens().catch((err: unknown) => {
+          logger.error({ err }, 'Hourly token cleanup job failed');
+        });
+      },
+      60 * 60 * 1000,
+    );
 
     const server = app.listen(env.PORT, (error?: Error) => {
       if (error) {
@@ -25,6 +36,7 @@ export async function bootstrap(): Promise<void> {
 
     const shutdown = (signal: string): void => {
       logger.info(`Received ${signal}. Initiating graceful shutdown...`);
+      clearInterval(tokenCleanupInterval);
 
       server.close(() => {
         logger.info('HTTP server closed.');

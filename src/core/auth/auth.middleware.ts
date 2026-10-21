@@ -1,5 +1,6 @@
 import type { NextFunction, Request, Response } from 'express';
 
+import { userRepository } from '../../modules/users';
 import { ForbiddenError, UnauthorizedError } from '../errors';
 import { verifyAccessToken } from './jwt';
 
@@ -20,7 +21,7 @@ declare global {
 }
 /* eslint-enable @typescript-eslint/no-namespace */
 
-export function requireAuth(req: Request, _res: Response, next: NextFunction): void {
+export async function requireAuth(req: Request, _res: Response, next: NextFunction): Promise<void> {
   const cookies = (req.cookies ?? {}) as Record<string, string | undefined>;
   const authHeader = req.headers.authorization;
 
@@ -36,14 +37,31 @@ export function requireAuth(req: Request, _res: Response, next: NextFunction): v
 
   try {
     const payload = verifyAccessToken(token);
+
+    // FR-1.6: Verify tokenVersion and active state against live user row on every request
+    const user = await userRepository.findById(payload.sub);
+    if (!user || !user.isActive) {
+      next(new UnauthorizedError('Account is inactive or disabled'));
+      return;
+    }
+
+    if (user.tokenVersion !== payload.tokenVersion) {
+      next(new UnauthorizedError('Session has expired or credentials have been updated'));
+      return;
+    }
+
     req.user = {
-      id: payload.sub,
-      email: payload.email,
-      role: payload.role,
-      tokenVersion: payload.tokenVersion,
+      id: user.id,
+      email: user.email,
+      role: user.role,
+      tokenVersion: user.tokenVersion,
     };
     next();
-  } catch {
+  } catch (error) {
+    if (error instanceof UnauthorizedError) {
+      next(error);
+      return;
+    }
     next(new UnauthorizedError('Invalid or expired authentication token'));
   }
 }

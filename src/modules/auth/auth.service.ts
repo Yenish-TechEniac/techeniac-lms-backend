@@ -3,11 +3,13 @@ import { randomUUID } from 'node:crypto';
 import {
   hashPassword,
   signAccessToken,
+  signPasswordResetToken,
   signRefreshToken,
   verifyPassword,
   verifyPasswordResetToken,
   verifyRefreshToken,
 } from '../../core/auth';
+import { emailService } from '../../core/email';
 import { ForbiddenError, NotFoundError, UnauthorizedError } from '../../core/errors';
 import { UserRepository, userRepository, UserRole } from '../users';
 import { TokenRevokeReason, TokenType } from './entities/token.entity';
@@ -224,6 +226,13 @@ export class AuthService implements IAuthService {
       tokenType: TokenType.PASSWORD_RESET,
       jti,
       expiresAt,
+    });
+
+    const resetToken = signPasswordResetToken({ sub: user.id, jti });
+    await emailService.sendPasswordResetEmail({
+      to: user.email,
+      name: user.name,
+      resetToken,
     });
   }
 
