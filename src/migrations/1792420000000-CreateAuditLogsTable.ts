@@ -18,7 +18,7 @@ export class CreateAuditLogsTable1792420000000 implements MigrationInterface {
         "action" character varying(100) NOT NULL,
         "old_value" jsonb,
         "new_value" jsonb,
-        "created_at" TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        "created_at" TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT now(),
         CONSTRAINT "PK_audit_logs_id" PRIMARY KEY ("id"),
         CONSTRAINT "FK_audit_logs_actor_id" FOREIGN KEY ("actor_id") REFERENCES "users"("id") ON DELETE SET NULL
       )
