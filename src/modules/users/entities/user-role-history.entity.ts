@@ -1,9 +1,13 @@
-import { Column, Entity, JoinColumn, ManyToOne } from 'typeorm';
+import { Column, Entity, Index, JoinColumn, ManyToOne } from 'typeorm';
 
 import { AuditableEntity } from '../../../core/db';
 import { User, UserRole } from './user.entity';
 
 @Entity('user_role_history')
+@Index('idx_user_role_history_active', ['userId'], {
+  unique: true,
+  where: '((to_at IS NULL) AND (deleted_at IS NULL))',
+})
 export class UserRoleHistory extends AuditableEntity {
   @Column({ name: 'user_id', type: 'uuid' })
   userId!: string;
@@ -14,7 +18,7 @@ export class UserRoleHistory extends AuditableEntity {
   @Column({
     name: 'from_at',
     type: 'timestamptz',
-    default: () => 'CURRENT_TIMESTAMP',
+    default: () => 'now()',
   })
   fromAt!: Date;
 
