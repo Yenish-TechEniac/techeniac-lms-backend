@@ -24,16 +24,77 @@ export class UserRepository {
     return manager ? manager.getRepository(User) : this.repo;
   }
 
-  public async findByEmail(email: string, manager?: EntityManager): Promise<User | null> {
-    return await this.getRepo(manager).findOne({
-      where: { email: email.trim().toLowerCase() },
-    });
+  public async findByEmail(
+    email: string,
+    options?: { includePassword?: boolean; manager?: EntityManager } | EntityManager,
+  ): Promise<User | null> {
+    let manager: EntityManager | undefined;
+    let includePassword = false;
+
+    if (options) {
+      if ('getRepository' in options) {
+        manager = options;
+      } else {
+        manager = options.manager;
+        includePassword = Boolean(options.includePassword);
+      }
+    }
+
+    const repo = this.getRepo(manager);
+
+    if (!includePassword) {
+      return await repo.findOne({
+        where: { email: email.trim().toLowerCase() },
+      });
+    }
+
+    return await repo
+      .createQueryBuilder('user')
+      .addSelect('user.passwordHash')
+      .where('LOWER(user.email) = :email', { email: email.trim().toLowerCase() })
+      .getOne();
   }
 
-  public async findById(id: string, manager?: EntityManager): Promise<User | null> {
-    return await this.getRepo(manager).findOne({
-      where: { id },
-    });
+  public async findById(
+    id: string,
+    options?: { includePassword?: boolean; manager?: EntityManager } | EntityManager,
+  ): Promise<User | null> {
+    let manager: EntityManager | undefined;
+    let includePassword = false;
+
+    if (options) {
+      if ('getRepository' in options) {
+        manager = options;
+      } else {
+        manager = options.manager;
+        includePassword = Boolean(options.includePassword);
+      }
+    }
+
+    const repo = this.getRepo(manager);
+
+    if (!includePassword) {
+      return await repo.findOne({
+        where: { id },
+      });
+    }
+
+    return await repo
+      .createQueryBuilder('user')
+      .addSelect('user.passwordHash')
+      .where('user.id = :id', { id })
+      .getOne();
+  }
+
+  public async findByEmailWithPassword(
+    email: string,
+    manager?: EntityManager,
+  ): Promise<User | null> {
+    return await this.findByEmail(email, { includePassword: true, manager });
+  }
+
+  public async findByIdWithPassword(id: string, manager?: EntityManager): Promise<User | null> {
+    return await this.findById(id, { includePassword: true, manager });
   }
 
   public async create(data: CreateUserData, manager?: EntityManager): Promise<User> {

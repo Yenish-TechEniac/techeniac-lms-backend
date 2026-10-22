@@ -74,7 +74,7 @@ export class AuthService implements IAuthService {
   }
 
   public async login(input: LoginInput): Promise<AuthResult> {
-    const user = await this.userRepo.findByEmail(input.email);
+    const user = await this.userRepo.findByEmailWithPassword(input.email);
     if (!user) {
       throw new UnauthorizedError('Invalid email or password');
     }
@@ -346,7 +346,7 @@ export class AuthService implements IAuthService {
   }
 
   public async changePassword(userId: string, input: ChangePasswordInput): Promise<void> {
-    const user = await this.userRepo.findById(userId);
+    const user = await this.userRepo.findByIdWithPassword(userId);
     if (!user) {
       throw new NotFoundError('User not found');
     }
