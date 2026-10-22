@@ -1,1 +1,7 @@
-export { AppError, NotFoundError, ValidationError } from './app-error';
+export {
+  AppError,
+  ForbiddenError,
+  NotFoundError,
+  UnauthorizedError,
+  ValidationError,
+} from './app-error';

@@ -2,10 +2,21 @@ import { app } from './app';
 import { env } from './core/config';
 import { closeDatabase, initializeDatabase } from './core/db';
 import { logger } from './core/logging';
+import { closeScheduledJobs, registerScheduledJobs } from './jobs';
 
 export async function bootstrap(): Promise<void> {
   try {
     await initializeDatabase();
+
+    // Register BullMQ recurring scheduled jobs and workers without blocking HTTP startup if Redis is unavailable
+    try {
+      await registerScheduledJobs();
+    } catch (jobErr) {
+      logger.warn(
+        { err: jobErr },
+        'Failed to register BullMQ scheduled jobs. Running HTTP server with background jobs disabled.',
+      );
+    }
 
     const server = app.listen(env.PORT, (error?: Error) => {
       if (error) {
@@ -28,15 +39,17 @@ export async function bootstrap(): Promise<void> {
 
       server.close(() => {
         logger.info('HTTP server closed.');
-        void closeDatabase()
-          .then(() => {
+        void (async () => {
+          try {
+            await closeScheduledJobs();
+            await closeDatabase();
             logger.info('Graceful shutdown completed successfully.');
             process.exit(0);
-          })
-          .catch((err) => {
-            logger.error({ err }, 'Error closing database during shutdown');
+          } catch (err) {
+            logger.error({ err }, 'Error closing resources during shutdown');
             process.exit(1);
-          });
+          }
+        })();
       });
 
       setTimeout(() => {

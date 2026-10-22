@@ -39,3 +39,19 @@ export class ValidationError extends AppError {
     super(message, StatusCodes.BAD_REQUEST, code, details);
   }
 }
+
+export class UnauthorizedError extends AppError {
+  constructor(
+    message: string = 'Authentication required',
+    code: string = 'UNAUTHENTICATED',
+    details?: unknown,
+  ) {
+    super(message, StatusCodes.UNAUTHORIZED, code, details);
+  }
+}
+
+export class ForbiddenError extends AppError {
+  constructor(message: string = 'Access denied', code: string = 'FORBIDDEN', details?: unknown) {
+    super(message, StatusCodes.FORBIDDEN, code, details);
+  }
+}
