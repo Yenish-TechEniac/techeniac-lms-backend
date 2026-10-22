@@ -34,10 +34,15 @@ async function seedAdmin(): Promise<void> {
 
   const existingUser = await userRepository.findByEmail(email);
   if (existingUser) {
+    if (!existingUser.isActive || existingUser.role !== UserRole.SUPER_ADMIN) {
+      existingUser.isActive = true;
+      existingUser.role = UserRole.SUPER_ADMIN;
+      await userRepository.save(existingUser);
+    }
     await userRepository.updatePassword(existingUser.id, passwordHash);
     logger.info(
       { id: existingUser.id, role: existingUser.role },
-      'Super Admin user already exists. Password updated successfully to match SEED_ADMIN_PASSWORD.',
+      'Super Admin user already exists. Verified active status and updated password to match SEED_ADMIN_PASSWORD.',
     );
     await closeDatabase();
     return;

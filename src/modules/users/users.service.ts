@@ -187,7 +187,11 @@ export class UsersService {
       throw new BadRequestError('User already has the requested role', 'SAME_ROLE_NO_OP');
     }
 
-    if (actorId && actorId === id) {
+    if (!actorId) {
+      throw new ForbiddenError('Actor could not be determined', 'ACTOR_REQUIRED');
+    }
+
+    if (actorId === id) {
       throw new ForbiddenError('Super Admin cannot change own role', 'CANNOT_CHANGE_OWN_ROLE');
     }
 
@@ -211,61 +215,75 @@ export class UsersService {
       );
     }
 
-    if (user.role === UserRole.SUPER_ADMIN && input.newRole !== UserRole.SUPER_ADMIN) {
-      const activeAdmins = await this.repo.countActiveSuperAdmins();
-      if (activeAdmins <= 1) {
-        throw new BadRequestError('Cannot demote the last active Super Admin', 'LAST_SUPER_ADMIN');
-      }
-    }
-
     user.role = input.newRole;
-    user.tokenVersion += 1;
 
-    return await this.repo.transaction(async (manager) => {
-      const savedUser = await this.repo.save(user, manager);
+    try {
+      return await this.repo.transaction(async (manager) => {
+        const savedUser = await this.repo.save(user, manager);
 
-      await this.repo.closeActiveRoleHistory(user.id, undefined, manager);
+        await this.repo.incrementTokenVersion(user.id, manager);
+        savedUser.tokenVersion += 1;
 
-      const history = await this.repo.saveRoleHistory(
-        {
-          userId: user.id,
-          role: input.newRole,
-          reason: input.reason,
-          changedBy: actorId ?? null,
-        },
-        manager,
-      );
+        await this.repo.closeActiveRoleHistory(user.id, undefined, manager);
 
-      return { user: savedUser, history };
-    });
+        const history = await this.repo.saveRoleHistory(
+          {
+            userId: user.id,
+            role: input.newRole,
+            reason: input.reason,
+            changedBy: actorId,
+          },
+          manager,
+        );
+
+        return { user: savedUser, history };
+      });
+    } catch (err) {
+      if (isUniqueViolation(err)) {
+        throw new ConflictError(
+          'Concurrent role modification detected. Please refresh and retry.',
+          'CONCURRENT_ROLE_MODIFICATION',
+        );
+      }
+      throw err;
+    }
   }
 
   public async toggleUserStatus(id: string, isActive: boolean, actorId?: string): Promise<User> {
     const user = await this.getUserById(id);
 
-    if (actorId && actorId === id && !isActive) {
+    if (!actorId) {
+      throw new ForbiddenError('Actor could not be determined', 'ACTOR_REQUIRED');
+    }
+
+    if (actorId === id && !isActive) {
       throw new ForbiddenError(
         'Super Admin cannot deactivate own account',
         'CANNOT_DEACTIVATE_SELF',
       );
     }
 
-    if (!isActive && user.role === UserRole.SUPER_ADMIN) {
-      const activeAdmins = await this.repo.countActiveSuperAdmins();
-      if (activeAdmins <= 1) {
-        throw new BadRequestError(
-          'Cannot deactivate the last active Super Admin',
-          'LAST_SUPER_ADMIN',
-        );
+    return await this.repo.transaction(async (manager) => {
+      if (!isActive && user.role === UserRole.SUPER_ADMIN) {
+        const activeAdmins = await this.repo.lockAndCountActiveSuperAdmins(manager);
+        if (activeAdmins <= 1) {
+          throw new BadRequestError(
+            'Cannot deactivate the last active Super Admin',
+            'LAST_SUPER_ADMIN',
+          );
+        }
       }
-    }
 
-    user.isActive = isActive;
-    if (!isActive) {
-      user.tokenVersion += 1;
-    }
+      user.isActive = isActive;
+      const savedUser = await this.repo.save(user, manager);
 
-    return this.repo.save(user);
+      if (!isActive) {
+        await this.repo.incrementTokenVersion(user.id, manager);
+        savedUser.tokenVersion += 1;
+      }
+
+      return savedUser;
+    });
   }
 
   public async getRoleImpact(
@@ -311,8 +329,8 @@ export class UsersService {
     const temporaryPassword = generateTemporaryPassword();
     user.passwordHash = await hashPassword(temporaryPassword);
     user.mustChangePassword = true;
-    user.tokenVersion += 1;
     await this.repo.save(user);
+    await this.repo.incrementTokenVersion(user.id);
 
     try {
       await emailService.sendInviteEmail({

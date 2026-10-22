@@ -192,6 +192,17 @@ export class UserRepository {
     });
   }
 
+  public async lockAndCountActiveSuperAdmins(manager?: EntityManager): Promise<number> {
+    const rows = await this.getRepo(manager)
+      .createQueryBuilder('user')
+      .setLock('pessimistic_write')
+      .where('user.role = :role AND user.is_active = true AND user.deleted_at IS NULL', {
+        role: UserRole.SUPER_ADMIN,
+      })
+      .getMany();
+    return rows.length;
+  }
+
   public async save(user: User, manager?: EntityManager): Promise<User> {
     return await this.getRepo(manager).save(user);
   }
