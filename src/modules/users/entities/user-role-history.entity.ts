@@ -32,6 +32,6 @@ export class UserRoleHistory extends AuditableEntity {
   reason!: string;
 
   @ManyToOne(() => User, { onDelete: 'CASCADE' })
-  @JoinColumn({ name: 'user_id' })
+  @JoinColumn({ name: 'user_id', foreignKeyConstraintName: 'FK_user_role_history_user_id' })
   user?: User;
 }

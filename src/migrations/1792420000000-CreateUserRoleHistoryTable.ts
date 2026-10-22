@@ -17,7 +17,7 @@ export class CreateUserRoleHistoryTable1792420000000 implements MigrationInterfa
         "changed_by" uuid,
         "reason" character varying(500) NOT NULL,
         CONSTRAINT "PK_user_role_history_id" PRIMARY KEY ("id"),
-        CONSTRAINT "FK_8b8b6fbb08f7b9910d70d199299" FOREIGN KEY ("user_id") REFERENCES "users"("id") ON DELETE CASCADE ON UPDATE NO ACTION
+        CONSTRAINT "FK_user_role_history_user_id" FOREIGN KEY ("user_id") REFERENCES "users"("id") ON DELETE CASCADE ON UPDATE NO ACTION
       );
     `);
 
