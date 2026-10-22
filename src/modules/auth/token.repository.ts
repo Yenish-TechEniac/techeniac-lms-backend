@@ -114,16 +114,17 @@ export class TokenRepository {
     );
   }
 
-  public async markPasswordResetUsed(jti: string, manager?: EntityManager): Promise<void> {
+  public async markPasswordResetUsed(jti: string, manager?: EntityManager): Promise<boolean> {
     const repo = this.getRepo(manager);
-    await repo.update(
-      { jti, revokedAt: IsNull() },
+    const result = await repo.update(
+      { jti, revokedAt: IsNull(), passwordResetUsedAt: IsNull() },
       {
         passwordResetUsedAt: new Date(),
         revokedAt: new Date(),
         revokedReason: TokenRevokeReason.PASSWORD_RESET,
       },
     );
+    return (result.affected ?? 0) > 0;
   }
 
   public async cleanupExpiredTokens(): Promise<number> {

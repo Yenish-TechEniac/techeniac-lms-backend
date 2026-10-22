@@ -172,10 +172,20 @@ export class AuthService implements IAuthService {
       }
 
       const user = await this.userRepo.findById(tokenRow.userId, manager);
-      if (!user?.isActive || user.tokenVersion !== tokenRow.tokenVersion) {
+      if (!user?.isActive) {
         await this.tokenRepo.revokeByJti(
           tokenRow.jti,
-          TokenRevokeReason.ROLE_CHANGED,
+          TokenRevokeReason.DEACTIVATED,
+          undefined,
+          manager,
+        );
+        throw new UnauthorizedError('Session is no longer valid');
+      }
+
+      if (user.tokenVersion !== tokenRow.tokenVersion) {
+        await this.tokenRepo.revokeByJti(
+          tokenRow.jti,
+          TokenRevokeReason.PASSWORD_CHANGED,
           undefined,
           manager,
         );
@@ -317,8 +327,12 @@ export class AuthService implements IAuthService {
     const passwordHash = await hashPassword(input.newPassword);
 
     await AppDataSource.transaction(async (manager) => {
+      const marked = await this.tokenRepo.markPasswordResetUsed(tokenRow.jti, manager);
+      if (!marked) {
+        throw new UnauthorizedError('Invalid or expired password reset token');
+      }
+
       await this.userRepo.updatePassword(user.id, passwordHash, manager);
-      await this.tokenRepo.markPasswordResetUsed(tokenRow.jti, manager);
 
       // Invalidate all existing refresh tokens across all sessions atomically
       await this.userRepo.incrementTokenVersion(user.id, manager);
