@@ -62,3 +62,15 @@ export const refreshRateLimiter = rateLimit({
   legacyHeaders: false,
   handler: rateLimitHandler,
 });
+
+/**
+ * User invite creation & resend: 20 requests / 15 min per IP.
+ * Prevents SMTP quota exhaustion and email-bombing while allowing batch admin invites.
+ */
+export const inviteRateLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  limit: 20,
+  standardHeaders: true,
+  legacyHeaders: false,
+  handler: rateLimitHandler,
+});

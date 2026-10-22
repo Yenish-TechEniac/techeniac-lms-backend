@@ -156,5 +156,11 @@ export default [
       'no-process-env': 'off',
     },
   },
+  {
+    files: ['src/migrations/**'],
+    rules: {
+      'architecture/raw-queries-only-in-repositories': 'off',
+    },
+  },
   prettierConfig,
 ];

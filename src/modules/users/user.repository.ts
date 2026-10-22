@@ -2,6 +2,8 @@ import { DataSource, EntityManager, Repository } from 'typeorm';
 
 import { AppDataSource } from '../../core/db';
 import { User, UserRole } from './entities/user.entity';
+import { UserRoleHistory } from './entities/user-role-history.entity';
+import type { UserQueryParams } from './users.schemas';
 
 export interface CreateUserData {
   name: string;
@@ -15,25 +17,98 @@ export interface CreateUserData {
 
 export class UserRepository {
   private readonly repo: Repository<User>;
+  private readonly historyRepo: Repository<UserRoleHistory>;
 
-  constructor(dataSource: DataSource = AppDataSource) {
+  constructor(private readonly dataSource: DataSource = AppDataSource) {
     this.repo = dataSource.getRepository(User);
+    this.historyRepo = dataSource.getRepository(UserRoleHistory);
+  }
+
+  public async transaction<T>(
+    runInTransaction: (manager: EntityManager) => Promise<T>,
+  ): Promise<T> {
+    return await this.dataSource.transaction(runInTransaction);
   }
 
   private getRepo(manager?: EntityManager): Repository<User> {
     return manager ? manager.getRepository(User) : this.repo;
   }
 
-  public async findByEmail(email: string, manager?: EntityManager): Promise<User | null> {
-    return await this.getRepo(manager).findOne({
-      where: { email: email.trim().toLowerCase() },
-    });
+  private getHistoryRepo(manager?: EntityManager): Repository<UserRoleHistory> {
+    return manager ? manager.getRepository(UserRoleHistory) : this.historyRepo;
   }
 
-  public async findById(id: string, manager?: EntityManager): Promise<User | null> {
-    return await this.getRepo(manager).findOne({
-      where: { id },
-    });
+  public async findByEmail(
+    email: string,
+    options?: { includePassword?: boolean; manager?: EntityManager } | EntityManager,
+  ): Promise<User | null> {
+    let manager: EntityManager | undefined;
+    let includePassword = false;
+
+    if (options) {
+      if ('getRepository' in options) {
+        manager = options;
+      } else {
+        manager = options.manager;
+        includePassword = Boolean(options.includePassword);
+      }
+    }
+
+    const repo = this.getRepo(manager);
+
+    if (!includePassword) {
+      return await repo.findOne({
+        where: { email: email.trim().toLowerCase() },
+      });
+    }
+
+    return await repo
+      .createQueryBuilder('user')
+      .addSelect('user.passwordHash')
+      .where('LOWER(user.email) = :email', { email: email.trim().toLowerCase() })
+      .getOne();
+  }
+
+  public async findById(
+    id: string,
+    options?: { includePassword?: boolean; manager?: EntityManager } | EntityManager,
+  ): Promise<User | null> {
+    let manager: EntityManager | undefined;
+    let includePassword = false;
+
+    if (options) {
+      if ('getRepository' in options) {
+        manager = options;
+      } else {
+        manager = options.manager;
+        includePassword = Boolean(options.includePassword);
+      }
+    }
+
+    const repo = this.getRepo(manager);
+
+    if (!includePassword) {
+      return await repo.findOne({
+        where: { id },
+      });
+    }
+
+    return await repo
+      .createQueryBuilder('user')
+      .addSelect('user.passwordHash')
+      .where('user.id = :id', { id })
+      .getOne();
+  }
+
+  public async findByEmailWithPassword(
+    email: string,
+    manager?: EntityManager,
+  ): Promise<User | null> {
+    return await this.findByEmail(email, { includePassword: true, manager });
+  }
+
+  public async findByIdWithPassword(id: string, manager?: EntityManager): Promise<User | null> {
+    return await this.findById(id, { includePassword: true, manager });
   }
 
   public async create(data: CreateUserData, manager?: EntityManager): Promise<User> {
@@ -74,6 +149,102 @@ export class UserRepository {
   public async incrementTokenVersion(id: string, manager?: EntityManager): Promise<void> {
     await this.getRepo(manager).increment({ id }, 'tokenVersion', 1);
   }
+
+  public async findAll(
+    params: UserQueryParams,
+    manager?: EntityManager,
+  ): Promise<[User[], number]> {
+    const query = this.getRepo(manager).createQueryBuilder('user').where('user.deleted_at IS NULL');
+
+    if (params.role) {
+      query.andWhere('user.role = :role', { role: params.role });
+    }
+
+    if (params.status) {
+      query.andWhere('user.is_active = :isActive', {
+        isActive: params.status === 'active',
+      });
+    }
+
+    if (params.search) {
+      query.andWhere('(user.name ILIKE :search OR user.email ILIKE :search)', {
+        search: `%${params.search}%`,
+      });
+    }
+
+    const page = Math.max(1, Number(params.page) || 1);
+    const limit = Math.max(1, Math.min(100, Number(params.limit) || 20));
+
+    query
+      .orderBy('user.created_at', 'DESC')
+      .skip((page - 1) * limit)
+      .take(limit);
+
+    return await query.getManyAndCount();
+  }
+
+  public async getCounts(manager?: EntityManager): Promise<{
+    total: number;
+    active: number;
+    inactive: number;
+  }> {
+    const repo = this.getRepo(manager);
+    const [total, active] = await Promise.all([
+      repo.count(),
+      repo.count({ where: { isActive: true } }),
+    ]);
+    return {
+      total,
+      active,
+      inactive: Math.max(0, total - active),
+    };
+  }
+
+  public async countActiveSuperAdmins(manager?: EntityManager): Promise<number> {
+    return await this.getRepo(manager).count({
+      where: {
+        role: UserRole.SUPER_ADMIN,
+        isActive: true,
+      },
+    });
+  }
+
+  public async lockAndCountActiveSuperAdmins(manager?: EntityManager): Promise<number> {
+    const rows = await this.getRepo(manager)
+      .createQueryBuilder('user')
+      .setLock('pessimistic_write')
+      .where('user.role = :role AND user.is_active = true AND user.deleted_at IS NULL', {
+        role: UserRole.SUPER_ADMIN,
+      })
+      .getMany();
+    return rows.length;
+  }
+
+  public async save(user: User, manager?: EntityManager): Promise<User> {
+    return await this.getRepo(manager).save(user);
+  }
+
+  public async saveRoleHistory(
+    history: Partial<UserRoleHistory>,
+    manager?: EntityManager,
+  ): Promise<UserRoleHistory> {
+    const record = this.getHistoryRepo(manager).create(history);
+    return await this.getHistoryRepo(manager).save(record);
+  }
+
+  public async closeActiveRoleHistory(
+    userId: string,
+    toAt: Date = new Date(),
+    manager?: EntityManager,
+  ): Promise<void> {
+    await this.getHistoryRepo(manager)
+      .createQueryBuilder()
+      .update(UserRoleHistory)
+      .set({ toAt })
+      .where('user_id = :userId AND to_at IS NULL AND deleted_at IS NULL', { userId })
+      .execute();
+  }
 }
 
 export const userRepository = new UserRepository();
+export { UserRepository as UsersRepository, userRepository as usersRepository };

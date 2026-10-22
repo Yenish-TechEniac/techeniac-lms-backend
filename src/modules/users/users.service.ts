@@ -1,0 +1,365 @@
+import crypto from 'node:crypto';
+
+import { QueryFailedError } from 'typeorm';
+
+import { hashPassword } from '../../core/auth/password';
+import { emailService } from '../../core/email';
+import {
+  BadGatewayError,
+  BadRequestError,
+  ConflictError,
+  ForbiddenError,
+  NotFoundError,
+} from '../../core/errors';
+import { logger } from '../../core/logging';
+import { type User, UserRole } from './entities/user.entity';
+import type { UserRoleHistory } from './entities/user-role-history.entity';
+import { UserRepository, userRepository } from './user.repository';
+import type {
+  ChangeRoleInput,
+  CreateUserInput,
+  UpdateUserInput,
+  UserQueryParams,
+} from './users.schemas';
+
+function pickRandomChar(source: string): string {
+  const index = crypto.randomInt(0, source.length);
+  const char = source[index];
+  if (char === undefined) {
+    throw new Error('Index out of bounds while picking random character');
+  }
+  return char;
+}
+
+function isUniqueViolation(err: unknown): boolean {
+  if (err instanceof QueryFailedError) {
+    const code =
+      (err as QueryFailedError & { driverError?: { code?: string } }).driverError?.code ??
+      (err as unknown as { code?: string }).code;
+    return code === '23505';
+  }
+  return false;
+}
+
+function generateTemporaryPassword(): string {
+  const upper = 'ABCDEFGHJKLMNPQRSTUVWXYZ';
+  const lower = 'abcdefghijkmnpqrstuvwxyz';
+  const digits = '23456789';
+  const special = '!@#$%^&*';
+  const all = upper + lower + digits + special;
+
+  const chars = [
+    pickRandomChar(upper),
+    pickRandomChar(lower),
+    pickRandomChar(digits),
+    pickRandomChar(special),
+  ];
+
+  for (let i = 4; i < 14; i++) {
+    chars.push(pickRandomChar(all));
+  }
+
+  for (let i = chars.length - 1; i > 0; i--) {
+    const j = crypto.randomInt(0, i + 1);
+    const charAtI = chars[i];
+    const charAtJ = chars[j];
+    if (charAtI !== undefined && charAtJ !== undefined) {
+      chars[i] = charAtJ;
+      chars[j] = charAtI;
+    }
+  }
+
+  return chars.join('');
+}
+
+export class UsersService {
+  constructor(private readonly repo: UserRepository = userRepository) {}
+
+  public async listUsers(params: UserQueryParams): Promise<{
+    users: User[];
+    total: number;
+    page: number;
+    limit: number;
+    counts: { total: number; active: number; inactive: number };
+  }> {
+    const [users, total] = await this.repo.findAll(params);
+    const counts = await this.repo.getCounts();
+    return { users, total, page: params.page, limit: params.limit, counts };
+  }
+
+  public async getUserById(id: string): Promise<User> {
+    const user = await this.repo.findById(id);
+    if (!user) {
+      throw new NotFoundError(`User with id '${id}' not found`);
+    }
+    return user;
+  }
+
+  public async createUser(input: CreateUserInput, actorId?: string): Promise<User> {
+    const existing = await this.repo.findByEmail(input.email);
+    if (existing) {
+      throw new ConflictError('A user with this email already exists', 'DUPLICATE_EMAIL');
+    }
+
+    const temporaryPassword = generateTemporaryPassword();
+    const passwordHash = await hashPassword(temporaryPassword);
+
+    let user: User;
+    try {
+      user = await this.repo.transaction(async (manager) => {
+        const createdUser = await this.repo.create(
+          {
+            name: input.name,
+            email: input.email,
+            role: input.role,
+            passwordHash,
+            mustChangePassword: true,
+          },
+          manager,
+        );
+
+        await this.repo.saveRoleHistory(
+          {
+            userId: createdUser.id,
+            role: createdUser.role,
+            reason: 'Initial role assignment upon user creation',
+            changedBy: actorId ?? null,
+          },
+          manager,
+        );
+
+        return createdUser;
+      });
+    } catch (err) {
+      if (isUniqueViolation(err)) {
+        throw new ConflictError('A user with this email already exists', 'DUPLICATE_EMAIL');
+      }
+      throw err;
+    }
+
+    try {
+      await emailService.sendInviteEmail({
+        to: user.email,
+        name: user.name,
+        temporaryPassword,
+        role: user.role,
+      });
+    } catch (err) {
+      logger.error({ err, userId: user.id }, 'Failed to dispatch user invitation email');
+      throw new BadGatewayError(
+        'User was created, but invitation email delivery failed. Please use resend invite.',
+        'INVITE_EMAIL_DELIVERY_FAILED',
+        { userId: user.id },
+      );
+    }
+
+    return user;
+  }
+
+  public async updateUser(id: string, input: UpdateUserInput): Promise<User> {
+    const user = await this.getUserById(id);
+
+    if (input.email && input.email !== user.email) {
+      const existing = await this.repo.findByEmail(input.email);
+      if (existing) {
+        throw new ConflictError('A user with this email already exists', 'DUPLICATE_EMAIL');
+      }
+      user.email = input.email;
+    }
+
+    if (input.name) {
+      user.name = input.name;
+    }
+
+    try {
+      return await this.repo.save(user);
+    } catch (err) {
+      if (isUniqueViolation(err)) {
+        throw new ConflictError('A user with this email already exists', 'DUPLICATE_EMAIL');
+      }
+      throw err;
+    }
+  }
+
+  public async changeRole(
+    id: string,
+    input: ChangeRoleInput,
+    actorId?: string,
+  ): Promise<{ user: User; history: UserRoleHistory }> {
+    const user = await this.getUserById(id);
+
+    if (user.role === input.newRole) {
+      throw new BadRequestError('User already has the requested role', 'SAME_ROLE_NO_OP');
+    }
+
+    if (!actorId) {
+      throw new ForbiddenError('Actor could not be determined', 'ACTOR_REQUIRED');
+    }
+
+    if (actorId === id) {
+      throw new ForbiddenError('Super Admin cannot change own role', 'CANNOT_CHANGE_OWN_ROLE');
+    }
+
+    if (
+      user.role === UserRole.MENTOR &&
+      (input.newRole === UserRole.MENTEE || input.newRole === UserRole.SUPER_ADMIN)
+    ) {
+      throw new BadRequestError(
+        'Mentor role cannot be changed to Mentee or Super Admin as per LMS policy',
+        'CANNOT_CHANGE_MENTOR_ROLE',
+      );
+    }
+
+    if (
+      user.role === UserRole.SUPER_ADMIN &&
+      (input.newRole === UserRole.MENTOR || input.newRole === UserRole.MENTEE)
+    ) {
+      throw new BadRequestError(
+        'Super Admin role cannot be changed into Mentor or Mentee as per LMS policy',
+        'CANNOT_CHANGE_SUPER_ADMIN_ROLE',
+      );
+    }
+
+    user.role = input.newRole;
+
+    try {
+      return await this.repo.transaction(async (manager) => {
+        const savedUser = await this.repo.save(user, manager);
+
+        await this.repo.incrementTokenVersion(user.id, manager);
+        savedUser.tokenVersion += 1;
+
+        await this.repo.closeActiveRoleHistory(user.id, undefined, manager);
+
+        const history = await this.repo.saveRoleHistory(
+          {
+            userId: user.id,
+            role: input.newRole,
+            reason: input.reason,
+            changedBy: actorId,
+          },
+          manager,
+        );
+
+        return { user: savedUser, history };
+      });
+    } catch (err) {
+      if (isUniqueViolation(err)) {
+        throw new ConflictError(
+          'Concurrent role modification detected. Please refresh and retry.',
+          'CONCURRENT_ROLE_MODIFICATION',
+        );
+      }
+      throw err;
+    }
+  }
+
+  public async toggleUserStatus(id: string, isActive: boolean, actorId?: string): Promise<User> {
+    const user = await this.getUserById(id);
+
+    if (!actorId) {
+      throw new ForbiddenError('Actor could not be determined', 'ACTOR_REQUIRED');
+    }
+
+    if (actorId === id && !isActive) {
+      throw new ForbiddenError(
+        'Super Admin cannot deactivate own account',
+        'CANNOT_DEACTIVATE_SELF',
+      );
+    }
+
+    return await this.repo.transaction(async (manager) => {
+      if (!isActive && user.role === UserRole.SUPER_ADMIN) {
+        const activeAdmins = await this.repo.lockAndCountActiveSuperAdmins(manager);
+        if (activeAdmins <= 1) {
+          throw new BadRequestError(
+            'Cannot deactivate the last active Super Admin',
+            'LAST_SUPER_ADMIN',
+          );
+        }
+      }
+
+      user.isActive = isActive;
+      const savedUser = await this.repo.save(user, manager);
+
+      if (!isActive) {
+        await this.repo.incrementTokenVersion(user.id, manager);
+        savedUser.tokenVersion += 1;
+      }
+
+      return savedUser;
+    });
+  }
+
+  public async getRoleImpact(
+    id: string,
+    newRole: UserRole,
+  ): Promise<{
+    userId: string;
+    name: string;
+    email: string;
+    currentRole: UserRole;
+    newRole: UserRole;
+    isSameRole: boolean;
+    willRevokeSessions: boolean;
+    impactSummary: string;
+  }> {
+    const user = await this.getUserById(id);
+    const isSameRole = user.role === newRole;
+
+    return {
+      userId: user.id,
+      name: user.name,
+      email: user.email,
+      currentRole: user.role,
+      newRole,
+      isSameRole,
+      willRevokeSessions: !isSameRole,
+      impactSummary: isSameRole
+        ? `User already has the role ${newRole}. No changes will be applied.`
+        : `Changing role from ${user.role} to ${newRole} will invalidate all active sessions and reassign permissions immediately.`,
+    };
+  }
+
+  public async resendInvite(id: string): Promise<{ message: string }> {
+    const user = await this.getUserById(id);
+
+    if (!user.isActive) {
+      throw new BadRequestError('Cannot resend invite to a deactivated user', 'USER_INACTIVE');
+    }
+
+    if (!user.mustChangePassword) {
+      throw new BadRequestError(
+        'User has already set up their password',
+        'USER_ALREADY_SET_PASSWORD',
+      );
+    }
+
+    const temporaryPassword = generateTemporaryPassword();
+    user.passwordHash = await hashPassword(temporaryPassword);
+    user.mustChangePassword = true;
+    await this.repo.transaction(async (manager) => {
+      await this.repo.save(user, manager);
+      await this.repo.incrementTokenVersion(user.id, manager);
+    });
+
+    try {
+      await emailService.sendInviteEmail({
+        to: user.email,
+        name: user.name,
+        temporaryPassword,
+        role: user.role,
+      });
+    } catch (err) {
+      logger.error({ err, userId: user.id }, 'Failed to dispatch resend invite email');
+      throw new BadGatewayError(
+        'Failed to deliver invitation email via SMTP. Please check email configuration and retry.',
+        'INVITE_EMAIL_DELIVERY_FAILED',
+      );
+    }
+
+    return { message: `Invite successfully resent to ${user.email}` };
+  }
+}
+
+export const usersService = new UsersService();

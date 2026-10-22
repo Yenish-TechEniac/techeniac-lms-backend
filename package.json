@@ -19,7 +19,7 @@
     "migration:revert": "typeorm-ts-node-commonjs migration:revert -d src/core/db/migration-source.ts",
     "migration:generate": "typeorm-ts-node-commonjs migration:generate -d src/core/db/migration-source.ts",
     "migration:create": "typeorm-ts-node-commonjs migration:create",
-    "seed:admin": "tsx scripts/seed-admin.ts",
+    "seed:admin": "tsx --env-file=.env scripts/seed-admin.ts",
     "prepare": "husky"
   },
   "dependencies": {

@@ -30,14 +30,23 @@ async function seedAdmin(): Promise<void> {
 
   await initializeDatabase();
 
+  const passwordHash = await hashPassword(password);
+
   const existingUser = await userRepository.findByEmail(email);
   if (existingUser) {
-    logger.info('Super Admin user already exists. Skipping creation.');
+    if (!existingUser.isActive || existingUser.role !== UserRole.SUPER_ADMIN) {
+      existingUser.isActive = true;
+      existingUser.role = UserRole.SUPER_ADMIN;
+      await userRepository.save(existingUser);
+    }
+    await userRepository.updatePassword(existingUser.id, passwordHash);
+    logger.info(
+      { id: existingUser.id, role: existingUser.role },
+      'Super Admin user already exists. Verified active status and updated password to match SEED_ADMIN_PASSWORD.',
+    );
     await closeDatabase();
     return;
   }
-
-  const passwordHash = await hashPassword(password);
 
   const admin = await userRepository.create({
     name,
