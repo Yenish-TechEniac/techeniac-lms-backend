@@ -303,3 +303,22 @@
 - **Consequences**:
   - All errors thrown in domain modules, middleware, or services must inherit from `AppError` (`src/core/errors`).
   - Terminal middleware chain in `src/app.ts` must always conclude with `notFoundMiddleware` followed by `errorMiddleware`.
+
+---
+
+## ADR-016: User Directory Search Indexing Strategy and Post-M2 Optimization Roadmap
+
+- **Date**: 2026-10-22
+- **Status**: Accepted (Trade-off Documented)
+- **Context**: The M2 User Management feature introduces directory searching (`GET /api/v1/users?search=...`) by matching `name` or `email` with `ILIKE :search` pattern (`%search%`). Standard B-tree indexes (`IDX_users_email`) cannot be leveraged by PostgreSQL for leading-wildcard searches, resulting in sequential scans.
+- **Options**:
+  1. Immediately add `CREATE EXTENSION IF NOT EXISTS pg_trgm` and GIN trigram indexes on `name` and `email` (`gin_trgm_ops`).
+  2. Accept leading-wildcard `ILIKE` sequential scan as a deliberate trade-off for initial M2 scale, queuing the `pg_trgm` GIN migration for post-M2 when user directory volume warrants it.
+- **Choice**: Option 2.
+- **Reasons**:
+  - At M2 initial production scale (low hundreds of users across Super Admins, Mentors, and Mentees), sequential scans over `users` complete in sub-millisecond execution times.
+  - Deferring GIN trigram indexes avoids adding database extension prerequisites, maintenance locks, and write overhead until directory search volume and row counts justify it.
+  - The query pattern is isolated cleanly within `UserRepository.findAll`, making future index optimization transparent to application callers.
+- **Consequences**:
+  - In M2, directory search will perform sequential scans on the `users` table.
+  - A follow-up migration enabling `pg_trgm` and creating GIN trigram indexes on `name` and `email` is tracked for future scale milestones.
