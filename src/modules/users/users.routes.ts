@@ -18,8 +18,8 @@ import {
 const router = Router();
 
 // Module 2 is Super Admin only (PRD §2)
-router.use(requireAuth);
-router.use(requireRole(UserRole.SUPER_ADMIN));
+router.use((req, res, next) => requireAuth(req, res, next));
+router.use((req, res, next) => requireRole(UserRole.SUPER_ADMIN)(req, res, next));
 
 router.get('/', validate(listUsersSchema), usersController.list);
 router.post('/', validate(createUserRequestSchema), usersController.create);

@@ -12,7 +12,11 @@ export class UserRoleHistory extends AuditableEntity {
   @Column({ name: 'user_id', type: 'uuid' })
   userId!: string;
 
-  @Column({ type: 'varchar', length: 20 })
+  @Column({
+    type: 'enum',
+    enum: UserRole,
+    enumName: 'users_role_enum',
+  })
   role!: UserRole;
 
   @Column({

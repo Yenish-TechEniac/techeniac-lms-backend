@@ -13,7 +13,7 @@ export class CreateUserRoleHistoryTable1792649800000 implements MigrationInterfa
         "created_by" uuid,
         "updated_by" uuid,
         "user_id" uuid NOT NULL,
-        "role" character varying(20) NOT NULL,
+        "role" "public"."users_role_enum" NOT NULL,
         "from_at" TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT now(),
         "to_at" TIMESTAMP WITH TIME ZONE,
         "changed_by" uuid,

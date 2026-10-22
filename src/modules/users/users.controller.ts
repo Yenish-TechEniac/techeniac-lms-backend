@@ -1,7 +1,13 @@
 import type { NextFunction, Request, Response } from 'express';
 import { StatusCodes } from 'http-status-codes';
 
-import type { ChangeRoleInput, CreateUserInput, UpdateUserInput } from './users.schemas';
+import { UserRole } from './entities/user.entity';
+import type {
+  ChangeRoleInput,
+  CreateUserInput,
+  UpdateUserInput,
+  UserQueryParams,
+} from './users.schemas';
 import { UsersService, usersService } from './users.service';
 
 export class UsersController {
@@ -9,7 +15,7 @@ export class UsersController {
 
   public list = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
-      const result = await this.service.listUsers(req.query as never);
+      const result = await this.service.listUsers(req.query as unknown as UserQueryParams);
       res.status(StatusCodes.OK).json({ success: true, data: result });
     } catch (err) {
       next(err);
@@ -81,7 +87,7 @@ export class UsersController {
     try {
       const result = await this.service.getRoleImpact(
         String(req.params.id),
-        req.query.newRole as never,
+        req.query.newRole as UserRole,
       );
       res.status(StatusCodes.OK).json({ success: true, data: result });
     } catch (err) {
