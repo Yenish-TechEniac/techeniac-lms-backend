@@ -2,6 +2,8 @@ import { DataSource, EntityManager, Repository } from 'typeorm';
 
 import { AppDataSource } from '../../core/db';
 import { User, UserRole } from './entities/user.entity';
+import { UserRoleHistory } from './entities/user-role-history.entity';
+import type { UserQueryParams } from './users.schemas';
 
 export interface CreateUserData {
   name: string;
@@ -15,13 +17,19 @@ export interface CreateUserData {
 
 export class UserRepository {
   private readonly repo: Repository<User>;
+  private readonly historyRepo: Repository<UserRoleHistory>;
 
   constructor(dataSource: DataSource = AppDataSource) {
     this.repo = dataSource.getRepository(User);
+    this.historyRepo = dataSource.getRepository(UserRoleHistory);
   }
 
   private getRepo(manager?: EntityManager): Repository<User> {
     return manager ? manager.getRepository(User) : this.repo;
+  }
+
+  private getHistoryRepo(manager?: EntityManager): Repository<UserRoleHistory> {
+    return manager ? manager.getRepository(UserRoleHistory) : this.historyRepo;
   }
 
   public async findByEmail(
@@ -135,6 +143,74 @@ export class UserRepository {
   public async incrementTokenVersion(id: string, manager?: EntityManager): Promise<void> {
     await this.getRepo(manager).increment({ id }, 'tokenVersion', 1);
   }
+
+  public async findAll(
+    params: UserQueryParams,
+    manager?: EntityManager,
+  ): Promise<[User[], number]> {
+    const query = this.getRepo(manager).createQueryBuilder('user').where('user.deleted_at IS NULL');
+
+    if (params.role) {
+      query.andWhere('user.role = :role', { role: params.role });
+    }
+
+    if (params.status) {
+      query.andWhere('user.is_active = :isActive', {
+        isActive: params.status === 'active',
+      });
+    }
+
+    if (params.search) {
+      query.andWhere('(user.name ILIKE :search OR user.email ILIKE :search)', {
+        search: `%${params.search}%`,
+      });
+    }
+
+    const page = Math.max(1, Number(params.page) || 1);
+    const limit = Math.max(1, Math.min(100, Number(params.limit) || 20));
+
+    query
+      .orderBy('user.created_at', 'DESC')
+      .skip((page - 1) * limit)
+      .take(limit);
+
+    return await query.getManyAndCount();
+  }
+
+  public async countActiveSuperAdmins(manager?: EntityManager): Promise<number> {
+    return await this.getRepo(manager).count({
+      where: {
+        role: UserRole.SUPER_ADMIN,
+        isActive: true,
+      },
+    });
+  }
+
+  public async save(user: User, manager?: EntityManager): Promise<User> {
+    return await this.getRepo(manager).save(user);
+  }
+
+  public async saveRoleHistory(
+    history: Partial<UserRoleHistory>,
+    manager?: EntityManager,
+  ): Promise<UserRoleHistory> {
+    const record = this.getHistoryRepo(manager).create(history);
+    return await this.getHistoryRepo(manager).save(record);
+  }
+
+  public async closeActiveRoleHistory(
+    userId: string,
+    toAt: Date = new Date(),
+    manager?: EntityManager,
+  ): Promise<void> {
+    await this.getHistoryRepo(manager)
+      .createQueryBuilder()
+      .update(UserRoleHistory)
+      .set({ toAt })
+      .where('user_id = :userId AND to_at IS NULL AND deleted_at IS NULL', { userId })
+      .execute();
+  }
 }
 
 export const userRepository = new UserRepository();
+export { UserRepository as UsersRepository, userRepository as usersRepository };

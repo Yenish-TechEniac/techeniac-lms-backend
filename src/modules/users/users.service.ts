@@ -8,7 +8,7 @@ import { AppError, NotFoundError } from '../../core/errors';
 import { logger } from '../../core/logging';
 import { type User, UserRole } from './entities/user.entity';
 import type { UserRoleHistory } from './entities/user-role-history.entity';
-import { UsersRepository, usersRepository } from './users.repository';
+import { UserRepository, userRepository } from './user.repository';
 import type {
   ChangeRoleInput,
   CreateUserInput,
@@ -45,7 +45,7 @@ function generateTemporaryPassword(): string {
 }
 
 export class UsersService {
-  constructor(private readonly repo: UsersRepository = usersRepository) {}
+  constructor(private readonly repo: UserRepository = userRepository) {}
 
   public async listUsers(
     params: UserQueryParams,
