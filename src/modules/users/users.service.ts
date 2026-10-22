@@ -319,10 +319,14 @@ export class UsersService {
   public async resendInvite(id: string): Promise<{ message: string }> {
     const user = await this.getUserById(id);
 
-    if (user.lastLoginAt !== null) {
+    if (!user.isActive) {
+      throw new BadRequestError('Cannot resend invite to a deactivated user', 'USER_INACTIVE');
+    }
+
+    if (!user.mustChangePassword) {
       throw new BadRequestError(
-        'User has already logged in and set up their password',
-        'USER_ALREADY_LOGGED_IN',
+        'User has already set up their password',
+        'USER_ALREADY_SET_PASSWORD',
       );
     }
 
