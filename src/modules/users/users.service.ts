@@ -338,8 +338,10 @@ export class UsersService {
     const temporaryPassword = generateTemporaryPassword();
     user.passwordHash = await hashPassword(temporaryPassword);
     user.mustChangePassword = true;
-    await this.repo.save(user);
-    await this.repo.incrementTokenVersion(user.id);
+    await this.repo.transaction(async (manager) => {
+      await this.repo.save(user, manager);
+      await this.repo.incrementTokenVersion(user.id, manager);
+    });
 
     try {
       await emailService.sendInviteEmail({
