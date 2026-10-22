@@ -1,5 +1,7 @@
 import crypto from 'node:crypto';
 
+import { QueryFailedError } from 'typeorm';
+
 import { hashPassword } from '../../core/auth/password';
 import { emailService } from '../../core/email';
 import { BadRequestError, ConflictError, ForbiddenError, NotFoundError } from '../../core/errors';
@@ -14,6 +16,25 @@ import type {
   UserQueryParams,
 } from './users.schemas';
 
+function pickRandomChar(source: string): string {
+  const index = crypto.randomInt(0, source.length);
+  const char = source[index];
+  if (char === undefined) {
+    throw new Error('Index out of bounds while picking random character');
+  }
+  return char;
+}
+
+function isUniqueViolation(err: unknown): boolean {
+  if (err instanceof QueryFailedError) {
+    const code =
+      (err as QueryFailedError & { driverError?: { code?: string } }).driverError?.code ??
+      (err as unknown as { code?: string }).code;
+    return code === '23505';
+  }
+  return false;
+}
+
 function generateTemporaryPassword(): string {
   const upper = 'ABCDEFGHJKLMNPQRSTUVWXYZ';
   const lower = 'abcdefghijkmnpqrstuvwxyz';
@@ -22,21 +43,24 @@ function generateTemporaryPassword(): string {
   const all = upper + lower + digits + special;
 
   const chars = [
-    upper[crypto.randomInt(0, upper.length)]!,
-    lower[crypto.randomInt(0, lower.length)]!,
-    digits[crypto.randomInt(0, digits.length)]!,
-    special[crypto.randomInt(0, special.length)]!,
+    pickRandomChar(upper),
+    pickRandomChar(lower),
+    pickRandomChar(digits),
+    pickRandomChar(special),
   ];
 
   for (let i = 4; i < 14; i++) {
-    chars.push(all[crypto.randomInt(0, all.length)]!);
+    chars.push(pickRandomChar(all));
   }
 
   for (let i = chars.length - 1; i > 0; i--) {
     const j = crypto.randomInt(0, i + 1);
-    const temp = chars[i]!;
-    chars[i] = chars[j]!;
-    chars[j] = temp;
+    const charAtI = chars[i];
+    const charAtJ = chars[j];
+    if (charAtI !== undefined && charAtJ !== undefined) {
+      chars[i] = charAtJ;
+      chars[j] = charAtI;
+    }
   }
 
   return chars.join('');
@@ -48,10 +72,8 @@ export class UsersService {
   public async listUsers(
     params: UserQueryParams,
   ): Promise<{ users: User[]; total: number; page: number; limit: number }> {
-    const page = Math.max(1, Number(params.page) || 1);
-    const limit = Math.max(1, Math.min(100, Number(params.limit) || 20));
-    const [users, total] = await this.repo.findAll({ ...params, page, limit });
-    return { users, total, page, limit };
+    const [users, total] = await this.repo.findAll(params);
+    return { users, total, page: params.page, limit: params.limit };
   }
 
   public async getUserById(id: string): Promise<User> {
@@ -71,13 +93,21 @@ export class UsersService {
     const temporaryPassword = generateTemporaryPassword();
     const passwordHash = await hashPassword(temporaryPassword);
 
-    const user = await this.repo.create({
-      name: input.name,
-      email: input.email,
-      role: input.role,
-      passwordHash,
-      mustChangePassword: true,
-    });
+    let user: User;
+    try {
+      user = await this.repo.create({
+        name: input.name,
+        email: input.email,
+        role: input.role,
+        passwordHash,
+        mustChangePassword: true,
+      });
+    } catch (err) {
+      if (isUniqueViolation(err)) {
+        throw new ConflictError('A user with this email already exists', 'DUPLICATE_EMAIL');
+      }
+      throw err;
+    }
 
     await this.repo.saveRoleHistory({
       userId: user.id,
@@ -115,7 +145,14 @@ export class UsersService {
       user.name = input.name;
     }
 
-    return this.repo.save(user);
+    try {
+      return await this.repo.save(user);
+    } catch (err) {
+      if (isUniqueViolation(err)) {
+        throw new ConflictError('A user with this email already exists', 'DUPLICATE_EMAIL');
+      }
+      throw err;
+    }
   }
 
   public async changeRole(
