@@ -175,6 +175,17 @@ The Techeniac Team`;
 </body>
 </html>`;
 
+    if (!this.transporter) {
+      logger.info(
+        {
+          to,
+          temporaryPassword,
+        },
+        'SMTP not configured in environment. User invitation generated for local development',
+      );
+      return;
+    }
+
     try {
       await this.transporter.sendMail({
         from: env.SMTP_FROM,
@@ -184,17 +195,7 @@ The Techeniac Team`;
         html,
       });
 
-      if (!this.isConfigured) {
-        logger.info(
-          {
-            to,
-            temporaryPassword,
-          },
-          'SMTP not configured in environment. User invitation generated for local development',
-        );
-      } else {
-        logger.info({ to }, 'User invitation email dispatched successfully via SMTP');
-      }
+      logger.info({ to }, 'User invitation email dispatched successfully via SMTP');
     } catch (error) {
       logger.error({ err: error, to }, 'Failed to dispatch user invitation email');
     }

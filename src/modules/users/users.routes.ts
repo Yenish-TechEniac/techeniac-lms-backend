@@ -1,7 +1,7 @@
 import { Router } from 'express';
 
-import { requireAuth, requireRole } from '../../core/auth';
 import { validate } from '../../core/http';
+import { requireAuth, requireRole } from '../auth';
 import { UserRole } from './entities/user.entity';
 import { usersController } from './users.controller';
 import {
