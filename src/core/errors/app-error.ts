@@ -55,3 +55,15 @@ export class ForbiddenError extends AppError {
     super(message, StatusCodes.FORBIDDEN, code, details);
   }
 }
+
+export class ConflictError extends AppError {
+  constructor(message: string = 'Conflict', code: string = 'CONFLICT', details?: unknown) {
+    super(message, StatusCodes.CONFLICT, code, details);
+  }
+}
+
+export class BadRequestError extends AppError {
+  constructor(message: string = 'Bad request', code: string = 'BAD_REQUEST', details?: unknown) {
+    super(message, StatusCodes.BAD_REQUEST, code, details);
+  }
+}

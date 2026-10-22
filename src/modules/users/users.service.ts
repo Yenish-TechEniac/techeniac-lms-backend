@@ -1,10 +1,8 @@
 import crypto from 'node:crypto';
 
-import { StatusCodes } from 'http-status-codes';
-
 import { hashPassword } from '../../core/auth/password';
 import { emailService } from '../../core/email';
-import { AppError, NotFoundError } from '../../core/errors';
+import { BadRequestError, ConflictError, ForbiddenError, NotFoundError } from '../../core/errors';
 import { logger } from '../../core/logging';
 import { type User, UserRole } from './entities/user.entity';
 import type { UserRoleHistory } from './entities/user-role-history.entity';
@@ -67,11 +65,7 @@ export class UsersService {
   public async createUser(input: CreateUserInput, actorId?: string): Promise<User> {
     const existing = await this.repo.findByEmail(input.email);
     if (existing) {
-      throw new AppError(
-        'A user with this email already exists',
-        StatusCodes.CONFLICT,
-        'DUPLICATE_EMAIL',
-      );
+      throw new ConflictError('A user with this email already exists', 'DUPLICATE_EMAIL');
     }
 
     const temporaryPassword = generateTemporaryPassword();
@@ -112,11 +106,7 @@ export class UsersService {
     if (input.email && input.email !== user.email) {
       const existing = await this.repo.findByEmail(input.email);
       if (existing) {
-        throw new AppError(
-          'A user with this email already exists',
-          StatusCodes.CONFLICT,
-          'DUPLICATE_EMAIL',
-        );
+        throw new ConflictError('A user with this email already exists', 'DUPLICATE_EMAIL');
       }
       user.email = input.email;
     }
@@ -136,28 +126,19 @@ export class UsersService {
     const user = await this.getUserById(id);
 
     if (user.role === input.newRole) {
-      throw new AppError(
-        'User already has the requested role',
-        StatusCodes.BAD_REQUEST,
-        'SAME_ROLE_NO_OP',
-      );
+      throw new BadRequestError('User already has the requested role', 'SAME_ROLE_NO_OP');
     }
 
     if (actorId && actorId === id) {
-      throw new AppError(
-        'Super Admin cannot change own role',
-        StatusCodes.FORBIDDEN,
-        'CANNOT_CHANGE_OWN_ROLE',
-      );
+      throw new ForbiddenError('Super Admin cannot change own role', 'CANNOT_CHANGE_OWN_ROLE');
     }
 
     if (
       user.role === UserRole.MENTOR &&
       (input.newRole === UserRole.MENTEE || input.newRole === UserRole.SUPER_ADMIN)
     ) {
-      throw new AppError(
+      throw new BadRequestError(
         'Mentor role cannot be changed to Mentee or Super Admin as per LMS policy',
-        StatusCodes.BAD_REQUEST,
         'CANNOT_CHANGE_MENTOR_ROLE',
       );
     }
@@ -166,9 +147,8 @@ export class UsersService {
       user.role === UserRole.SUPER_ADMIN &&
       (input.newRole === UserRole.MENTOR || input.newRole === UserRole.MENTEE)
     ) {
-      throw new AppError(
+      throw new BadRequestError(
         'Super Admin role cannot be changed into Mentor or Mentee as per LMS policy',
-        StatusCodes.BAD_REQUEST,
         'CANNOT_CHANGE_SUPER_ADMIN_ROLE',
       );
     }
@@ -176,11 +156,7 @@ export class UsersService {
     if (user.role === UserRole.SUPER_ADMIN && input.newRole !== UserRole.SUPER_ADMIN) {
       const activeAdmins = await this.repo.countActiveSuperAdmins();
       if (activeAdmins <= 1) {
-        throw new AppError(
-          'Cannot demote the last active Super Admin',
-          StatusCodes.BAD_REQUEST,
-          'LAST_SUPER_ADMIN',
-        );
+        throw new BadRequestError('Cannot demote the last active Super Admin', 'LAST_SUPER_ADMIN');
       }
     }
 
@@ -205,9 +181,8 @@ export class UsersService {
     const user = await this.getUserById(id);
 
     if (actorId && actorId === id && !isActive) {
-      throw new AppError(
+      throw new ForbiddenError(
         'Super Admin cannot deactivate own account',
-        StatusCodes.FORBIDDEN,
         'CANNOT_DEACTIVATE_SELF',
       );
     }
@@ -215,9 +190,8 @@ export class UsersService {
     if (!isActive && user.role === UserRole.SUPER_ADMIN) {
       const activeAdmins = await this.repo.countActiveSuperAdmins();
       if (activeAdmins <= 1) {
-        throw new AppError(
+        throw new BadRequestError(
           'Cannot deactivate the last active Super Admin',
-          StatusCodes.BAD_REQUEST,
           'LAST_SUPER_ADMIN',
         );
       }
@@ -265,9 +239,8 @@ export class UsersService {
     const user = await this.getUserById(id);
 
     if (user.lastLoginAt !== null) {
-      throw new AppError(
+      throw new BadRequestError(
         'User has already logged in and set up their password',
-        StatusCodes.BAD_REQUEST,
         'USER_ALREADY_LOGGED_IN',
       );
     }

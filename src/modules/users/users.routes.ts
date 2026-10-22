@@ -1,6 +1,6 @@
 import { Router } from 'express';
 
-import { validate } from '../../core/http';
+import { inviteRateLimiter, validate } from '../../core/http';
 import { requireAuth, requireRole } from '../auth';
 import { UserRole } from './entities/user.entity';
 import { usersController } from './users.controller';
@@ -22,7 +22,7 @@ router.use((req, res, next) => requireAuth(req, res, next));
 router.use((req, res, next) => requireRole(UserRole.SUPER_ADMIN)(req, res, next));
 
 router.get('/', validate(listUsersSchema), usersController.list);
-router.post('/', validate(createUserRequestSchema), usersController.create);
+router.post('/', inviteRateLimiter, validate(createUserRequestSchema), usersController.create);
 router.get('/:id', validate(getUserByIdSchema), usersController.getById);
 router.patch('/:id', validate(updateUserRequestSchema), usersController.update);
 router.get('/:id/role-impact', validate(getRoleImpactRequestSchema), usersController.getRoleImpact);
@@ -31,6 +31,7 @@ router.patch('/:id/deactivate', validate(userStatusRequestSchema), usersControll
 router.patch('/:id/activate', validate(userStatusRequestSchema), usersController.activate);
 router.post(
   '/:id/resend-invite',
+  inviteRateLimiter,
   validate(resendInviteRequestSchema),
   usersController.resendInvite,
 );
