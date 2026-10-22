@@ -26,13 +26,13 @@ async function seedAdmin(): Promise<void> {
     process.exit(1);
   }
 
-  logger.info({ email }, 'Starting Super Admin seed script...');
+  logger.info('Starting Super Admin seed script...');
 
   await initializeDatabase();
 
   const existingUser = await userRepository.findByEmail(email);
   if (existingUser) {
-    logger.info({ email }, 'Super Admin user already exists. Skipping creation.');
+    logger.info('Super Admin user already exists. Skipping creation.');
     await closeDatabase();
     return;
   }
@@ -47,10 +47,7 @@ async function seedAdmin(): Promise<void> {
     mustChangePassword: true,
   });
 
-  logger.info(
-    { id: admin.id, email: admin.email, role: admin.role },
-    'Super Admin seeded successfully.',
-  );
+  logger.info({ id: admin.id, role: admin.role }, 'Super Admin seeded successfully.');
   await closeDatabase();
 }
 
