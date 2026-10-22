@@ -1,6 +1,6 @@
-import type { NextFunction, Request, Response } from 'express';
-import { StatusCodes } from 'http-status-codes';
+import type { Request, Response } from 'express';
 
+import { BaseController } from '../../core/http';
 import { User, UserRole } from './entities/user.entity';
 import type {
   ChangeRoleInput,
@@ -40,110 +40,67 @@ export function toSafeUser(user: User): SafeUser {
   };
 }
 
-export class UsersController {
-  constructor(private readonly service: UsersService = usersService) {}
+export class UsersController extends BaseController {
+  constructor(private readonly service: UsersService = usersService) {
+    super();
+  }
 
-  public list = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
-    try {
-      const result = await this.service.listUsers(req.query as unknown as UserQueryParams);
-      res.status(StatusCodes.OK).json({
-        success: true,
-        data: {
-          ...result,
-          users: result.users.map(toSafeUser),
-        },
-      });
-    } catch (err) {
-      next(err);
-    }
+  public list = async (req: Request, res: Response): Promise<void> => {
+    const result = await this.service.listUsers(req.query as unknown as UserQueryParams);
+    this.sendSuccess(res, {
+      ...result,
+      users: result.users.map(toSafeUser),
+    });
   };
 
-  public getById = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
-    try {
-      const user = await this.service.getUserById(String(req.params.id));
-      res.status(StatusCodes.OK).json({ success: true, data: toSafeUser(user) });
-    } catch (err) {
-      next(err);
-    }
+  public getById = async (req: Request, res: Response): Promise<void> => {
+    const user = await this.service.getUserById(String(req.params.id));
+    this.sendSuccess(res, toSafeUser(user));
   };
 
-  public create = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
-    try {
-      const user = await this.service.createUser(req.body as CreateUserInput, req.user?.id);
-      res.status(StatusCodes.CREATED).json({ success: true, data: toSafeUser(user) });
-    } catch (err) {
-      next(err);
-    }
+  public create = async (req: Request, res: Response): Promise<void> => {
+    const user = await this.service.createUser(req.body as CreateUserInput, req.user?.id);
+    this.sendCreated(res, toSafeUser(user));
   };
 
-  public update = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
-    try {
-      const user = await this.service.updateUser(
-        String(req.params.id),
-        req.body as UpdateUserInput,
-      );
-      res.status(StatusCodes.OK).json({ success: true, data: toSafeUser(user) });
-    } catch (err) {
-      next(err);
-    }
+  public update = async (req: Request, res: Response): Promise<void> => {
+    const user = await this.service.updateUser(String(req.params.id), req.body as UpdateUserInput);
+    this.sendSuccess(res, toSafeUser(user));
   };
 
-  public changeRole = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
-    try {
-      const result = await this.service.changeRole(
-        String(req.params.id),
-        req.body as ChangeRoleInput,
-        req.user?.id,
-      );
-      res.status(StatusCodes.OK).json({
-        success: true,
-        data: {
-          ...result,
-          user: toSafeUser(result.user),
-        },
-      });
-    } catch (err) {
-      next(err);
-    }
+  public changeRole = async (req: Request, res: Response): Promise<void> => {
+    const result = await this.service.changeRole(
+      String(req.params.id),
+      req.body as ChangeRoleInput,
+      req.user?.id,
+    );
+    this.sendSuccess(res, {
+      ...result,
+      user: toSafeUser(result.user),
+    });
   };
 
-  public deactivate = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
-    try {
-      const user = await this.service.toggleUserStatus(String(req.params.id), false, req.user?.id);
-      res.status(StatusCodes.OK).json({ success: true, data: toSafeUser(user) });
-    } catch (err) {
-      next(err);
-    }
+  public deactivate = async (req: Request, res: Response): Promise<void> => {
+    const user = await this.service.toggleUserStatus(String(req.params.id), false, req.user?.id);
+    this.sendSuccess(res, toSafeUser(user));
   };
 
-  public activate = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
-    try {
-      const user = await this.service.toggleUserStatus(String(req.params.id), true, req.user?.id);
-      res.status(StatusCodes.OK).json({ success: true, data: toSafeUser(user) });
-    } catch (err) {
-      next(err);
-    }
+  public activate = async (req: Request, res: Response): Promise<void> => {
+    const user = await this.service.toggleUserStatus(String(req.params.id), true, req.user?.id);
+    this.sendSuccess(res, toSafeUser(user));
   };
 
-  public getRoleImpact = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
-    try {
-      const result = await this.service.getRoleImpact(
-        String(req.params.id),
-        req.query.newRole as UserRole,
-      );
-      res.status(StatusCodes.OK).json({ success: true, data: result });
-    } catch (err) {
-      next(err);
-    }
+  public getRoleImpact = async (req: Request, res: Response): Promise<void> => {
+    const result = await this.service.getRoleImpact(
+      String(req.params.id),
+      req.query.newRole as UserRole,
+    );
+    this.sendSuccess(res, result);
   };
 
-  public resendInvite = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
-    try {
-      const result = await this.service.resendInvite(String(req.params.id));
-      res.status(StatusCodes.OK).json({ success: true, data: result });
-    } catch (err) {
-      next(err);
-    }
+  public resendInvite = async (req: Request, res: Response): Promise<void> => {
+    const result = await this.service.resendInvite(String(req.params.id));
+    this.sendSuccess(res, result);
   };
 }
 

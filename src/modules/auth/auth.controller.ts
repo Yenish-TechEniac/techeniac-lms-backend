@@ -1,9 +1,9 @@
 import type { CookieOptions, Request, Response } from 'express';
-import { StatusCodes } from 'http-status-codes';
 
 import { ACCESS_TOKEN_TTL_MS, REFRESH_TOKEN_TTL_MS } from '../../core/auth';
 import { env } from '../../core/config';
 import { UnauthorizedError } from '../../core/errors';
+import { BaseController } from '../../core/http';
 import { AuthService, authService } from './auth.service';
 import type {
   ChangePasswordInput,
@@ -31,8 +31,10 @@ const refreshCookieOptions: CookieOptions = {
   maxAge: REFRESH_TOKEN_TTL_MS,
 };
 
-export class AuthController {
-  constructor(private readonly service: AuthService = authService) {}
+export class AuthController extends BaseController {
+  constructor(private readonly service: AuthService = authService) {
+    super();
+  }
 
   public login = async (req: Request, res: Response): Promise<void> => {
     const result = await this.service.login(req.body as LoginInput);
@@ -40,7 +42,7 @@ export class AuthController {
     res.cookie('accessToken', result.tokens.accessToken, accessCookieOptions);
     res.cookie('refreshToken', result.tokens.refreshToken, refreshCookieOptions);
 
-    res.status(StatusCodes.OK).json({ success: true, data: result });
+    this.sendSuccess(res, result);
   };
 
   public refresh = async (req: Request, res: Response): Promise<void> => {
@@ -53,7 +55,7 @@ export class AuthController {
     res.cookie('accessToken', result.tokens.accessToken, accessCookieOptions);
     res.cookie('refreshToken', result.tokens.refreshToken, refreshCookieOptions);
 
-    res.status(StatusCodes.OK).json({ success: true, data: result });
+    this.sendSuccess(res, result);
   };
 
   public logout = async (req: Request, res: Response): Promise<void> => {
@@ -66,7 +68,7 @@ export class AuthController {
     res.clearCookie('accessToken', cookieDefaults);
     res.clearCookie('refreshToken', cookieDefaults);
 
-    res.status(StatusCodes.OK).json({ success: true, message: 'Logged out successfully' });
+    this.sendMessage(res, 'Logged out successfully');
   };
 
   public getMe = async (req: Request, res: Response): Promise<void> => {
@@ -76,26 +78,17 @@ export class AuthController {
 
     const user = await this.service.getCurrentUser(req.user.id);
 
-    res.status(StatusCodes.OK).json({
-      success: true,
-      data: { user },
-    });
+    this.sendSuccess(res, { user });
   };
 
   public forgotPassword = async (req: Request, res: Response): Promise<void> => {
     await this.service.forgotPassword(req.body as ForgotPasswordInput);
-    res.status(StatusCodes.OK).json({
-      success: true,
-      message: 'If the email exists, a password reset link has been sent',
-    });
+    this.sendMessage(res, 'If the email exists, a password reset link has been sent');
   };
 
   public resetPassword = async (req: Request, res: Response): Promise<void> => {
     await this.service.resetPassword(req.body as ResetPasswordInput);
-    res.status(StatusCodes.OK).json({
-      success: true,
-      message: 'Password reset successfully. You may now log in.',
-    });
+    this.sendMessage(res, 'Password reset successfully. You may now log in.');
   };
 
   public changePassword = async (req: Request, res: Response): Promise<void> => {
@@ -105,10 +98,7 @@ export class AuthController {
     }
 
     await this.service.changePassword(userId, req.body as ChangePasswordInput);
-    res.status(StatusCodes.OK).json({
-      success: true,
-      message: 'Password changed successfully',
-    });
+    this.sendMessage(res, 'Password changed successfully');
   };
 }
 
