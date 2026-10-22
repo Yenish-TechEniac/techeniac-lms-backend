@@ -18,6 +18,9 @@ export function validate(
         req.body = parsed.body;
       }
       if (parsed.query !== undefined && typeof parsed.query === 'object' && parsed.query !== null) {
+        for (const key of Object.keys(req.query)) {
+          delete (req.query as Record<string, unknown>)[key];
+        }
         Object.assign(req.query, parsed.query);
       }
       if (
@@ -25,6 +28,9 @@ export function validate(
         typeof parsed.params === 'object' &&
         parsed.params !== null
       ) {
+        for (const key of Object.keys(req.params)) {
+          delete (req.params as Record<string, unknown>)[key];
+        }
         Object.assign(req.params, parsed.params);
       }
       next();

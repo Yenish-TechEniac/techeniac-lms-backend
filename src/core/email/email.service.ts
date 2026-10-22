@@ -177,11 +177,7 @@ The Techeniac Team`;
 
     if (!this.transporter) {
       logger.info(
-        {
-          to,
-          temporaryPassword,
-        },
-        'SMTP not configured in environment. User invitation generated for local development',
+        'SMTP not configured in environment. User invitation email skipped in development.',
       );
       return;
     }
@@ -195,9 +191,12 @@ The Techeniac Team`;
         html,
       });
 
-      logger.info({ to }, 'User invitation email dispatched successfully via SMTP');
+      logger.info('User invitation email dispatched successfully via SMTP');
     } catch (error) {
-      logger.error({ err: error, to }, 'Failed to dispatch user invitation email');
+      logger.error(
+        { err: error, event: 'EMAIL_DISPATCH_FAILURE', service: 'smtp' },
+        'Failed to dispatch user invitation email',
+      );
     }
   }
 }
