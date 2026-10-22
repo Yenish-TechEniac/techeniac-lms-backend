@@ -10,19 +10,17 @@ export interface SendPasswordResetOptions {
 }
 
 export class EmailService {
-  private readonly transporter: Transporter;
-  private readonly isConfigured: boolean;
+  private readonly transporter: Transporter | null;
 
   constructor() {
     if (env.SMTP_HOST) {
-      this.isConfigured = true;
       // Port 465 requires direct SSL (secure: true); port 587 uses STARTTLS (secure: false)
       const secure = env.SMTP_PORT === 465 ? true : env.SMTP_SECURE && env.SMTP_PORT !== 587;
       this.transporter = nodemailer.createTransport({
         host: env.SMTP_HOST,
         port: env.SMTP_PORT,
         secure,
-        requireTLS: !secure,
+        requireTLS: true,
         auth:
           env.SMTP_USER && env.SMTP_PASS
             ? {
@@ -32,14 +30,7 @@ export class EmailService {
             : undefined,
       });
     } else {
-      this.isConfigured = false;
-      // In local dev without SMTP server configured, use a stream transport to prevent crashes
-      this.transporter = nodemailer.createTransport({
-        streamTransport: true,
-        newline: 'unix',
-        buffer: true,
-        secure: true,
-      } as Parameters<typeof nodemailer.createTransport>[0]) as Transporter;
+      this.transporter = null;
     }
   }
 
@@ -95,6 +86,13 @@ The Techeniac Team`;
 </body>
 </html>`;
 
+    if (!this.transporter) {
+      logger.info(
+        'SMTP not configured in environment. Password reset email skipped in development.',
+      );
+      return;
+    }
+
     try {
       await this.transporter.sendMail({
         from: env.SMTP_FROM,
@@ -104,13 +102,7 @@ The Techeniac Team`;
         html,
       });
 
-      if (!this.isConfigured) {
-        logger.info(
-          'SMTP not configured in environment. Password reset email skipped in development.',
-        );
-      } else {
-        logger.info('Password reset email dispatched successfully via SMTP');
-      }
+      logger.info('Password reset email dispatched successfully via SMTP');
     } catch (error) {
       logger.error(
         { err: error, event: 'EMAIL_DISPATCH_FAILURE', service: 'smtp' },
