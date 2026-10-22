@@ -183,6 +183,23 @@ export class UserRepository {
     return await query.getManyAndCount();
   }
 
+  public async getCounts(manager?: EntityManager): Promise<{
+    total: number;
+    active: number;
+    inactive: number;
+  }> {
+    const repo = this.getRepo(manager);
+    const [total, active] = await Promise.all([
+      repo.count(),
+      repo.count({ where: { isActive: true } }),
+    ]);
+    return {
+      total,
+      active,
+      inactive: Math.max(0, total - active),
+    };
+  }
+
   public async countActiveSuperAdmins(manager?: EntityManager): Promise<number> {
     return await this.getRepo(manager).count({
       where: {

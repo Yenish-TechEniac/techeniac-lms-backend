@@ -75,11 +75,16 @@ function generateTemporaryPassword(): string {
 export class UsersService {
   constructor(private readonly repo: UserRepository = userRepository) {}
 
-  public async listUsers(
-    params: UserQueryParams,
-  ): Promise<{ users: User[]; total: number; page: number; limit: number }> {
+  public async listUsers(params: UserQueryParams): Promise<{
+    users: User[];
+    total: number;
+    page: number;
+    limit: number;
+    counts: { total: number; active: number; inactive: number };
+  }> {
     const [users, total] = await this.repo.findAll(params);
-    return { users, total, page: params.page, limit: params.limit };
+    const counts = await this.repo.getCounts();
+    return { users, total, page: params.page, limit: params.limit, counts };
   }
 
   public async getUserById(id: string): Promise<User> {
