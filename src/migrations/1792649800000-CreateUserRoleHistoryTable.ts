@@ -1,7 +1,7 @@
 import type { MigrationInterface, QueryRunner } from 'typeorm';
 
-export class CreateUserRoleHistoryTable1792420000000 implements MigrationInterface {
-  name = 'CreateUserRoleHistoryTable1792420000000';
+export class CreateUserRoleHistoryTable1792649800000 implements MigrationInterface {
+  name = 'CreateUserRoleHistoryTable1792649800000';
 
   public async up(queryRunner: QueryRunner): Promise<void> {
     await queryRunner.query(`
@@ -10,6 +10,8 @@ export class CreateUserRoleHistoryTable1792420000000 implements MigrationInterfa
         "created_at" TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT now(),
         "updated_at" TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT now(),
         "deleted_at" TIMESTAMP WITH TIME ZONE,
+        "created_by" uuid,
+        "updated_by" uuid,
         "user_id" uuid NOT NULL,
         "role" character varying(20) NOT NULL,
         "from_at" TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT now(),
