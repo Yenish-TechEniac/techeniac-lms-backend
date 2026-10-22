@@ -19,9 +19,15 @@ export class UserRepository {
   private readonly repo: Repository<User>;
   private readonly historyRepo: Repository<UserRoleHistory>;
 
-  constructor(dataSource: DataSource = AppDataSource) {
+  constructor(private readonly dataSource: DataSource = AppDataSource) {
     this.repo = dataSource.getRepository(User);
     this.historyRepo = dataSource.getRepository(UserRoleHistory);
+  }
+
+  public async transaction<T>(
+    runInTransaction: (manager: EntityManager) => Promise<T>,
+  ): Promise<T> {
+    return await this.dataSource.transaction(runInTransaction);
   }
 
   private getRepo(manager?: EntityManager): Repository<User> {

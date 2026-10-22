@@ -67,3 +67,9 @@ export class BadRequestError extends AppError {
     super(message, StatusCodes.BAD_REQUEST, code, details);
   }
 }
+
+export class BadGatewayError extends AppError {
+  constructor(message: string = 'Bad gateway', code: string = 'BAD_GATEWAY', details?: unknown) {
+    super(message, StatusCodes.BAD_GATEWAY, code, details);
+  }
+}

@@ -197,6 +197,7 @@ The Techeniac Team`;
         { err: error, event: 'EMAIL_DISPATCH_FAILURE', service: 'smtp' },
         'Failed to dispatch user invitation email',
       );
+      throw error;
     }
   }
 }

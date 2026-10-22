@@ -24,6 +24,12 @@ export class CreateUserRoleHistoryTable1792649800000 implements MigrationInterfa
     `);
 
     await queryRunner.query(`
+      ALTER TABLE "user_role_history"
+      ADD COLUMN IF NOT EXISTS "created_by" uuid,
+      ADD COLUMN IF NOT EXISTS "updated_by" uuid;
+    `);
+
+    await queryRunner.query(`
       CREATE UNIQUE INDEX IF NOT EXISTS "idx_user_role_history_active" ON "user_role_history" ("user_id")
       WHERE ((to_at IS NULL) AND (deleted_at IS NULL));
     `);
