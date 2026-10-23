@@ -5,9 +5,9 @@ import type { Server } from 'node:http';
 
 import { app } from '../src/app';
 import { signPasswordResetToken } from '../src/core/auth';
-import { closeDatabase, initializeDatabase } from '../src/core/db';
+import { AppDataSource, closeDatabase, initializeDatabase } from '../src/core/db';
 import { logger } from '../src/core/logging';
-import { tokenRepository, TokenType } from '../src/modules/auth';
+import { authService, tokenRepository, TokenRevokeReason, TokenType } from '../src/modules/auth';
 import { userRepository } from '../src/modules/users';
 
 interface LoginResult {
@@ -15,6 +15,9 @@ interface LoginResult {
   accessToken: string;
   refreshToken: string;
 }
+
+const ADMIN_EMAIL = process.env.SEED_ADMIN_EMAIL || 'admin@techeniac.com';
+const ADMIN_PASSWORD = process.env.SEED_ADMIN_PASSWORD || 'Admin123456!';
 
 async function startServer(): Promise<{ server: Server; baseUrl: string }> {
   const server: Server = await new Promise((resolve) => {
@@ -34,8 +37,8 @@ async function testValidLogin(baseUrl: string): Promise<LoginResult> {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
-      email: process.env.SEED_ADMIN_EMAIL || 'admin@techeniac.com',
-      password: process.env.SEED_ADMIN_PASSWORD || 'Admin123456!',
+      email: ADMIN_EMAIL,
+      password: ADMIN_PASSWORD,
     }),
   });
   const loginData = (await loginRes.json()) as {
@@ -67,7 +70,7 @@ async function testInvalidLogin(baseUrl: string): Promise<boolean> {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
-      email: 'admin@techeniac.com',
+      email: ADMIN_EMAIL,
       password: 'WrongPassword123!',
     }),
   });
@@ -100,7 +103,7 @@ async function testGetMe(baseUrl: string, accessToken: string): Promise<boolean>
     data?: { user: { role: string; email: string } };
   };
 
-  const isEmailMatch = meData.data?.user?.email === 'admin@techeniac.com';
+  const isEmailMatch = meData.data?.user?.email === ADMIN_EMAIL;
   const isRoleMatch = meData.data?.user?.role === 'SUPER_ADMIN';
   const passed = meRes.status === 200 && meData.success && isEmailMatch && isRoleMatch;
 
@@ -225,73 +228,120 @@ async function testValidationError(baseUrl: string): Promise<boolean> {
 }
 
 async function testVerifyResetToken(baseUrl: string): Promise<boolean> {
-  const adminUser = await userRepository.findByEmail('admin@techeniac.com');
+  const adminUser = await userRepository.findByEmail(ADMIN_EMAIL);
   if (!adminUser) {
     console.error('✘ Test 8 FAIL: admin user not found');
     return false;
   }
 
-  const jti = randomUUID();
-  const resetJwt = signPasswordResetToken({ sub: adminUser.id, jti });
-  await tokenRepository.createToken({
-    userId: adminUser.id,
-    tokenType: TokenType.PASSWORD_RESET,
-    jti,
-    expiresAt: new Date(Date.now() + 15 * 60 * 1000),
-  });
+  const createdJtis: string[] = [];
 
-  // 1. Verify active token -> returns { valid: true }
-  const validRes = await fetch(`${baseUrl}/verify-reset-token`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ token: resetJwt }),
-  });
-  const validData = (await validRes.json()) as { success: boolean; data?: { valid: boolean } };
-
-  // 2. Mark token as consumed
-  await tokenRepository.markPasswordResetUsed(jti);
-
-  // 3. Verify consumed token -> returns { valid: false }
-  const consumedRes = await fetch(`${baseUrl}/verify-reset-token`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ token: resetJwt }),
-  });
-  const consumedData = (await consumedRes.json()) as {
-    success: boolean;
-    data?: { valid: boolean };
-  };
-
-  // 4. Verify invalid/garbage token -> returns { valid: false }
-  const garbageRes = await fetch(`${baseUrl}/verify-reset-token`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ token: 'invalid.jwt.token' }),
-  });
-  const garbageData = (await garbageRes.json()) as { success: boolean; data?: { valid: boolean } };
-
-  const passed =
-    validRes.status === 200 &&
-    validData.data?.valid === true &&
-    consumedRes.status === 200 &&
-    consumedData.data?.valid === false &&
-    garbageRes.status === 200 &&
-    garbageData.data?.valid === false;
-
-  if (passed) {
-    console.log(
-      '✔ Test 8 PASS: POST /verify-reset-token accurately checks active, consumed, and invalid tokens',
-    );
-  } else {
-    console.error('✘ Test 8 FAIL: /verify-reset-token verification failed', {
-      validStatus: validRes.status,
-      validData,
-      consumedData,
-      garbageData,
+  try {
+    const activeJti = randomUUID();
+    createdJtis.push(activeJti);
+    const activeJwt = signPasswordResetToken({ sub: adminUser.id, jti: activeJti });
+    await tokenRepository.createToken({
+      userId: adminUser.id,
+      tokenType: TokenType.PASSWORD_RESET,
+      jti: activeJti,
+      expiresAt: new Date(Date.now() + 30 * 60 * 1000),
     });
-  }
 
-  return passed;
+    // 1. Verify active token via HTTP -> returns { valid: true }
+    const validRes = await fetch(`${baseUrl}/verify-reset-token`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ token: activeJwt }),
+    });
+    const validData = (await validRes.json()) as { success: boolean; data?: { valid: boolean } };
+
+    // 2. Mark active token as consumed via HTTP -> returns { valid: false }
+    await tokenRepository.markPasswordResetUsed(activeJti);
+    const consumedRes = await fetch(`${baseUrl}/verify-reset-token`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ token: activeJwt }),
+    });
+    const consumedData = (await consumedRes.json()) as {
+      success: boolean;
+      data?: { valid: boolean };
+    };
+
+    // 3. Verify invalid/garbage token via HTTP -> returns { valid: false }
+    const garbageRes = await fetch(`${baseUrl}/verify-reset-token`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ token: 'invalid.jwt.token' }),
+    });
+    const garbageData = (await garbageRes.json()) as {
+      success: boolean;
+      data?: { valid: boolean };
+    };
+
+    // 4. Test expired token: DB row pushed into the past to satisfy chk_tokens_expiry constraint
+    // (Tested through service directly to avoid exhausting shared passwordResetRateLimiter)
+    const expiredJti = randomUUID();
+    createdJtis.push(expiredJti);
+    const expiredJwt = signPasswordResetToken({ sub: adminUser.id, jti: expiredJti });
+    await tokenRepository.createToken({
+      userId: adminUser.id,
+      tokenType: TokenType.PASSWORD_RESET,
+      jti: expiredJti,
+      expiresAt: new Date(Date.now() + 30 * 60 * 1000),
+    });
+    await AppDataSource.query(
+      `UPDATE tokens
+         SET issued_at = NOW() - INTERVAL '2 hours',
+             expires_at = NOW() - INTERVAL '1 hour'
+       WHERE jti = $1`,
+      [expiredJti],
+    );
+    const expiredResult = await authService.verifyResetToken(expiredJwt);
+
+    // 5. Test explicitly revoked token (tested through service directly)
+    const revokedJti = randomUUID();
+    createdJtis.push(revokedJti);
+    const revokedJwt = signPasswordResetToken({ sub: adminUser.id, jti: revokedJti });
+    await tokenRepository.createToken({
+      userId: adminUser.id,
+      tokenType: TokenType.PASSWORD_RESET,
+      jti: revokedJti,
+      expiresAt: new Date(Date.now() + 30 * 60 * 1000),
+    });
+    await tokenRepository.revokeByJti(revokedJti, TokenRevokeReason.ADMIN_REVOKED);
+    const revokedResult = await authService.verifyResetToken(revokedJwt);
+
+    const passed =
+      validRes.status === 200 &&
+      validData.data?.valid === true &&
+      consumedRes.status === 200 &&
+      consumedData.data?.valid === false &&
+      garbageRes.status === 200 &&
+      garbageData.data?.valid === false &&
+      expiredResult.valid === false &&
+      revokedResult.valid === false;
+
+    if (passed) {
+      console.log(
+        '✔ Test 8 PASS: POST /verify-reset-token accurately checks active, consumed, invalid, expired, and revoked tokens',
+      );
+    } else {
+      console.error('✘ Test 8 FAIL: /verify-reset-token verification failed', {
+        validStatus: validRes.status,
+        validData,
+        consumedData,
+        garbageData,
+        expiredResult,
+        revokedResult,
+      });
+    }
+
+    return passed;
+  } finally {
+    if (createdJtis.length > 0) {
+      await AppDataSource.query(`DELETE FROM tokens WHERE jti = ANY($1)`, [createdJtis]);
+    }
+  }
 }
 
 async function runTests(): Promise<void> {
