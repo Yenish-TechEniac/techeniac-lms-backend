@@ -37,7 +37,6 @@ export class BatchMember extends BaseEntity {
     name: 'member_role',
     type: 'enum',
     enum: BatchMemberRole,
-    enumName: 'batch_members_member_role_enum',
   })
   memberRole!: BatchMemberRole;
 
@@ -55,7 +54,6 @@ export class BatchMember extends BaseEntity {
     name: 'reason_to_leave',
     type: 'enum',
     enum: BatchReasonToLeave,
-    enumName: 'batch_members_reason_to_leave_enum',
     nullable: true,
   })
   reasonToLeave!: BatchReasonToLeave | null;

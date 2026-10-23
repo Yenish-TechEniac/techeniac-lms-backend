@@ -33,7 +33,6 @@ export class Batch extends BaseEntity {
     name: 'status',
     type: 'enum',
     enum: BatchStatus,
-    enumName: 'batches_status_enum',
     default: BatchStatus.DRAFT,
   })
   status!: BatchStatus;
