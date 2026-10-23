@@ -55,3 +55,13 @@ export class ForbiddenError extends AppError {
     super(message, StatusCodes.FORBIDDEN, code, details);
   }
 }
+
+export class ConflictError extends AppError {
+  constructor(
+    message: string = 'The resource has been modified concurrently. Please reload.',
+    code: string = 'CONFLICT',
+    details?: unknown,
+  ) {
+    super(message, StatusCodes.CONFLICT, code, details);
+  }
+}

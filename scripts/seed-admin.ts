@@ -3,8 +3,7 @@ import 'reflect-metadata';
 import { hashPassword } from '../src/core/auth';
 import { closeDatabase, initializeDatabase } from '../src/core/db';
 import { logger } from '../src/core/logging';
-import { UserRole } from '../src/modules/users';
-import { userRepository } from '../src/modules/users/user.repository';
+import { userRepository, UserRole } from '../src/modules/users';
 
 async function seedAdmin(): Promise<void> {
   const name = process.env.SEED_ADMIN_NAME ?? 'Super Admin';
@@ -15,14 +14,15 @@ async function seedAdmin(): Promise<void> {
 
   await initializeDatabase();
 
+  const passwordHash = await hashPassword(password);
+
   const existingUser = await userRepository.findByEmail(email);
   if (existingUser) {
-    logger.info({ email }, 'Super Admin user already exists. Skipping creation.');
+    await userRepository.updatePassword(existingUser.id, passwordHash);
+    logger.info({ email }, 'Super Admin user already exists. Password synchronized.');
     await closeDatabase();
     return;
   }
-
-  const passwordHash = await hashPassword(password);
 
   const admin = await userRepository.create({
     name,

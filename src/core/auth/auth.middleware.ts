@@ -1,6 +1,8 @@
 import type { NextFunction, Request, Response } from 'express';
 
-import { userRepository } from '../../modules/users';
+// Imported directly to prevent circular dependency with users.routes.ts -> core/auth
+// eslint-disable-next-line architecture/cross-module-index-imports
+import { userRepository } from '../../modules/users/user.repository';
 import { ForbiddenError, UnauthorizedError } from '../errors';
 import { verifyAccessToken } from './jwt';
 

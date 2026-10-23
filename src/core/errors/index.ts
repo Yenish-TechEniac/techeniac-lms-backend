@@ -1,5 +1,6 @@
 export {
   AppError,
+  ConflictError,
   ForbiddenError,
   NotFoundError,
   UnauthorizedError,

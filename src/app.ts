@@ -6,6 +6,7 @@ import { env } from './core/config';
 import { healthRouter } from './core/health';
 import { corsMiddleware, errorMiddleware, notFoundMiddleware } from './core/http';
 import { authRouter } from './modules/auth';
+import { coursesRouter } from './modules/courses';
 import { usersRouter } from './modules/users';
 
 export function createApp(): Express {
@@ -31,6 +32,7 @@ export function createApp(): Express {
 
   app.use('/api/v1/auth', authRouter);
   app.use('/api/v1/users', usersRouter);
+  app.use('/api/v1/courses', coursesRouter);
 
   app.use(notFoundMiddleware);
   app.use(errorMiddleware);
