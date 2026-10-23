@@ -1,6 +1,6 @@
 import { Check, Column, CreateDateColumn, Entity, Index, JoinColumn, ManyToOne } from 'typeorm';
 
-import { AuditableEntity } from '../../../core/db';
+import { BaseEntity } from '../../../core/db';
 import { User } from '../../users';
 import { Batch } from './batch.entity';
 
@@ -12,7 +12,7 @@ import { Batch } from './batch.entity';
 @Index('idx_mm_batch_mentor_active', ['batchId', 'mentorId', 'isActive'])
 @Index('idx_mm_mentee_start', ['menteeId', 'startDate'])
 @Check('chk_mm_not_self', `"mentor_id" <> "mentee_id"`)
-export class MentorMentee extends AuditableEntity {
+export class MentorMentee extends BaseEntity {
   @Column({ name: 'batch_id', type: 'uuid' })
   batchId!: string;
 

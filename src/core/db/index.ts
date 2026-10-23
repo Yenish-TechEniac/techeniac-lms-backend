@@ -4,6 +4,7 @@ import { logger } from '../logging';
 import { AppDataSource } from './data-source';
 
 export { AuditableEntity } from './auditable.entity';
+export { BaseEntity } from './base.entity';
 export { AppDataSource } from './data-source';
 
 export async function initializeDatabase(): Promise<DataSource> {

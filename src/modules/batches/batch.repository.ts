@@ -121,12 +121,12 @@ export class BatchRepository {
       .createQueryBuilder('batch')
       .leftJoinAndSelect('batch.creator', 'creator')
       .loadRelationCountAndMap('batch.mentorsCount', 'batch.members', 'mentor', (subQb) =>
-        subQb.where('mentor.memberRole = :mentorRole AND mentor.isActive = true', {
+        subQb.where('mentor.member_role = :mentorRole AND mentor.is_active = true', {
           mentorRole: BatchMemberRole.MENTOR,
         }),
       )
       .loadRelationCountAndMap('batch.menteesCount', 'batch.members', 'mentee', (subQb) =>
-        subQb.where('mentee.memberRole = :menteeRole AND mentee.isActive = true', {
+        subQb.where('mentee.member_role = :menteeRole AND mentee.is_active = true', {
           menteeRole: BatchMemberRole.MENTEE,
         }),
       );

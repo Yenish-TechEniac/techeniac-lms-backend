@@ -42,6 +42,12 @@ export const createBatchSchema = z.object({
     ),
 });
 
+export const getBatchByIdSchema = z.object({
+  params: z.object({
+    id: z.string().uuid('Invalid batch ID'),
+  }),
+});
+
 export const updateBatchSchema = z.object({
   params: z.object({
     id: z.string().uuid('Invalid batch ID'),

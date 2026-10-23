@@ -1,7 +1,7 @@
 import { MigrationInterface, QueryRunner } from 'typeorm';
 
-export class CreateBatchesAndMembersTables1792649900000 implements MigrationInterface {
-  name = 'CreateBatchesAndMembersTables1792649900000';
+export class CreateBatchesAndMembersTables1792430000000 implements MigrationInterface {
+  name = 'CreateBatchesAndMembersTables1792430000000';
 
   public async up(queryRunner: QueryRunner): Promise<void> {
     await queryRunner.query(

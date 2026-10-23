@@ -9,6 +9,7 @@ import {
   batchQuerySchema,
   changeBatchStatusSchema,
   createBatchSchema,
+  getBatchByIdSchema,
   mapMenteesSchema,
   reassignMenteeSchema,
   removeBatchMemberSchema,
@@ -39,6 +40,7 @@ batchRouter.get(
   '/:id',
   requireAuth,
   requireRole(UserRole.SUPER_ADMIN),
+  validate(getBatchByIdSchema),
   batchController.getBatchById,
 );
 
