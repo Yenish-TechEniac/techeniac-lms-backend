@@ -40,14 +40,18 @@ async function runBatchTests(): Promise<void> {
       return u;
     }
 
+    const uniqueSuffix = Date.now().toString().slice(-6);
+    const batchCode1 = `BAT-${uniqueSuffix}-A`;
+    const batchCode2 = `BAT-${uniqueSuffix}-B`;
+
     const admin = await getOrCreateUser('admin@techeniac.com', 'Super Admin', UserRole.SUPER_ADMIN);
     const mentor = await getOrCreateUser(
-      'mentor-batch@techeniac.com',
+      `mentor-batch-${uniqueSuffix}@techeniac.com`,
       'Mentor Batch',
       UserRole.MENTOR,
     );
     const mentee = await getOrCreateUser(
-      'mentee-batch@techeniac.com',
+      `mentee-batch-${uniqueSuffix}@techeniac.com`,
       'Mentee Batch',
       UserRole.MENTEE,
     );
@@ -65,10 +69,6 @@ async function runBatchTests(): Promise<void> {
       role: mentee.role,
       tokenVersion: mentee.tokenVersion,
     });
-
-    const uniqueSuffix = Date.now().toString().slice(-4);
-    const batchCode1 = `BAT-${uniqueSuffix}-A`;
-    const batchCode2 = `BAT-${uniqueSuffix}-B`;
 
     // 1. Create Batch (Admin only)
     const createRes = await fetch(baseUrl, {

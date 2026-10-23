@@ -134,6 +134,20 @@ export class MentorMenteeRepository {
       .andWhere('(mentor_id = :userId OR mentee_id = :userId)', { userId })
       .execute();
   }
+
+  public async closeAllActiveMappingsForUser(
+    userId: string,
+    endReason: string,
+    manager?: EntityManager,
+  ): Promise<void> {
+    const repo = this.getRepo(manager);
+    await repo
+      .createQueryBuilder()
+      .update(MentorMentee)
+      .set({ isActive: false, endDate: new Date(), endReason })
+      .where('is_active = true AND (mentor_id = :userId OR mentee_id = :userId)', { userId })
+      .execute();
+  }
 }
 
 export const mentorMenteeRepository = new MentorMenteeRepository();

@@ -1,4 +1,4 @@
-import { DataSource, In, Repository, SelectQueryBuilder } from 'typeorm';
+import { DataSource, EntityManager, In, Repository, SelectQueryBuilder } from 'typeorm';
 
 import { AppDataSource } from '../../core/db';
 import {
@@ -299,6 +299,22 @@ export class BatchRepository {
         },
       );
     }
+  }
+
+  public async closeActiveMembershipsForUser(
+    userId: string,
+    reason: BatchReasonToLeave = BatchReasonToLeave.ROLE_CHANGE,
+    manager?: EntityManager,
+  ): Promise<void> {
+    const repo = manager ? manager.getRepository(BatchMember) : this.memberRepo;
+    await repo.update(
+      { userId, isActive: true },
+      {
+        isActive: false,
+        leftAt: new Date(),
+        reasonToLeave: reason,
+      },
+    );
   }
 }
 
