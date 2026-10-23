@@ -57,7 +57,17 @@ export const changePasswordSchema = z.object({
   }),
 });
 
+export const verifyResetTokenSchema = z.object({
+  body: z.object({
+    token: z
+      .string({ required_error: 'Reset token is required' })
+      .trim()
+      .min(1, 'Reset token cannot be empty'),
+  }),
+});
+
 export type LoginInput = z.infer<typeof loginSchema>['body'];
 export type ForgotPasswordInput = z.infer<typeof forgotPasswordSchema>['body'];
 export type ResetPasswordInput = z.infer<typeof resetPasswordSchema>['body'];
+export type VerifyResetTokenInput = z.infer<typeof verifyResetTokenSchema>['body'];
 export type ChangePasswordInput = z.infer<typeof changePasswordSchema>['body'];

@@ -1,7 +1,13 @@
 export { AuthController, authController } from './auth.controller';
 export { requireAuth, requireRole } from './auth.middleware';
 export { authRouter } from './auth.routes';
-export type { AuthResult, AuthTokens, AuthUserPayload, IAuthService } from './auth.service';
+export type {
+  AuthResult,
+  AuthTokens,
+  AuthUserPayload,
+  IAuthService,
+  VerifyResetTokenResult,
+} from './auth.service';
 export { AuthService, authService } from './auth.service';
 export { Token, TokenRevokeReason, TokenType } from './entities/token.entity';
 export type {
@@ -9,6 +15,7 @@ export type {
   ForgotPasswordInput,
   LoginInput,
   ResetPasswordInput,
+  VerifyResetTokenInput,
 } from './schemas/auth.schemas';
 export {
   changePasswordSchema,
@@ -16,5 +23,6 @@ export {
   loginSchema,
   refreshTokenSchema,
   resetPasswordSchema,
+  verifyResetTokenSchema,
 } from './schemas/auth.schemas';
 export { TokenRepository, tokenRepository } from './token.repository';

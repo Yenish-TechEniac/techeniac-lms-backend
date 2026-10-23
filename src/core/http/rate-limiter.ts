@@ -53,6 +53,19 @@ export const passwordResetRateLimiter = rateLimit({
 });
 
 /**
+ * Reset-token pre-check: 30 requests / 15 min per IP.
+ * Fired automatically by the reset page, so it must not consume the
+ * forgot/reset-password budget (PRD Section 5.6).
+ */
+export const verifyResetTokenRateLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  limit: 30,
+  standardHeaders: true,
+  legacyHeaders: false,
+  handler: rateLimitHandler,
+});
+
+/**
  * Refresh token: 30 requests / 15 min per IP (PRD Section 5.6).
  */
 export const refreshRateLimiter = rateLimit({
