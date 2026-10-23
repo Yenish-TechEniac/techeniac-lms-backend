@@ -44,6 +44,10 @@ export interface AuthResult {
   tokens: AuthTokens;
 }
 
+export interface VerifyResetTokenResult {
+  valid: boolean;
+}
+
 export interface IAuthService {
   login(input: LoginInput): Promise<AuthResult>;
   refresh(refreshToken: string): Promise<AuthResult>;
@@ -51,7 +55,7 @@ export interface IAuthService {
   getCurrentUser(userId: string): Promise<AuthUserPayload>;
   forgotPassword(input: ForgotPasswordInput): Promise<void>;
   resetPassword(input: ResetPasswordInput): Promise<void>;
-  verifyResetToken(token: string): Promise<{ valid: boolean }>;
+  verifyResetToken(token: string): Promise<VerifyResetTokenResult>;
   changePassword(userId: string, input: ChangePasswordInput): Promise<void>;
 }
 
@@ -382,7 +386,7 @@ export class AuthService implements IAuthService {
     });
   }
 
-  public async verifyResetToken(token: string): Promise<{ valid: boolean }> {
+  public async verifyResetToken(token: string): Promise<VerifyResetTokenResult> {
     const usable = await this.findUsableResetToken(token, 'verify');
     return { valid: usable !== null };
   }

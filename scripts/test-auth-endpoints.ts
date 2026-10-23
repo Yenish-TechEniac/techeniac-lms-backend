@@ -7,6 +7,7 @@ import { app } from '../src/app';
 import { signPasswordResetToken } from '../src/core/auth';
 import { AppDataSource, closeDatabase, initializeDatabase } from '../src/core/db';
 import { logger } from '../src/core/logging';
+import type { VerifyResetTokenResult } from '../src/modules/auth';
 import { authService, tokenRepository, TokenRevokeReason, TokenType } from '../src/modules/auth';
 import { userRepository } from '../src/modules/users';
 
@@ -253,7 +254,10 @@ async function testVerifyResetToken(baseUrl: string): Promise<boolean> {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ token: activeJwt }),
     });
-    const validData = (await validRes.json()) as { success: boolean; data?: { valid: boolean } };
+    const validData = (await validRes.json()) as {
+      success: boolean;
+      data?: VerifyResetTokenResult;
+    };
 
     // 2. Mark active token as consumed via HTTP -> returns { valid: false }
     await tokenRepository.markPasswordResetUsed(activeJti);
@@ -264,7 +268,7 @@ async function testVerifyResetToken(baseUrl: string): Promise<boolean> {
     });
     const consumedData = (await consumedRes.json()) as {
       success: boolean;
-      data?: { valid: boolean };
+      data?: VerifyResetTokenResult;
     };
 
     // 3. Verify invalid/garbage token via HTTP -> returns { valid: false }
@@ -275,7 +279,7 @@ async function testVerifyResetToken(baseUrl: string): Promise<boolean> {
     });
     const garbageData = (await garbageRes.json()) as {
       success: boolean;
-      data?: { valid: boolean };
+      data?: VerifyResetTokenResult;
     };
 
     // 4. Test expired token: DB row pushed into the past to satisfy chk_tokens_expiry constraint
