@@ -15,8 +15,9 @@ import {
 import { AppDataSource } from '../../core/db';
 import { emailService } from '../../core/email';
 import { ForbiddenError, NotFoundError, UnauthorizedError } from '../../core/errors';
-import { UserRepository, userRepository, UserRole } from '../users';
-import { TokenRevokeReason, TokenType } from './entities/token.entity';
+import { logger } from '../../core/logging';
+import { User, UserRepository, userRepository, UserRole } from '../users';
+import { Token, TokenRevokeReason, TokenType } from './entities/token.entity';
 import type {
   ChangePasswordInput,
   ForgotPasswordInput,
@@ -302,28 +303,63 @@ export class AuthService implements IAuthService {
     });
   }
 
-  public async resetPassword(input: ResetPasswordInput): Promise<void> {
+  private async findUsableResetToken(
+    token: string,
+    context: 'verify' | 'reset',
+  ): Promise<{ tokenRow: Token; user: User } | null> {
     let payload: PasswordResetTokenPayload;
     try {
-      payload = verifyPasswordResetToken(input.token);
+      payload = verifyPasswordResetToken(token);
     } catch {
-      throw new UnauthorizedError('Invalid or expired password reset token');
+      logger.warn(
+        { context, reason: 'signature_invalid_or_expired' },
+        'Password reset token rejected',
+      );
+      return null;
     }
 
     const tokenRow = await this.tokenRepo.findByJti(payload.jti);
-    if (
-      tokenRow?.tokenType !== TokenType.PASSWORD_RESET ||
-      tokenRow.revokedAt !== null ||
-      tokenRow.passwordResetUsedAt !== null ||
-      tokenRow.expiresAt < new Date()
-    ) {
-      throw new UnauthorizedError('Invalid or expired password reset token');
+    if (!tokenRow || tokenRow.tokenType !== TokenType.PASSWORD_RESET) {
+      logger.warn(
+        { context, reason: 'token_not_found_or_wrong_type' },
+        'Password reset token rejected',
+      );
+      return null;
+    }
+
+    if (tokenRow.revokedAt !== null) {
+      logger.warn({ context, reason: 'token_revoked' }, 'Password reset token rejected');
+      return null;
+    }
+
+    if (tokenRow.passwordResetUsedAt !== null) {
+      logger.warn({ context, reason: 'token_already_consumed' }, 'Password reset token rejected');
+      return null;
+    }
+
+    if (tokenRow.expiresAt < new Date()) {
+      logger.warn({ context, reason: 'token_expired' }, 'Password reset token rejected');
+      return null;
     }
 
     const user = await this.userRepo.findById(tokenRow.userId);
-    if (!user?.isActive) {
+    if (!user || !user.isActive) {
+      logger.warn(
+        { context, reason: 'user_inactive_or_not_found' },
+        'Password reset token rejected',
+      );
+      return null;
+    }
+
+    return { tokenRow, user };
+  }
+
+  public async resetPassword(input: ResetPasswordInput): Promise<void> {
+    const usable = await this.findUsableResetToken(input.token, 'reset');
+    if (!usable) {
       throw new UnauthorizedError('Invalid or expired password reset token');
     }
+    const { tokenRow, user } = usable;
 
     const passwordHash = await hashPassword(input.newPassword);
 
@@ -347,30 +383,8 @@ export class AuthService implements IAuthService {
   }
 
   public async verifyResetToken(token: string): Promise<{ valid: boolean }> {
-    let payload: PasswordResetTokenPayload;
-    try {
-      payload = verifyPasswordResetToken(token);
-    } catch {
-      return { valid: false };
-    }
-
-    const tokenRow = await this.tokenRepo.findByJti(payload.jti);
-    if (
-      !tokenRow ||
-      tokenRow.tokenType !== TokenType.PASSWORD_RESET ||
-      tokenRow.revokedAt !== null ||
-      tokenRow.passwordResetUsedAt !== null ||
-      tokenRow.expiresAt < new Date()
-    ) {
-      return { valid: false };
-    }
-
-    const user = await this.userRepo.findById(tokenRow.userId);
-    if (!user || !user.isActive) {
-      return { valid: false };
-    }
-
-    return { valid: true };
+    const usable = await this.findUsableResetToken(token, 'verify');
+    return { valid: usable !== null };
   }
 
   public async changePassword(userId: string, input: ChangePasswordInput): Promise<void> {
