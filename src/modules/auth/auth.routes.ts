@@ -5,6 +5,7 @@ import {
   passwordResetRateLimiter,
   refreshRateLimiter,
   validate,
+  verifyResetTokenRateLimiter,
 } from '../../core/http';
 import { authController } from './auth.controller';
 import { requireAuth } from './auth.middleware';
@@ -36,7 +37,7 @@ authRouter.post(
 );
 authRouter.post(
   '/verify-reset-token',
-  passwordResetRateLimiter,
+  verifyResetTokenRateLimiter,
   validate(verifyResetTokenSchema),
   authController.verifyResetToken,
 );

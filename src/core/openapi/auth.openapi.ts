@@ -89,6 +89,31 @@ export const authOpenApiSpec = {
         },
       },
     },
+    '/auth/verify-reset-token': {
+      post: {
+        summary: 'Check whether a password reset token is still usable',
+        requestBody: {
+          required: true,
+          content: {
+            'application/json': {
+              schema: {
+                type: 'object',
+                required: ['token'],
+                properties: { token: { type: 'string', minLength: 1 } },
+              },
+            },
+          },
+        },
+        responses: {
+          '200': {
+            description:
+              'Always 200. `data.valid` is false for malformed, expired, revoked or already-consumed tokens',
+          },
+          '400': { description: 'Token missing or empty' },
+          '429': { description: 'Rate limit exceeded' },
+        },
+      },
+    },
     '/auth/reset-password': {
       post: {
         summary: 'Reset password using reset token',
