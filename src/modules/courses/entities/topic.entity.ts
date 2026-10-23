@@ -29,12 +29,6 @@ export class Topic extends AuditableEntity {
   @Column({ name: 'estimated_minutes', type: 'int', nullable: true })
   estimatedMinutes!: number | null;
 
-  @Column({ name: 'created_by', type: 'uuid', nullable: true })
-  createdBy!: string | null;
-
-  @Column({ name: 'updated_by', type: 'uuid', nullable: true })
-  updatedBy!: string | null;
-
   @ManyToOne(() => Course, { onDelete: 'CASCADE' })
   @JoinColumn({ name: 'course_id' })
   course?: Course;

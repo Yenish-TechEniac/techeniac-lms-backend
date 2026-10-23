@@ -34,12 +34,6 @@ export class Subtopic extends AuditableEntity {
   @Column({ name: 'estimated_minutes', type: 'int', nullable: true })
   estimatedMinutes!: number | null;
 
-  @Column({ name: 'created_by', type: 'uuid', nullable: true })
-  createdBy!: string | null;
-
-  @Column({ name: 'updated_by', type: 'uuid', nullable: true })
-  updatedBy!: string | null;
-
   @ManyToOne(() => Topic, { onDelete: 'CASCADE' })
   @JoinColumn({ name: 'topic_id' })
   topic?: Topic;

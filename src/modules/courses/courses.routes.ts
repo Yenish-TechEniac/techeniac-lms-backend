@@ -1,7 +1,7 @@
 import { Router } from 'express';
 
-import { requireAuth, requireRole } from '../../core/auth';
 import { validate } from '../../core/http';
+import { requireAuth, requireRole } from '../auth';
 import { coursesController } from './courses.controller';
 import {
   courseIdParamSchema,

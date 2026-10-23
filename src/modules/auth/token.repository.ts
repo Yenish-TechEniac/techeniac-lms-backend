@@ -1,4 +1,4 @@
-import { DataSource, LessThan, Repository } from 'typeorm';
+import { DataSource, EntityManager, IsNull, LessThan, Repository } from 'typeorm';
 
 import { AppDataSource } from '../../core/db';
 import { Token, TokenRevokeReason, TokenType } from './entities/token.entity';
@@ -20,8 +20,13 @@ export class TokenRepository {
     this.repo = dataSource.getRepository(Token);
   }
 
-  public async createToken(data: CreateTokenData): Promise<Token> {
-    const token = this.repo.create({
+  private getRepo(manager?: EntityManager): Repository<Token> {
+    return manager ? manager.getRepository(Token) : this.repo;
+  }
+
+  public async createToken(data: CreateTokenData, manager?: EntityManager): Promise<Token> {
+    const repo = this.getRepo(manager);
+    const token = repo.create({
       userId: data.userId,
       tokenType: data.tokenType,
       jti: data.jti,
@@ -31,12 +36,17 @@ export class TokenRepository {
       expiresAt: data.expiresAt,
       issuedAt: new Date(),
     });
-    return this.repo.save(token);
+    return await repo.save(token);
   }
 
-  public async findByJti(jti: string): Promise<Token | null> {
-    return this.repo.findOne({
+  public async findByJti(
+    jti: string,
+    options?: { lock?: boolean; manager?: EntityManager },
+  ): Promise<Token | null> {
+    const repo = this.getRepo(options?.manager);
+    return await repo.findOne({
       where: { jti },
+      ...(options?.lock ? { lock: { mode: 'pessimistic_write' } } : {}),
     });
   }
 
@@ -44,20 +54,28 @@ export class TokenRepository {
     jti: string,
     reason: TokenRevokeReason,
     replacedById?: string,
-  ): Promise<void> {
-    await this.repo.update(
-      { jti },
+    manager?: EntityManager,
+  ): Promise<boolean> {
+    const repo = this.getRepo(manager);
+    const result = await repo.update(
+      { jti, revokedAt: IsNull() },
       {
         revokedAt: new Date(),
         revokedReason: reason,
         ...(replacedById ? { replacedById } : {}),
       },
     );
+    return (result.affected ?? 0) > 0;
   }
 
-  public async revokeFamily(familyId: string, reason: TokenRevokeReason): Promise<void> {
-    await this.repo.update(
-      { familyId },
+  public async revokeFamily(
+    familyId: string,
+    reason: TokenRevokeReason,
+    manager?: EntityManager,
+  ): Promise<void> {
+    const repo = this.getRepo(manager);
+    await repo.update(
+      { familyId, revokedAt: IsNull() },
       {
         revokedAt: new Date(),
         revokedReason: reason,
@@ -65,9 +83,19 @@ export class TokenRepository {
     );
   }
 
-  public async revokeAllForUser(userId: string, reason: TokenRevokeReason): Promise<void> {
-    await this.repo.update(
-      { userId },
+  public async revokeAllForUser(
+    userId: string,
+    reason: TokenRevokeReason,
+    tokenType?: TokenType,
+    manager?: EntityManager,
+  ): Promise<void> {
+    const repo = this.getRepo(manager);
+    await repo.update(
+      {
+        userId,
+        ...(tokenType ? { tokenType } : {}),
+        revokedAt: IsNull(),
+      },
       {
         revokedAt: new Date(),
         revokedReason: reason,
@@ -75,19 +103,32 @@ export class TokenRepository {
     );
   }
 
-  public async markPasswordResetUsed(jti: string): Promise<void> {
-    await this.repo.update(
-      { jti },
+  public async revokeResetTokensForUser(userId: string, manager?: EntityManager): Promise<void> {
+    const repo = this.getRepo(manager);
+    await repo.update(
+      { userId, tokenType: TokenType.PASSWORD_RESET, revokedAt: IsNull() },
       {
-        passwordResetUsedAt: new Date(),
         revokedAt: new Date(),
         revokedReason: TokenRevokeReason.PASSWORD_RESET,
       },
     );
   }
 
+  public async markPasswordResetUsed(jti: string, manager?: EntityManager): Promise<boolean> {
+    const repo = this.getRepo(manager);
+    const result = await repo.update(
+      { jti, revokedAt: IsNull(), passwordResetUsedAt: IsNull() },
+      {
+        passwordResetUsedAt: new Date(),
+        revokedAt: new Date(),
+        revokedReason: TokenRevokeReason.PASSWORD_RESET,
+      },
+    );
+    return (result.affected ?? 0) > 0;
+  }
+
   public async cleanupExpiredTokens(): Promise<number> {
-    const result = await this.repo.delete({
+    const result = await this.repo.softDelete({
       expiresAt: LessThan(new Date()),
     });
     return result.affected ?? 0;

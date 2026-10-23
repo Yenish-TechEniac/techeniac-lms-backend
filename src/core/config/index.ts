@@ -10,51 +10,63 @@ if (fs.existsSync(envPath)) {
   process.loadEnvFile(envPath);
 }
 
-const envSchema = z.object({
-  NODE_ENV: z.enum(['development', 'test', 'production']).default('development'),
-  PORT: z.coerce.number().int().positive().default(4000),
-  LOG_LEVEL: z.enum(['debug', 'info', 'warn', 'error']).default('info'),
-  DATABASE_URL: z.string().url().startsWith('postgres'),
-  DIRECT_URL: z.string().url().startsWith('postgres'),
-  TEST_DATABASE_URL: z.string().optional(),
-  CORS_ORIGINS: z
-    .string()
-    .default('http://localhost:3000')
-    .transform((val) =>
-      val
-        .split(',')
-        .map((origin) => origin.trim())
-        .filter(Boolean),
-    )
-    .pipe(z.array(z.string().url())),
-  TRUST_PROXY_HOPS: z.coerce.number().int().min(0).default(0),
-  COMMIT_SHA: z
-    .string()
-    .optional()
-    .transform((val) => (val && val.trim().length > 0 ? val.trim() : 'local-dev')),
-  JWT_ACCESS_SECRET: z
-    .string()
-    .min(32)
-    .default('default_access_token_secret_minimum_32_characters_long_for_dev'),
-  JWT_REFRESH_SECRET: z
-    .string()
-    .min(32)
-    .default('default_refresh_token_secret_minimum_32_characters_long_for_dev'),
-  JWT_ALGORITHM: z.literal('HS256').default('HS256'),
-  ACCESS_TOKEN_TTL: z.string().default('15m'),
-  REFRESH_TOKEN_TTL: z.string().default('7d'),
-  FRONTEND_URL: z.string().url().default('http://localhost:3000'),
-  SMTP_HOST: z.string().optional(),
-  SMTP_PORT: z.coerce.number().int().positive().default(587),
-  SMTP_SECURE: z
-    .string()
-    .optional()
-    .transform((val) => val === 'true' || val === '1')
-    .pipe(z.boolean()),
-  SMTP_USER: z.string().optional(),
-  SMTP_PASS: z.string().optional(),
-  SMTP_FROM: z.string().default('Techeniac LMS <noreply@techeniac.com>'),
-});
+const envSchema = z
+  .object({
+    NODE_ENV: z.enum(['development', 'test', 'production']).default('development'),
+    PORT: z.coerce.number().int().positive().default(4000),
+    LOG_LEVEL: z.enum(['debug', 'info', 'warn', 'error']).default('info'),
+    DATABASE_URL: z.string().url().startsWith('postgres'),
+    DIRECT_URL: z.string().url().startsWith('postgres'),
+    TEST_DATABASE_URL: z.string().optional(),
+    CORS_ORIGINS: z
+      .string()
+      .default('http://localhost:3000')
+      .transform((val) =>
+        val
+          .split(',')
+          .map((origin) => origin.trim())
+          .filter(Boolean),
+      )
+      .pipe(z.array(z.string().url())),
+    TRUST_PROXY_HOPS: z.coerce.number().int().min(0).default(0),
+    COMMIT_SHA: z
+      .string()
+      .optional()
+      .transform((val) => (val && val.trim().length > 0 ? val.trim() : 'local-dev')),
+    JWT_ACCESS_SECRET: z
+      .string({ required_error: 'JWT_ACCESS_SECRET is required' })
+      .min(32, 'JWT_ACCESS_SECRET must be at least 32 characters long'),
+    JWT_REFRESH_SECRET: z
+      .string({ required_error: 'JWT_REFRESH_SECRET is required' })
+      .min(32, 'JWT_REFRESH_SECRET must be at least 32 characters long'),
+    JWT_ALGORITHM: z.literal('HS256').default('HS256'),
+    ACCESS_TOKEN_TTL: z.string().default('15m'),
+    REFRESH_TOKEN_TTL: z.string().default('7d'),
+    FRONTEND_URL: z.string().url().default('http://localhost:3000'),
+    SMTP_HOST: z.string().optional(),
+    SMTP_PORT: z.coerce.number().int().positive().default(587),
+    SMTP_SECURE: z
+      .string()
+      .optional()
+      .transform((val) => val === 'true' || val === '1')
+      .pipe(z.boolean()),
+    SMTP_USER: z.string().optional(),
+    SMTP_PASS: z.string().optional(),
+    SMTP_FROM: z.string().default('Techeniac LMS <noreply@techeniac.com>'),
+    REDIS_URL: z.string().optional(),
+    REDIS_HOST: z.string().default('127.0.0.1'),
+    REDIS_PORT: z.coerce.number().int().positive().default(6379),
+    REDIS_PASSWORD: z.string().optional(),
+  })
+  .superRefine((data, ctx) => {
+    if (data.NODE_ENV === 'production' && !data.SMTP_HOST) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['SMTP_HOST'],
+        message: 'SMTP_HOST is required in production environment',
+      });
+    }
+  });
 
 export type Env = z.infer<typeof envSchema>;
 

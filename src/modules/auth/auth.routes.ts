@@ -1,6 +1,5 @@
 import { Router } from 'express';
 
-import { requireAuth } from '../../core/auth';
 import {
   loginRateLimiter,
   passwordResetRateLimiter,
@@ -8,6 +7,7 @@ import {
   validate,
 } from '../../core/http';
 import { authController } from './auth.controller';
+import { requireAuth } from './auth.middleware';
 import {
   changePasswordSchema,
   forgotPasswordSchema,

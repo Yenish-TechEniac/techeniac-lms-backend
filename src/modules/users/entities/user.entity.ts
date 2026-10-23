@@ -18,7 +18,7 @@ export class User extends AuditableEntity {
   @Column({ name: 'email', type: 'varchar', length: 254 })
   email!: string;
 
-  @Column({ name: 'password_hash', type: 'text' })
+  @Column({ name: 'password_hash', type: 'text', select: false })
   passwordHash!: string;
 
   @Column({

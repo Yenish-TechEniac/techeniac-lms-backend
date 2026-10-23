@@ -2,21 +2,21 @@ import { app } from './app';
 import { env } from './core/config';
 import { closeDatabase, initializeDatabase } from './core/db';
 import { logger } from './core/logging';
-import { tokenRepository } from './modules/auth';
+import { closeScheduledJobs, registerScheduledJobs } from './jobs';
 
 export async function bootstrap(): Promise<void> {
   try {
     await initializeDatabase();
 
-    // FR-1.9: Recurring hourly job to delete expired tokens
-    const tokenCleanupInterval = setInterval(
-      () => {
-        tokenRepository.cleanupExpiredTokens().catch((err: unknown) => {
-          logger.error({ err }, 'Hourly token cleanup job failed');
-        });
-      },
-      60 * 60 * 1000,
-    );
+    // Register BullMQ recurring scheduled jobs and workers without blocking HTTP startup if Redis is unavailable
+    try {
+      await registerScheduledJobs();
+    } catch (jobErr) {
+      logger.warn(
+        { err: jobErr },
+        'Failed to register BullMQ scheduled jobs. Running HTTP server with background jobs disabled.',
+      );
+    }
 
     const server = app.listen(env.PORT, (error?: Error) => {
       if (error) {
@@ -36,19 +36,20 @@ export async function bootstrap(): Promise<void> {
 
     const shutdown = (signal: string): void => {
       logger.info(`Received ${signal}. Initiating graceful shutdown...`);
-      clearInterval(tokenCleanupInterval);
 
       server.close(() => {
         logger.info('HTTP server closed.');
-        void closeDatabase()
-          .then(() => {
+        void (async () => {
+          try {
+            await closeScheduledJobs();
+            await closeDatabase();
             logger.info('Graceful shutdown completed successfully.');
             process.exit(0);
-          })
-          .catch((err) => {
-            logger.error({ err }, 'Error closing database during shutdown');
+          } catch (err) {
+            logger.error({ err }, 'Error closing resources during shutdown');
             process.exit(1);
-          });
+          }
+        })();
       });
 
       setTimeout(() => {

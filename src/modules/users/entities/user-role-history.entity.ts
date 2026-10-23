@@ -12,7 +12,11 @@ export class UserRoleHistory extends AuditableEntity {
   @Column({ name: 'user_id', type: 'uuid' })
   userId!: string;
 
-  @Column({ type: 'varchar', length: 20 })
+  @Column({
+    type: 'enum',
+    enum: UserRole,
+    enumName: 'users_role_enum',
+  })
   role!: UserRole;
 
   @Column({
@@ -32,6 +36,6 @@ export class UserRoleHistory extends AuditableEntity {
   reason!: string;
 
   @ManyToOne(() => User, { onDelete: 'CASCADE' })
-  @JoinColumn({ name: 'user_id' })
+  @JoinColumn({ name: 'user_id', foreignKeyConstraintName: 'FK_user_role_history_user_id' })
   user?: User;
 }

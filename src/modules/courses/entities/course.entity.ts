@@ -20,12 +20,6 @@ export class Course extends AuditableEntity {
   @Column({ name: 'is_active', type: 'boolean', default: true })
   isActive!: boolean;
 
-  @Column({ name: 'created_by', type: 'uuid' })
-  createdBy!: string;
-
-  @Column({ name: 'updated_by', type: 'uuid', nullable: true })
-  updatedBy!: string | null;
-
   @ManyToOne(() => User)
   @JoinColumn({ name: 'created_by' })
   creator?: User;

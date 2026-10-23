@@ -1,4 +1,5 @@
 import {
+  Column,
   CreateDateColumn,
   DeleteDateColumn,
   PrimaryGeneratedColumn,
@@ -29,4 +30,18 @@ export abstract class AuditableEntity {
     nullable: true,
   })
   deletedAt!: Date | null;
+
+  @Column({
+    name: 'created_by',
+    type: 'uuid',
+    nullable: true,
+  })
+  createdBy!: string | null;
+
+  @Column({
+    name: 'updated_by',
+    type: 'uuid',
+    nullable: true,
+  })
+  updatedBy!: string | null;
 }

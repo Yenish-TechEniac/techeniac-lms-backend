@@ -81,12 +81,6 @@ export class Assignment extends AuditableEntity {
   @Column({ name: 'resources', type: 'jsonb', nullable: true })
   resources!: ResourceItem[] | null;
 
-  @Column({ name: 'created_by', type: 'uuid', nullable: true })
-  createdBy!: string | null;
-
-  @Column({ name: 'updated_by', type: 'uuid', nullable: true })
-  updatedBy!: string | null;
-
   @ManyToOne(() => Course, { onDelete: 'CASCADE' })
   @JoinColumn({ name: 'course_id' })
   course?: Course;

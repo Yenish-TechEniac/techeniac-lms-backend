@@ -57,11 +57,19 @@ export class ForbiddenError extends AppError {
 }
 
 export class ConflictError extends AppError {
-  constructor(
-    message: string = 'The resource has been modified concurrently. Please reload.',
-    code: string = 'CONFLICT',
-    details?: unknown,
-  ) {
+  constructor(message: string = 'Conflict', code: string = 'CONFLICT', details?: unknown) {
     super(message, StatusCodes.CONFLICT, code, details);
+  }
+}
+
+export class BadRequestError extends AppError {
+  constructor(message: string = 'Bad request', code: string = 'BAD_REQUEST', details?: unknown) {
+    super(message, StatusCodes.BAD_REQUEST, code, details);
+  }
+}
+
+export class BadGatewayError extends AppError {
+  constructor(message: string = 'Bad gateway', code: string = 'BAD_GATEWAY', details?: unknown) {
+    super(message, StatusCodes.BAD_GATEWAY, code, details);
   }
 }

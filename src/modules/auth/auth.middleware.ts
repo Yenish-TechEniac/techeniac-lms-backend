@@ -1,18 +1,10 @@
 import type { NextFunction, Request, Response } from 'express';
 
-// Imported directly to prevent circular dependency with users.routes.ts -> core/auth
-// eslint-disable-next-line architecture/cross-module-index-imports
-import { userRepository } from '../../modules/users/user.repository';
-import { ForbiddenError, UnauthorizedError } from '../errors';
-import { verifyAccessToken } from './jwt';
+import { type AuthenticatedUser, verifyAccessToken } from '../../core/auth';
+import { ForbiddenError, UnauthorizedError } from '../../core/errors';
+import { userRepository } from '../users';
 
-export interface AuthenticatedUser {
-  id: string;
-  email: string;
-  role: string;
-  tokenVersion: number;
-}
-
+// Augment Express.Request interface to type user context attached by auth middleware
 /* eslint-disable @typescript-eslint/no-namespace */
 declare global {
   namespace Express {
@@ -23,13 +15,15 @@ declare global {
 }
 /* eslint-enable @typescript-eslint/no-namespace */
 
+const BEARER_PREFIX = 'Bearer ';
+
 export async function requireAuth(req: Request, _res: Response, next: NextFunction): Promise<void> {
   const cookies = (req.cookies ?? {}) as Record<string, string | undefined>;
   const authHeader = req.headers.authorization;
 
   let token = cookies.accessToken;
-  if (!token && authHeader && authHeader.startsWith('Bearer ')) {
-    token = authHeader.substring(7);
+  if (!token && authHeader?.startsWith(BEARER_PREFIX)) {
+    token = authHeader.substring(BEARER_PREFIX.length);
   }
 
   if (!token) {
@@ -42,7 +36,7 @@ export async function requireAuth(req: Request, _res: Response, next: NextFuncti
 
     // FR-1.6: Verify tokenVersion and active state against live user row on every request
     const user = await userRepository.findById(payload.sub);
-    if (!user || !user.isActive) {
+    if (!user?.isActive) {
       next(new UnauthorizedError('Account is inactive or disabled'));
       return;
     }
@@ -54,8 +48,10 @@ export async function requireAuth(req: Request, _res: Response, next: NextFuncti
 
     req.user = {
       id: user.id,
+      name: user.name,
       email: user.email,
       role: user.role,
+      mustChangePassword: user.mustChangePassword,
       tokenVersion: user.tokenVersion,
     };
     next();
@@ -68,7 +64,9 @@ export async function requireAuth(req: Request, _res: Response, next: NextFuncti
   }
 }
 
-export function requireRole(...allowedRoles: string[]) {
+export function requireRole(
+  ...allowedRoles: string[]
+): (req: Request, _res: Response, next: NextFunction) => void {
   return (req: Request, _res: Response, next: NextFunction): void => {
     if (!req.user) {
       next(new UnauthorizedError('Authentication required'));

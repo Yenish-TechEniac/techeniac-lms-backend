@@ -1,7 +1,5 @@
 import { z } from 'zod';
 
-import { UserRole } from '../../users';
-
 const passwordPattern =
   /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[!@#$%^&*()_+\-=[\]{};':"\\|,.<>/?]).{10,64}$/;
 
@@ -24,7 +22,10 @@ export const emailValidation = z
 export const loginSchema = z.object({
   body: z.object({
     email: emailValidation,
-    password: z.string({ required_error: 'Password is required' }).min(1, 'Password is required'),
+    password: z
+      .string({ required_error: 'Password is required' })
+      .min(1, 'Password is required')
+      .max(128, 'Password is too long'),
   }),
 });
 
@@ -60,4 +61,3 @@ export type LoginInput = z.infer<typeof loginSchema>['body'];
 export type ForgotPasswordInput = z.infer<typeof forgotPasswordSchema>['body'];
 export type ResetPasswordInput = z.infer<typeof resetPasswordSchema>['body'];
 export type ChangePasswordInput = z.infer<typeof changePasswordSchema>['body'];
-export { UserRole };

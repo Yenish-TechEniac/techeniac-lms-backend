@@ -1,9 +1,11 @@
 import type { NextFunction, Request, Response } from 'express';
-import type { AnyZodObject, ZodError } from 'zod';
+import { type AnyZodObject, ZodError } from 'zod';
 
 import { ValidationError } from '../errors';
 
-export function validate(schema: AnyZodObject) {
+export function validate(
+  schema: AnyZodObject,
+): (req: Request, _res: Response, next: NextFunction) => Promise<void> {
   return async (req: Request, _res: Response, next: NextFunction): Promise<void> => {
     try {
       const parsed = (await schema.parseAsync({
@@ -16,6 +18,9 @@ export function validate(schema: AnyZodObject) {
         req.body = parsed.body;
       }
       if (parsed.query !== undefined && typeof parsed.query === 'object' && parsed.query !== null) {
+        for (const key of Object.keys(req.query)) {
+          delete (req.query as Record<string, unknown>)[key];
+        }
         Object.assign(req.query, parsed.query);
       }
       if (
@@ -23,13 +28,15 @@ export function validate(schema: AnyZodObject) {
         typeof parsed.params === 'object' &&
         parsed.params !== null
       ) {
+        for (const key of Object.keys(req.params)) {
+          delete (req.params as Record<string, unknown>)[key];
+        }
         Object.assign(req.params, parsed.params);
       }
       next();
     } catch (error) {
-      const zodError = error as ZodError;
-      if (zodError.errors) {
-        const fieldErrors = zodError.errors.map((err) => ({
+      if (error instanceof ZodError) {
+        const fieldErrors = error.errors.map((err) => ({
           field: err.path.slice(1).join('.') || err.path.join('.'),
           message: err.message,
         }));

@@ -17,7 +17,7 @@ const rawQueriesRule = {
     },
   },
   create(context) {
-    const filename = (context.filename ?? context.getFilename?.() ?? '').replace(/\\/g, '/');
+    const filename = (context.filename ?? context.getFilename?.() ?? '').replaceAll('\\', '/');
     const isAllowed =
       filename.endsWith('.repository.ts') ||
       filename.includes('/src/core/db/') ||
@@ -63,20 +63,20 @@ const crossModuleImportsRule = {
     },
   },
   create(context) {
-    const filename = (context.filename ?? context.getFilename?.() ?? '').replace(/\\/g, '/');
+    const filename = (context.filename ?? context.getFilename?.() ?? '').replaceAll('\\', '/');
 
     return {
       ImportDeclaration(node) {
         const importPath = node.source.value;
         if (typeof importPath !== 'string') return;
 
-        const toRepo = (p) => path.relative(context.cwd, p).replace(/\\/g, '/');
-        const selfMatch = toRepo(filename).match(/(?:^|\/)modules\/([^/]+)\//);
+        const toRepo = (p) => path.relative(context.cwd, p).replaceAll('\\', '/');
+        const selfMatch = /(?:^|\/)modules\/([^/]+)\//.exec(toRepo(filename));
 
         // Check relative imports
         if (importPath.startsWith('.')) {
           const resolvedTarget = toRepo(path.resolve(path.dirname(filename), importPath));
-          const targetMatch = resolvedTarget.match(/(?:^|\/)modules\/([^/]+)\/(.+)$/);
+          const targetMatch = /(?:^|\/)modules\/([^/]+)\/(.+)$/.exec(resolvedTarget);
           if (!targetMatch || targetMatch[1] === selfMatch?.[1]) return; // not a module, or within same module
           if (/^index(\.[jt]s)?$/.test(targetMatch[2])) return; // public entry point
           context.report({
@@ -88,11 +88,11 @@ const crossModuleImportsRule = {
         }
 
         // Check explicit alias or root imports targeting modules: src/modules/<mod>/<subpath> or @modules/<mod>/<subpath>
-        const explicitMatch = importPath.match(/^(?:src\/modules|@modules)\/([^/]+)\/(.+)$/);
+        const explicitMatch = /^(?:src\/modules|@modules)\/([^/]+)\/(.+)$/.exec(importPath);
         if (explicitMatch) {
           const targetModule = explicitMatch[1];
           const subPath = explicitMatch[2];
-          if (!selfMatch || selfMatch[1] !== targetModule) {
+          if (selfMatch?.[1] !== targetModule) {
             if (!/^index(\.[jt]s)?$/.test(subPath)) {
               context.report({
                 node: node.source,
@@ -114,17 +114,20 @@ export const architecturePlugin = {
   },
 };
 
-export default tseslint.config(
+export default [
   {
     ignores: ['dist/**', 'node_modules/**', 'coverage/**', 'lint-fixtures/**', 'scripts/**'],
   },
   {
     files: ['**/*.js', '**/*.mjs'],
-    extends: [tseslint.configs.disableTypeChecked],
+    ...tseslint.configs.disableTypeChecked,
   },
+  ...tseslint.configs.recommendedTypeChecked.map((cfg) => ({
+    ...cfg,
+    files: ['src/**/*.ts', 'tests/**/*.ts'],
+  })),
   {
     files: ['src/**/*.ts', 'tests/**/*.ts'],
-    extends: [...tseslint.configs.recommendedTypeChecked],
     languageOptions: {
       parserOptions: {
         project: ['./tsconfig.eslint.json'],
@@ -160,4 +163,4 @@ export default tseslint.config(
     },
   },
   prettierConfig,
-);
+];
