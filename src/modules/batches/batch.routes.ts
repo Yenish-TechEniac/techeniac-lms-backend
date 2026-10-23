@@ -9,10 +9,12 @@ import {
   batchQuerySchema,
   changeBatchStatusSchema,
   createBatchSchema,
+  mapMenteesSchema,
+  reassignMenteeSchema,
   removeBatchMemberSchema,
   transferMenteeSchema,
   updateBatchSchema,
-} from './schemas/batch.schemas';
+} from './schemas';
 
 export const batchRouter = Router();
 
@@ -25,9 +27,20 @@ batchRouter.post(
   batchController.createBatch,
 );
 
-batchRouter.get('/', requireAuth, validate(batchQuerySchema), batchController.getBatches);
+batchRouter.get(
+  '/',
+  requireAuth,
+  requireRole(UserRole.SUPER_ADMIN),
+  validate(batchQuerySchema),
+  batchController.getBatches,
+);
 
-batchRouter.get('/:id', requireAuth, batchController.getBatchById);
+batchRouter.get(
+  '/:id',
+  requireAuth,
+  requireRole(UserRole.SUPER_ADMIN),
+  batchController.getBatchById,
+);
 
 batchRouter.patch(
   '/:id',
@@ -67,4 +80,28 @@ batchRouter.post(
   requireRole(UserRole.SUPER_ADMIN),
   validate(transferMenteeSchema),
   batchController.transferMentee,
+);
+
+// Mentor-Mentee Mappings inside Batch (FR-4.1 - 4.3)
+batchRouter.post(
+  '/:id/mappings',
+  requireAuth,
+  requireRole(UserRole.SUPER_ADMIN),
+  validate(mapMenteesSchema),
+  batchController.mapMentees,
+);
+
+batchRouter.post(
+  '/:id/mappings/reassign',
+  requireAuth,
+  requireRole(UserRole.SUPER_ADMIN),
+  validate(reassignMenteeSchema),
+  batchController.reassignMentee,
+);
+
+batchRouter.get(
+  '/:id/mappings',
+  requireAuth,
+  requireRole(UserRole.SUPER_ADMIN),
+  batchController.getBatchMappings,
 );

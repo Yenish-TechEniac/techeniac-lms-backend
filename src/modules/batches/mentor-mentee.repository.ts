@@ -1,0 +1,139 @@
+import { DataSource, EntityManager, Repository } from 'typeorm';
+
+import { AppDataSource } from '../../core/db';
+import { MentorMentee } from './entities/mentor-mentee.entity';
+
+export class MentorMenteeRepository {
+  private readonly repo: Repository<MentorMentee>;
+
+  constructor(dataSource: DataSource = AppDataSource) {
+    this.repo = dataSource.getRepository(MentorMentee);
+  }
+
+  private getRepo(manager?: EntityManager): Repository<MentorMentee> {
+    return manager ? manager.getRepository(MentorMentee) : this.repo;
+  }
+
+  public async findActiveByMenteeAndBatch(
+    batchId: string,
+    menteeId: string,
+    manager?: EntityManager,
+  ): Promise<MentorMentee | null> {
+    return await this.getRepo(manager).findOne({
+      where: {
+        batchId,
+        menteeId,
+        isActive: true,
+      },
+      relations: ['mentor', 'mentee', 'batch'],
+    });
+  }
+
+  public async createMapping(
+    data: { batchId: string; mentorId: string; menteeId: string },
+    manager?: EntityManager,
+  ): Promise<MentorMentee> {
+    const repo = this.getRepo(manager);
+    const mapping = repo.create({
+      batchId: data.batchId,
+      mentorId: data.mentorId,
+      menteeId: data.menteeId,
+      isActive: true,
+      startDate: new Date(),
+    });
+    return await repo.save(mapping);
+  }
+
+  public async closeMapping(
+    mappingId: string,
+    endReason: string,
+    manager?: EntityManager,
+  ): Promise<void> {
+    await this.getRepo(manager).update(mappingId, {
+      isActive: false,
+      endDate: new Date(),
+      endReason,
+    });
+  }
+
+  public async findActiveMappingsByBatch(
+    batchId: string,
+    manager?: EntityManager,
+  ): Promise<MentorMentee[]> {
+    return await this.getRepo(manager).find({
+      where: { batchId, isActive: true },
+      relations: ['mentor', 'mentee'],
+      order: { startDate: 'ASC' },
+    });
+  }
+
+  public async findAllMappingsByBatch(
+    batchId: string,
+    manager?: EntityManager,
+  ): Promise<MentorMentee[]> {
+    return await this.getRepo(manager).find({
+      where: { batchId },
+      relations: ['mentor', 'mentee'],
+      order: { createdAt: 'DESC' },
+    });
+  }
+
+  public async findActiveMappingsForMentor(
+    mentorId: string,
+    batchId?: string,
+    manager?: EntityManager,
+  ): Promise<MentorMentee[]> {
+    const query = this.getRepo(manager)
+      .createQueryBuilder('mm')
+      .innerJoinAndSelect('mm.mentee', 'mentee')
+      .innerJoinAndSelect('mm.batch', 'batch')
+      .where('mm.mentor_id = :mentorId', { mentorId })
+      .andWhere('mm.is_active = true')
+      .andWhere('mm.deleted_at IS NULL');
+
+    if (batchId) {
+      query.andWhere('mm.batch_id = :batchId', { batchId });
+    }
+
+    return await query.orderBy('mm.start_date', 'ASC').getMany();
+  }
+
+  public async findActiveMappingForMentee(
+    menteeId: string,
+    manager?: EntityManager,
+  ): Promise<MentorMentee | null> {
+    return await this.getRepo(manager).findOne({
+      where: { menteeId, isActive: true },
+      relations: ['mentor', 'batch'],
+    });
+  }
+
+  public async closeAllMappingsForBatch(
+    batchId: string,
+    endReason: string,
+    manager?: EntityManager,
+  ): Promise<void> {
+    await this.getRepo(manager).update(
+      { batchId, isActive: true },
+      { isActive: false, endDate: new Date(), endReason },
+    );
+  }
+
+  public async closeAllMappingsForMember(
+    batchId: string,
+    userId: string,
+    endReason: string,
+    manager?: EntityManager,
+  ): Promise<void> {
+    const repo = this.getRepo(manager);
+    await repo
+      .createQueryBuilder()
+      .update(MentorMentee)
+      .set({ isActive: false, endDate: new Date(), endReason })
+      .where('batch_id = :batchId AND is_active = true', { batchId })
+      .andWhere('(mentor_id = :userId OR mentee_id = :userId)', { userId })
+      .execute();
+  }
+}
+
+export const mentorMenteeRepository = new MentorMenteeRepository();

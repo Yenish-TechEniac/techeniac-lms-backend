@@ -1,15 +1,19 @@
-import { BadRequestError, ConflictError, NotFoundError } from '../../core/errors';
+import { AppDataSource } from '../../core/db';
+import { BadRequestError, ConflictError, ForbiddenError, NotFoundError } from '../../core/errors';
 import { UserRepository, userRepository, UserRole } from '../users';
 import { BatchRepository, batchRepository } from './batch.repository';
 import { BatchMemberRole, BatchReasonToLeave, BatchStatus } from './entities';
+import { MentorMenteeRepository, mentorMenteeRepository } from './mentor-mentee.repository';
 import {
   AddBatchMembersInput,
   BatchQueryParams,
   ChangeBatchStatusInput,
   CreateBatchInput,
+  MapMenteesInput,
+  ReassignMenteeInput,
   TransferMenteeInput,
   UpdateBatchInput,
-} from './schemas/batch.schemas';
+} from './schemas';
 
 const ALLOWED_STATUS_TRANSITIONS: Record<BatchStatus, BatchStatus[]> = {
   [BatchStatus.DRAFT]: [BatchStatus.LIVE, BatchStatus.ARCHIVED],
@@ -23,6 +27,7 @@ export class BatchService {
   constructor(
     private readonly batchRepo: BatchRepository = batchRepository,
     private readonly userRepo: UserRepository = userRepository,
+    private readonly mentorMenteeRepo: MentorMenteeRepository = mentorMenteeRepository,
   ) {}
 
   public async createBatch(input: CreateBatchInput, actorId: string) {
@@ -77,9 +82,19 @@ export class BatchService {
 
     const members = await this.batchRepo.findMembersByBatchId(id);
     const statusHistory = await this.batchRepo.getStatusHistory(id);
+    const activeMappings = await this.mentorMenteeRepo.findActiveMappingsByBatch(id);
+    const mappingByMenteeId = new Map(activeMappings.map((m) => [m.menteeId, m.mentor]));
 
     const mentors = members.filter((m) => m.memberRole === BatchMemberRole.MENTOR);
-    const mentees = members.filter((m) => m.memberRole === BatchMemberRole.MENTEE);
+    const mentees = members
+      .filter((m) => m.memberRole === BatchMemberRole.MENTEE)
+      .map((m) => {
+        const mappedMentor = mappingByMenteeId.get(m.userId);
+        return {
+          ...m,
+          mappedToUser: mappedMentor ? { id: mappedMentor.id, name: mappedMentor.name } : null,
+        };
+      });
 
     return {
       batch,
@@ -149,6 +164,11 @@ export class BatchService {
       await this.batchRepo.closeoutActiveMentees(id);
     }
 
+    // Archived: batch mappings end
+    if (targetStatus === BatchStatus.ARCHIVED) {
+      await this.mentorMenteeRepo.closeAllMappingsForBatch(id, 'BATCH_ARCHIVED');
+    }
+
     const updated = await this.batchRepo.updateStatus(id, targetStatus);
 
     await this.batchRepo.recordStatusHistory(
@@ -195,10 +215,10 @@ export class BatchService {
       // Check if already active in this batch
       const alreadyInThisBatch = await this.batchRepo.findActiveMemberInBatch(id, userId);
       if (alreadyInThisBatch) {
-        continue; // Already a member
+        continue;
       }
 
-      // FR-5.2 & Rule 209: A mentee can be an active member of only one batch at a time
+      // FR-5.2: A mentee can be an active member of only one batch at a time
       if (input.memberRole === BatchMemberRole.MENTEE) {
         const activeMembership = await this.batchRepo.findActiveMenteeMembership(userId);
         if (activeMembership) {
@@ -238,6 +258,7 @@ export class BatchService {
     }
 
     await this.batchRepo.removeMember(membership.id, BatchReasonToLeave.REMOVED);
+    await this.mentorMenteeRepo.closeAllMappingsForMember(batchId, userId, 'MEMBER_REMOVED');
   }
 
   public async transferMentee(sourceBatchId: string, input: TransferMenteeInput) {
@@ -277,7 +298,14 @@ export class BatchService {
     // 1. End old membership with BATCH_TRANSFER
     await this.batchRepo.removeMember(currentMembership.id, BatchReasonToLeave.BATCH_TRANSFER);
 
-    // 2. Add to target batch
+    // 2. End old mapping in source batch
+    await this.mentorMenteeRepo.closeAllMappingsForMember(
+      sourceBatchId,
+      input.menteeId,
+      'BATCH_TRANSFER',
+    );
+
+    // 3. Add to target batch
     const newMembership = await this.batchRepo.addMember(
       input.targetBatchId,
       input.menteeId,
@@ -285,6 +313,181 @@ export class BatchService {
     );
 
     return newMembership;
+  }
+
+  // --- Mentor-Mentee Mapping Methods (FR-4.1 - 4.3) ---
+
+  public async mapMentees(batchId: string, input: MapMenteesInput) {
+    const batch = await this.batchRepo.findById(batchId);
+    if (!batch) {
+      throw new NotFoundError('Batch not found');
+    }
+
+    if (batch.status === BatchStatus.ARCHIVED || batch.status === BatchStatus.COMPLETED) {
+      throw new BadRequestError(`Cannot map mentees in a batch with status ${batch.status}`);
+    }
+
+    const mentorMembership = await this.batchRepo.findActiveMemberInBatch(batchId, input.mentorId);
+    if (!mentorMembership || mentorMembership.memberRole !== BatchMemberRole.MENTOR) {
+      throw new BadRequestError('Specified mentor is not an active mentor member in this batch');
+    }
+
+    const created = [];
+    for (const menteeId of input.menteeIds) {
+      if (menteeId === input.mentorId) {
+        throw new BadRequestError('A mentor cannot be mapped to themselves as a mentee');
+      }
+
+      const menteeMembership = await this.batchRepo.findActiveMemberInBatch(batchId, menteeId);
+      if (!menteeMembership || menteeMembership.memberRole !== BatchMemberRole.MENTEE) {
+        throw new BadRequestError(`User ${menteeId} is not an active mentee member in this batch`);
+      }
+
+      const existingMapping = await this.mentorMenteeRepo.findActiveByMenteeAndBatch(
+        batchId,
+        menteeId,
+      );
+      if (existingMapping) {
+        if (existingMapping.mentorId === input.mentorId) {
+          continue;
+        }
+        throw new ConflictError(
+          `Mentee is already actively mapped in this batch. Use reassign to change their mentor.`,
+        );
+      }
+
+      const mapping = await this.mentorMenteeRepo.createMapping({
+        batchId,
+        mentorId: input.mentorId,
+        menteeId,
+      });
+      created.push(mapping);
+    }
+
+    return created;
+  }
+
+  public async reassignMentee(batchId: string, input: ReassignMenteeInput) {
+    const batch = await this.batchRepo.findById(batchId);
+    if (!batch) {
+      throw new NotFoundError('Batch not found');
+    }
+
+    if (batch.status === BatchStatus.ARCHIVED || batch.status === BatchStatus.COMPLETED) {
+      throw new BadRequestError(`Cannot reassign mentees in a batch with status ${batch.status}`);
+    }
+
+    if (input.menteeId === input.newMentorId) {
+      throw new BadRequestError('A mentor cannot be mapped to themselves as a mentee');
+    }
+
+    const newMentorMembership = await this.batchRepo.findActiveMemberInBatch(
+      batchId,
+      input.newMentorId,
+    );
+    if (!newMentorMembership || newMentorMembership.memberRole !== BatchMemberRole.MENTOR) {
+      throw new BadRequestError('Target mentor is not an active mentor member in this batch');
+    }
+
+    const menteeMembership = await this.batchRepo.findActiveMemberInBatch(batchId, input.menteeId);
+    if (!menteeMembership || menteeMembership.memberRole !== BatchMemberRole.MENTEE) {
+      throw new BadRequestError('Mentee is not an active member in this batch');
+    }
+
+    const existingMapping = await this.mentorMenteeRepo.findActiveByMenteeAndBatch(
+      batchId,
+      input.menteeId,
+    );
+    if (existingMapping && existingMapping.mentorId === input.newMentorId) {
+      return existingMapping;
+    }
+
+    return await AppDataSource.transaction(async (manager) => {
+      if (existingMapping) {
+        await this.mentorMenteeRepo.closeMapping(
+          existingMapping.id,
+          input.reason || 'REASSIGNED',
+          manager,
+        );
+      }
+
+      return await this.mentorMenteeRepo.createMapping(
+        {
+          batchId,
+          mentorId: input.newMentorId,
+          menteeId: input.menteeId,
+        },
+        manager,
+      );
+    });
+  }
+
+  public async getBatchMappings(batchId: string) {
+    const batch = await this.batchRepo.findById(batchId);
+    if (!batch) {
+      throw new NotFoundError('Batch not found');
+    }
+    return await this.mentorMenteeRepo.findActiveMappingsByBatch(batchId);
+  }
+
+  // --- Mentor Scoped Endpoints (Section 2.1) ---
+
+  public async getBatchesForMentor(mentorId: string, params: BatchQueryParams) {
+    const { items, total } = await this.batchRepo.findWithFilters(params, mentorId);
+    const page = params.page ?? 1;
+    const limit = params.limit ?? 20;
+    const totalPages = Math.ceil(total / limit) || 1;
+
+    return {
+      items,
+      pagination: {
+        page,
+        limit,
+        total,
+        totalPages,
+      },
+    };
+  }
+
+  public async getBatchByIdForMentor(batchId: string, mentorId: string) {
+    const membership = await this.batchRepo.findActiveMemberInBatch(batchId, mentorId);
+    if (!membership || membership.memberRole !== BatchMemberRole.MENTOR) {
+      throw new ForbiddenError('You are not an active mentor assigned to this batch');
+    }
+
+    return await this.getBatchById(batchId);
+  }
+
+  public async getMenteesForMentor(mentorId: string, batchId?: string) {
+    const mappings = await this.mentorMenteeRepo.findActiveMappingsForMentor(mentorId, batchId);
+    return mappings.map((m) => ({
+      id: m.id,
+      menteeId: m.menteeId,
+      name: m.mentee?.name,
+      email: m.mentee?.email,
+      batchId: m.batchId,
+      batchName: m.batch?.name,
+      batchCode: m.batch?.code,
+      startDate: m.startDate,
+    }));
+  }
+
+  // --- Mentee Scoped Endpoints ---
+
+  public async getBatchForMentee(menteeId: string) {
+    const membership = await this.batchRepo.findActiveMenteeMembership(menteeId);
+    if (!membership) {
+      return { batch: null, mentor: null };
+    }
+
+    const mapping = await this.mentorMenteeRepo.findActiveMappingForMentee(menteeId);
+    return {
+      batch: membership.batch,
+      mentor: mapping?.mentor
+        ? { id: mapping.mentor.id, name: mapping.mentor.name, email: mapping.mentor.email }
+        : null,
+      joinedAt: membership.joinedAt,
+    };
   }
 }
 

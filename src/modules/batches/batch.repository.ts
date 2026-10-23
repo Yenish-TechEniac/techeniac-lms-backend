@@ -110,7 +110,10 @@ export class BatchRepository {
     return updated;
   }
 
-  public async findWithFilters(params: BatchQueryParams): Promise<{
+  public async findWithFilters(
+    params: BatchQueryParams,
+    mentorId?: string,
+  ): Promise<{
     items: BatchWithCounts[];
     total: number;
   }> {
@@ -127,6 +130,20 @@ export class BatchRepository {
           menteeRole: BatchMemberRole.MENTEE,
         }),
       );
+
+    if (mentorId) {
+      qb.andWhere(
+        `EXISTS (
+          SELECT 1 FROM batch_members bm
+          WHERE bm.batch_id = batch.id
+            AND bm.user_id = :mentorId
+            AND bm.member_role = :mentorRole
+            AND bm.is_active = true
+            AND bm.deleted_at IS NULL
+        )`,
+        { mentorId, mentorRole: BatchMemberRole.MENTOR },
+      );
+    }
 
     if (params.status) {
       qb.andWhere('batch.status = :status', { status: params.status });
