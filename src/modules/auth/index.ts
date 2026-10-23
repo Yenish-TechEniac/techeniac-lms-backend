@@ -9,6 +9,7 @@ export type {
   ForgotPasswordInput,
   LoginInput,
   ResetPasswordInput,
+  VerifyResetTokenInput,
 } from './schemas/auth.schemas';
 export {
   changePasswordSchema,
@@ -16,5 +17,6 @@ export {
   loginSchema,
   refreshTokenSchema,
   resetPasswordSchema,
+  verifyResetTokenSchema,
 } from './schemas/auth.schemas';
 export { TokenRepository, tokenRepository } from './token.repository';

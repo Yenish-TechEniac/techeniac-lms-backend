@@ -14,6 +14,7 @@ import {
   loginSchema,
   refreshTokenSchema,
   resetPasswordSchema,
+  verifyResetTokenSchema,
 } from './schemas/auth.schemas';
 
 export const authRouter = Router();
@@ -32,6 +33,12 @@ authRouter.post(
   passwordResetRateLimiter,
   validate(forgotPasswordSchema),
   authController.forgotPassword,
+);
+authRouter.post(
+  '/verify-reset-token',
+  passwordResetRateLimiter,
+  validate(verifyResetTokenSchema),
+  authController.verifyResetToken,
 );
 authRouter.post(
   '/reset-password',

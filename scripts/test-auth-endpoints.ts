@@ -1,10 +1,14 @@
 import 'reflect-metadata';
 
+import { randomUUID } from 'node:crypto';
 import type { Server } from 'node:http';
 
 import { app } from '../src/app';
+import { signPasswordResetToken } from '../src/core/auth';
 import { closeDatabase, initializeDatabase } from '../src/core/db';
 import { logger } from '../src/core/logging';
+import { tokenRepository, TokenType } from '../src/modules/auth';
+import { userRepository } from '../src/modules/users';
 
 interface LoginResult {
   passed: boolean;
@@ -220,6 +224,76 @@ async function testValidationError(baseUrl: string): Promise<boolean> {
   return passed;
 }
 
+async function testVerifyResetToken(baseUrl: string): Promise<boolean> {
+  const adminUser = await userRepository.findByEmail('admin@techeniac.com');
+  if (!adminUser) {
+    console.error('✘ Test 8 FAIL: admin user not found');
+    return false;
+  }
+
+  const jti = randomUUID();
+  const resetJwt = signPasswordResetToken({ sub: adminUser.id, jti });
+  await tokenRepository.createToken({
+    userId: adminUser.id,
+    tokenType: TokenType.PASSWORD_RESET,
+    jti,
+    expiresAt: new Date(Date.now() + 15 * 60 * 1000),
+  });
+
+  // 1. Verify active token -> returns { valid: true }
+  const validRes = await fetch(`${baseUrl}/verify-reset-token`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ token: resetJwt }),
+  });
+  const validData = (await validRes.json()) as { success: boolean; data?: { valid: boolean } };
+
+  // 2. Mark token as consumed
+  await tokenRepository.markPasswordResetUsed(jti);
+
+  // 3. Verify consumed token -> returns { valid: false }
+  const consumedRes = await fetch(`${baseUrl}/verify-reset-token`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ token: resetJwt }),
+  });
+  const consumedData = (await consumedRes.json()) as {
+    success: boolean;
+    data?: { valid: boolean };
+  };
+
+  // 4. Verify invalid/garbage token -> returns { valid: false }
+  const garbageRes = await fetch(`${baseUrl}/verify-reset-token`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ token: 'invalid.jwt.token' }),
+  });
+  const garbageData = (await garbageRes.json()) as { success: boolean; data?: { valid: boolean } };
+
+  const passed =
+    validRes.status === 200 &&
+    validData.data?.valid === true &&
+    consumedRes.status === 200 &&
+    consumedData.data?.valid === false &&
+    garbageRes.status === 200 &&
+    garbageData.data?.valid === false;
+
+  if (passed) {
+    console.log(
+      '✔ Test 8 PASS: POST /verify-reset-token accurately checks active, consumed, and invalid tokens',
+    );
+  } else {
+    console.error('✘ Test 8 FAIL: /verify-reset-token verification failed', {
+      validStatus: validRes.status,
+      validData,
+      consumedData,
+      garbageData,
+    });
+  }
+
+  return passed;
+}
+
 async function runTests(): Promise<void> {
   await initializeDatabase();
   const { server, baseUrl } = await startServer();
@@ -248,6 +322,9 @@ async function runTests(): Promise<void> {
 
     const isValPassed = await testValidationError(baseUrl);
     if (!isValPassed) failures++;
+
+    const isResetVerifyPassed = await testVerifyResetToken(baseUrl);
+    if (!isResetVerifyPassed) failures++;
   } finally {
     server.close();
     await closeDatabase();
@@ -257,7 +334,7 @@ async function runTests(): Promise<void> {
     console.error(`\n${failures} tests failed.`);
     process.exit(1);
   } else {
-    console.log('\nAll 7 Auth integration tests passed successfully!');
+    console.log('\nAll 8 Auth integration tests passed successfully!');
     process.exit(0);
   }
 }

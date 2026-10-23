@@ -50,6 +50,7 @@ export interface IAuthService {
   getCurrentUser(userId: string): Promise<AuthUserPayload>;
   forgotPassword(input: ForgotPasswordInput): Promise<void>;
   resetPassword(input: ResetPasswordInput): Promise<void>;
+  verifyResetToken(token: string): Promise<{ valid: boolean }>;
   changePassword(userId: string, input: ChangePasswordInput): Promise<void>;
 }
 
@@ -343,6 +344,33 @@ export class AuthService implements IAuthService {
         manager,
       );
     });
+  }
+
+  public async verifyResetToken(token: string): Promise<{ valid: boolean }> {
+    let payload: PasswordResetTokenPayload;
+    try {
+      payload = verifyPasswordResetToken(token);
+    } catch {
+      return { valid: false };
+    }
+
+    const tokenRow = await this.tokenRepo.findByJti(payload.jti);
+    if (
+      !tokenRow ||
+      tokenRow.tokenType !== TokenType.PASSWORD_RESET ||
+      tokenRow.revokedAt !== null ||
+      tokenRow.passwordResetUsedAt !== null ||
+      tokenRow.expiresAt < new Date()
+    ) {
+      return { valid: false };
+    }
+
+    const user = await this.userRepo.findById(tokenRow.userId);
+    if (!user || !user.isActive) {
+      return { valid: false };
+    }
+
+    return { valid: true };
   }
 
   public async changePassword(userId: string, input: ChangePasswordInput): Promise<void> {
