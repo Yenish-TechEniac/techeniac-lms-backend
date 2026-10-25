@@ -14,14 +14,10 @@ import {
 } from '../../core/auth';
 import { AppDataSource } from '../../core/db';
 import { emailService } from '../../core/email';
-import {
-  BadRequestError,
-  ForbiddenError,
-  NotFoundError,
-  UnauthorizedError,
-} from '../../core/errors';
-import { UserRepository, userRepository, UserRole } from '../users';
-import { TokenRevokeReason, TokenType } from './entities/token.entity';
+import { ForbiddenError, NotFoundError, UnauthorizedError, BadRequestError } from '../../core/errors';
+import { logger } from '../../core/logging';
+import { User, UserRepository, userRepository, UserRole } from '../users';
+import { Token, TokenRevokeReason, TokenType } from './entities/token.entity';
 import type {
   ChangePasswordInput,
   ForgotPasswordInput,
@@ -48,6 +44,10 @@ export interface AuthResult {
   tokens: AuthTokens;
 }
 
+export interface VerifyResetTokenResult {
+  valid: boolean;
+}
+
 export interface IAuthService {
   login(input: LoginInput): Promise<AuthResult>;
   refresh(refreshToken: string): Promise<AuthResult>;
@@ -55,7 +55,8 @@ export interface IAuthService {
   getCurrentUser(userId: string): Promise<AuthUserPayload>;
   forgotPassword(input: ForgotPasswordInput): Promise<void>;
   resetPassword(input: ResetPasswordInput): Promise<void>;
-  changePassword(userId: string, input: ChangePasswordInput): Promise<AuthResult>;
+  verifyResetToken(token: string): Promise<VerifyResetTokenResult>;
+  changePassword(userId: string, input: ChangePasswordInput): Promise<void>;
 }
 
 export class AuthService implements IAuthService {
@@ -306,28 +307,63 @@ export class AuthService implements IAuthService {
     });
   }
 
-  public async resetPassword(input: ResetPasswordInput): Promise<void> {
+  private async findUsableResetToken(
+    token: string,
+    context: 'verify' | 'reset',
+  ): Promise<{ tokenRow: Token; user: User } | null> {
     let payload: PasswordResetTokenPayload;
     try {
-      payload = verifyPasswordResetToken(input.token);
+      payload = verifyPasswordResetToken(token);
     } catch {
-      throw new BadRequestError('Invalid or expired password reset token');
+      logger.warn(
+        { context, reason: 'signature_invalid_or_expired' },
+        'Password reset token rejected',
+      );
+      return null;
     }
 
     const tokenRow = await this.tokenRepo.findByJti(payload.jti);
-    if (
-      tokenRow?.tokenType !== TokenType.PASSWORD_RESET ||
-      tokenRow.revokedAt !== null ||
-      tokenRow.passwordResetUsedAt !== null ||
-      tokenRow.expiresAt < new Date()
-    ) {
-      throw new BadRequestError('Invalid or expired password reset token');
+    if (!tokenRow || tokenRow.tokenType !== TokenType.PASSWORD_RESET) {
+      logger.warn(
+        { context, reason: 'token_not_found_or_wrong_type' },
+        'Password reset token rejected',
+      );
+      return null;
+    }
+
+    if (tokenRow.revokedAt !== null) {
+      logger.warn({ context, reason: 'token_revoked' }, 'Password reset token rejected');
+      return null;
+    }
+
+    if (tokenRow.passwordResetUsedAt !== null) {
+      logger.warn({ context, reason: 'token_already_consumed' }, 'Password reset token rejected');
+      return null;
+    }
+
+    if (tokenRow.expiresAt < new Date()) {
+      logger.warn({ context, reason: 'token_expired' }, 'Password reset token rejected');
+      return null;
     }
 
     const user = await this.userRepo.findById(tokenRow.userId);
-    if (!user?.isActive) {
-      throw new BadRequestError('Invalid or expired password reset token');
+    if (!user || !user.isActive) {
+      logger.warn(
+        { context, reason: 'user_inactive_or_not_found' },
+        'Password reset token rejected',
+      );
+      return null;
     }
+
+    return { tokenRow, user };
+  }
+
+  public async resetPassword(input: ResetPasswordInput): Promise<void> {
+    const usable = await this.findUsableResetToken(input.token, 'reset');
+    if (!usable) {
+      throw new UnauthorizedError('Invalid or expired password reset token');
+    }
+    const { tokenRow, user } = usable;
 
     const passwordHash = await hashPassword(input.newPassword);
 
@@ -350,7 +386,12 @@ export class AuthService implements IAuthService {
     });
   }
 
-  public async changePassword(userId: string, input: ChangePasswordInput): Promise<AuthResult> {
+  public async verifyResetToken(token: string): Promise<VerifyResetTokenResult> {
+    const usable = await this.findUsableResetToken(token, 'verify');
+    return { valid: usable !== null };
+  }
+
+  public async changePassword(userId: string, input: ChangePasswordInput): Promise<void> {
     const user = await this.userRepo.findByIdWithPassword(userId);
     if (!user) {
       throw new NotFoundError('User not found');

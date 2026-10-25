@@ -7,6 +7,7 @@ export {
   loginRateLimiter,
   passwordResetRateLimiter,
   refreshRateLimiter,
+  verifyResetTokenRateLimiter,
 } from './rate-limiter';
 export { validate } from './validation.middleware';
 export { StatusCodes } from 'http-status-codes';

@@ -11,6 +11,7 @@ import type {
   ForgotPasswordInput,
   LoginInput,
   ResetPasswordInput,
+  VerifyResetTokenInput,
 } from './schemas/auth.schemas';
 
 const isProduction = env.NODE_ENV === 'production';
@@ -90,6 +91,12 @@ export class AuthController extends BaseController {
   public resetPassword = async (req: Request, res: Response): Promise<void> => {
     await this.service.resetPassword(req.body as ResetPasswordInput);
     this.sendMessage(res, 'Password reset successfully. You may now log in.');
+  };
+
+  public verifyResetToken = async (req: Request, res: Response): Promise<void> => {
+    const { token } = req.body as VerifyResetTokenInput;
+    const result = await this.service.verifyResetToken(token);
+    this.sendSuccess(res, result);
   };
 
   public changePassword = async (req: Request, res: Response): Promise<void> => {
