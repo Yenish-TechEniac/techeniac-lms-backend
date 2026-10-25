@@ -6,6 +6,7 @@ import { StatusCodes } from 'http-status-codes';
 import { env } from './core/config';
 import { healthRouter } from './core/health';
 import { corsMiddleware, errorMiddleware, notFoundMiddleware } from './core/http';
+import { mountBullBoard } from './jobs';
 import { authRouter } from './modules/auth';
 // eslint-disable-next-line architecture/cross-module-index-imports -- router mount isolated from barrel to eliminate circular dependency
 import { usersRouter } from './modules/users/users.routes';
@@ -15,6 +16,9 @@ export function createApp(): Express {
 
   app.disable('x-powered-by');
   app.set('trust proxy', env.TRUST_PROXY_HOPS);
+
+  // Mounted before helmet: Bull Board serves its own UI assets and is gated by its own password
+  mountBullBoard(app);
 
   app.use(helmet());
   app.use(corsMiddleware);

@@ -57,6 +57,10 @@ const envSchema = z
     REDIS_HOST: z.string().default('127.0.0.1'),
     REDIS_PORT: z.coerce.number().int().positive().default(6379),
     REDIS_PASSWORD: z.string().optional(),
+    BULL_BOARD_PASSWORD: z
+      .string()
+      .optional()
+      .transform((val) => (val && val.length > 0 ? val : undefined)),
   })
   .superRefine((data, ctx) => {
     if (data.NODE_ENV === 'production' && !data.SMTP_HOST) {

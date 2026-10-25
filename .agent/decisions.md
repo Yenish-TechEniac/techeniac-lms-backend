@@ -322,3 +322,17 @@
 - **Consequences**:
   - In M2, directory search will perform sequential scans on the `users` table.
   - A follow-up migration enabling `pg_trgm` and creating GIN trigram indexes on `name` and `email` is tracked for future scale milestones.
+
+---
+
+## ADR-017: Bull Board Queue Dashboard with Shared-Password Basic Auth
+
+- **Date**: 2026-10-25
+- **Status**: Accepted
+- **Context**: Scheduled BullMQ jobs (e.g. token cleanup) had no visibility into queue state, failures, or retries.
+- **Choice**: Mount `@bull-board/express` at `/admin/queues`, registering each queue as it is created in `src/jobs/register-jobs.ts`. Access is gated by HTTP Basic auth whose password (any username) is compared in constant time against `BULL_BOARD_PASSWORD`.
+- **Consequences**:
+  - The dashboard is disabled when `BULL_BOARD_PASSWORD` is unset.
+  - It is mounted before `helmet()` so its bundled UI is not blocked by the default CSP; it relies on its own auth.
+  - A single shared password is an interim measure; replace with role-based admin auth once the auth module supports it.
+  - Serve it over HTTPS only, since Basic auth credentials are only base64-encoded.
