@@ -12,13 +12,13 @@ export class CreateCourseBuilderTables1792650000000 implements MigrationInterfac
         "description" text,
         "estimated_minutes" integer,
         "is_active" boolean DEFAULT true NOT NULL,
-        "created_by" uuid NOT NULL,
+        "created_by" uuid,
         "updated_by" uuid,
         "created_at" TIMESTAMP WITH TIME ZONE DEFAULT now() NOT NULL,
         "updated_at" TIMESTAMP WITH TIME ZONE DEFAULT now() NOT NULL,
         "deleted_at" TIMESTAMP WITH TIME ZONE,
         CONSTRAINT "PK_courses_id" PRIMARY KEY ("id"),
-        CONSTRAINT "FK_courses_created_by" FOREIGN KEY ("created_by") REFERENCES "users"("id") ON DELETE RESTRICT ON UPDATE NO ACTION
+        CONSTRAINT "FK_16fcd8ab8bc042688984d5b3934" FOREIGN KEY ("created_by") REFERENCES "users"("id") ON DELETE NO ACTION ON UPDATE NO ACTION
       );
     `);
 
@@ -42,7 +42,7 @@ export class CreateCourseBuilderTables1792650000000 implements MigrationInterfac
         "updated_at" TIMESTAMP WITH TIME ZONE DEFAULT now() NOT NULL,
         "deleted_at" TIMESTAMP WITH TIME ZONE,
         CONSTRAINT "PK_topics_id" PRIMARY KEY ("id"),
-        CONSTRAINT "FK_topics_course_id" FOREIGN KEY ("course_id") REFERENCES "courses"("id") ON DELETE CASCADE ON UPDATE NO ACTION
+        CONSTRAINT "FK_ef19a29ccdfb8903f09e924b66c" FOREIGN KEY ("course_id") REFERENCES "courses"("id") ON DELETE CASCADE ON UPDATE NO ACTION
       );
     `);
 
@@ -67,7 +67,7 @@ export class CreateCourseBuilderTables1792650000000 implements MigrationInterfac
         "updated_at" TIMESTAMP WITH TIME ZONE DEFAULT now() NOT NULL,
         "deleted_at" TIMESTAMP WITH TIME ZONE,
         CONSTRAINT "PK_subtopics_id" PRIMARY KEY ("id"),
-        CONSTRAINT "FK_subtopics_topic_id" FOREIGN KEY ("topic_id") REFERENCES "topics"("id") ON DELETE CASCADE ON UPDATE NO ACTION
+        CONSTRAINT "FK_14e43cb8c5dbee90087dd8f91ca" FOREIGN KEY ("topic_id") REFERENCES "topics"("id") ON DELETE CASCADE ON UPDATE NO ACTION
       );
     `);
 
@@ -99,8 +99,8 @@ export class CreateCourseBuilderTables1792650000000 implements MigrationInterfac
         "updated_at" TIMESTAMP WITH TIME ZONE DEFAULT now() NOT NULL,
         "deleted_at" TIMESTAMP WITH TIME ZONE,
         CONSTRAINT "PK_assignments_id" PRIMARY KEY ("id"),
-        CONSTRAINT "FK_assignments_course_id" FOREIGN KEY ("course_id") REFERENCES "courses"("id") ON DELETE CASCADE ON UPDATE NO ACTION,
-        CONSTRAINT "FK_assignments_topic_id" FOREIGN KEY ("topic_id") REFERENCES "topics"("id") ON DELETE CASCADE ON UPDATE NO ACTION,
+        CONSTRAINT "FK_33f833f305070d2d4e6305d8a0c" FOREIGN KEY ("course_id") REFERENCES "courses"("id") ON DELETE CASCADE ON UPDATE NO ACTION,
+        CONSTRAINT "FK_37b452f4e7d9b5fd17581999c6c" FOREIGN KEY ("topic_id") REFERENCES "topics"("id") ON DELETE CASCADE ON UPDATE NO ACTION,
         CONSTRAINT "chk_assign_one_mode_on" CHECK (pdf_mode <> 'OFF' OR zip_mode <> 'OFF' OR url_mode <> 'OFF'),
         CONSTRAINT "chk_assign_pass_le_max" CHECK (pass_marks <= max_marks),
         CONSTRAINT "chk_assign_max_range" CHECK (max_marks > 0 AND max_marks <= 1000),

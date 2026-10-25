@@ -1,4 +1,4 @@
-import { Column, Entity, Index, JoinColumn, ManyToOne } from 'typeorm';
+import { Check, Column, Entity, Index, JoinColumn, ManyToOne } from 'typeorm';
 
 import { AuditableEntity } from '../../../core/db';
 import { Course } from './course.entity';
@@ -18,6 +18,13 @@ export enum SubmissionMode {
 
 @Entity({ name: 'assignments' })
 @Index('idx_assignments_course_scope', ['courseId', 'scope', 'topicId', 'displayOrder'])
+@Check('chk_assign_one_mode_on', `pdf_mode <> 'OFF' OR zip_mode <> 'OFF' OR url_mode <> 'OFF'`)
+@Check('chk_assign_pass_le_max', `pass_marks <= max_marks`)
+@Check('chk_assign_max_range', `max_marks > 0 AND max_marks <= 1000`)
+@Check(
+  'chk_assign_scope_topic',
+  `(scope = 'TOPIC' AND topic_id IS NOT NULL) OR (scope = 'COURSE' AND topic_id IS NULL)`,
+)
 export class Assignment extends AuditableEntity {
   @Column({ name: 'course_id', type: 'uuid' })
   courseId!: string;
