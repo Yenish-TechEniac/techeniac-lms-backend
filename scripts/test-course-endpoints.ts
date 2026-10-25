@@ -48,7 +48,9 @@ async function runTests(): Promise<void> {
     const token = loginData.data?.tokens.accessToken;
 
     if (!token) {
-      throw new Error(`Failed to login as Admin for testing: status ${loginRes.status} ${JSON.stringify(loginData)}`);
+      throw new Error(
+        `Failed to login as Admin for testing: status ${loginRes.status} ${JSON.stringify(loginData)}`,
+      );
     }
     const headers = {
       'Content-Type': 'application/json',
