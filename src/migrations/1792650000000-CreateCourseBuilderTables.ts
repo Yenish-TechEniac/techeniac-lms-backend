@@ -1,7 +1,7 @@
 import type { MigrationInterface, QueryRunner } from 'typeorm';
 
-export class CreateCourseBuilderTables1792600000000 implements MigrationInterface {
-  name = 'CreateCourseBuilderTables1792600000000';
+export class CreateCourseBuilderTables1792650000000 implements MigrationInterface {
+  name = 'CreateCourseBuilderTables1792650000000';
 
   public async up(queryRunner: QueryRunner): Promise<void> {
     // 1. courses table

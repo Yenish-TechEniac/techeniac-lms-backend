@@ -1,7 +1,7 @@
 import type { MigrationInterface, QueryRunner } from 'typeorm';
 
-export class RemoveCourseDifficultyColumn1792600000001 implements MigrationInterface {
-  name = 'RemoveCourseDifficultyColumn1792600000001';
+export class RemoveCourseDifficultyColumn1792650000001 implements MigrationInterface {
+  name = 'RemoveCourseDifficultyColumn1792650000001';
 
   public async up(queryRunner: QueryRunner): Promise<void> {
     await queryRunner.query(`

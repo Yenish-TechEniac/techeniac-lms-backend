@@ -1,7 +1,7 @@
 import type { MigrationInterface, QueryRunner } from 'typeorm';
 
-export class AddResourcesToTopicsTable1792610000000 implements MigrationInterface {
-  name = 'AddResourcesToTopicsTable1792610000000';
+export class AddResourcesToTopicsTable1792650000002 implements MigrationInterface {
+  name = 'AddResourcesToTopicsTable1792650000002';
 
   public async up(queryRunner: QueryRunner): Promise<void> {
     await queryRunner.query(`
