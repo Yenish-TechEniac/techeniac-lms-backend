@@ -29,7 +29,10 @@ async function runMappingTests(): Promise<void> {
   let failures = 0;
 
   try {
-    logger.info({ baseUrl }, 'Running M4 Mentor-Mentee Mapping Verification Tests (MAP-01..10, USR-07..08)...');
+    logger.info(
+      { baseUrl },
+      'Running M4 Mentor-Mentee Mapping Verification Tests (MAP-01..10, USR-07..08)...',
+    );
 
     async function getOrCreateUser(email: string, name: string, role: UserRole) {
       let u = await userRepository.findByEmail(email);
@@ -134,19 +137,30 @@ async function runMappingTests(): Promise<void> {
         menteeIds: [mentee1.id],
       }),
     });
-    const mapData = (await mapRes.json()) as { success: boolean; data?: { mappings: Array<{ mentorId: string; menteeId: string }> } };
+    const mapData = (await mapRes.json()) as {
+      success: boolean;
+      data?: { mappings: Array<{ mentorId: string; menteeId: string }> };
+    };
 
     // Also check mentor sees mentee
     const mentorMenteesRes = await fetch(`${baseUrl}/mentor/mentees?batchId=${batchId}`, {
       headers: { Authorization: `Bearer ${mentorAToken}` },
     });
-    const mentorMenteesData = (await mentorMenteesRes.json()) as { data?: { mentees: Array<{ menteeId: string }> } };
+    const mentorMenteesData = (await mentorMenteesRes.json()) as {
+      data?: { mentees: Array<{ menteeId: string }> };
+    };
     const mentorSeesMentee = mentorMenteesData.data?.mentees.some((m) => m.menteeId === mentee1.id);
 
     if (mapRes.status === 201 && mapData.success && mentorSeesMentee) {
-      console.log('✔ Test 1 PASS: MAP-01 Mentee successfully mapped to Mentor A; visible in mentor portal');
+      console.log(
+        '✔ Test 1 PASS: MAP-01 Mentee successfully mapped to Mentor A; visible in mentor portal',
+      );
     } else {
-      console.error('✘ Test 1 FAIL: MAP-01 failed', { status: mapRes.status, mapData, mentorMenteesData });
+      console.error('✘ Test 1 FAIL: MAP-01 failed', {
+        status: mapRes.status,
+        mapData,
+        mentorMenteesData,
+      });
       failures++;
     }
 
@@ -162,19 +176,34 @@ async function runMappingTests(): Promise<void> {
         reason: 'Workload balancing',
       }),
     });
-    const reassignData = (await reassignRes.json()) as { success: boolean; data?: { mapping: { mentorId: string } } };
+    const reassignData = (await reassignRes.json()) as {
+      success: boolean;
+      data?: { mapping: { mentorId: string } };
+    };
 
     // Verify Mentor A no longer has mentee1 in active mappings
     const mentorAAfterReassign = await fetch(`${baseUrl}/mentor/mentees?batchId=${batchId}`, {
       headers: { Authorization: `Bearer ${mentorAToken}` },
     });
-    const mentorAData = (await mentorAAfterReassign.json()) as { data?: { mentees: Array<{ menteeId: string }> } };
+    const mentorAData = (await mentorAAfterReassign.json()) as {
+      data?: { mentees: Array<{ menteeId: string }> };
+    };
     const mentorALostAccess = !mentorAData.data?.mentees.some((m) => m.menteeId === mentee1.id);
 
-    if (reassignRes.status === 200 && reassignData.data?.mapping.mentorId === mentorB.id && mentorALostAccess) {
-      console.log('✔ Test 2 PASS: MAP-02 Reassigned to Mentor B; Mentor A lost access, history retained');
+    if (
+      reassignRes.status === 200 &&
+      reassignData.data?.mapping.mentorId === mentorB.id &&
+      mentorALostAccess
+    ) {
+      console.log(
+        '✔ Test 2 PASS: MAP-02 Reassigned to Mentor B; Mentor A lost access, history retained',
+      );
     } else {
-      console.error('✘ Test 2 FAIL: MAP-02 failed', { status: reassignRes.status, reassignData, mentorALostAccess });
+      console.error('✘ Test 2 FAIL: MAP-02 failed', {
+        status: reassignRes.status,
+        reassignData,
+        mentorALostAccess,
+      });
       failures++;
     }
 
@@ -183,7 +212,11 @@ async function runMappingTests(): Promise<void> {
     // -------------------------------------------------------------
     const bulkMentees = [];
     for (let i = 3; i <= 5; i++) {
-      const m = await getOrCreateUser(`bulk-mentee-${i}-${uniqueSuffix}@techeniac.com`, `Bulk Mentee ${i}`, UserRole.MENTEE);
+      const m = await getOrCreateUser(
+        `bulk-mentee-${i}-${uniqueSuffix}@techeniac.com`,
+        `Bulk Mentee ${i}`,
+        UserRole.MENTEE,
+      );
       bulkMentees.push(m);
     }
     await fetch(`${baseUrl}/batches/${batchId}/members`, {
@@ -200,7 +233,10 @@ async function runMappingTests(): Promise<void> {
         menteeIds: bulkMentees.map((m) => m.id),
       }),
     });
-    const bulkMapData = (await bulkMapRes.json()) as { success: boolean; data?: { mappings: unknown[] } };
+    const bulkMapData = (await bulkMapRes.json()) as {
+      success: boolean;
+      data?: { mappings: unknown[] };
+    };
 
     if (bulkMapRes.status === 201 && bulkMapData.data?.mappings.length === bulkMentees.length) {
       console.log('✔ Test 3 PASS: MAP-03 Bulk mapped 3 mentees atomically');
@@ -213,7 +249,11 @@ async function runMappingTests(): Promise<void> {
     // Test 4: MAP-04 & MAP-05 - Reusable Mentor Scope Helper
     // -------------------------------------------------------------
     // Mentee 2 is unmapped. Mentor A should NOT have review/track scope for Mentee 2
-    const canMentorReviewUnmapped = await mentorScopeHelper.canMentorReviewAndTrack(mentorA.id, mentee2.id, batchId);
+    const canMentorReviewUnmapped = await mentorScopeHelper.canMentorReviewAndTrack(
+      mentorA.id,
+      mentee2.id,
+      batchId,
+    );
     let scopeDeniedError = false;
     try {
       await mentorScopeHelper.requireMentorScope(MentorScopeAction.REVIEW_AND_TRACK, {
@@ -226,7 +266,9 @@ async function runMappingTests(): Promise<void> {
     }
 
     if (!canMentorReviewUnmapped && scopeDeniedError) {
-      console.log('✔ Test 4 PASS: MAP-04 & MAP-05 Mentor-scope helper rejects access to unmapped mentee (403)');
+      console.log(
+        '✔ Test 4 PASS: MAP-04 & MAP-05 Mentor-scope helper rejects access to unmapped mentee (403)',
+      );
     } else {
       console.error('✘ Test 4 FAIL: MAP-05 failed', { canMentorReviewUnmapped, scopeDeniedError });
       failures++;
@@ -245,7 +287,9 @@ async function runMappingTests(): Promise<void> {
     });
 
     if (mapMentorAsMenteeRes.status === 400) {
-      console.log('✔ Test 5 PASS: MAP-06 Mapping a user with role MENTOR as a mentee rejected with 400');
+      console.log(
+        '✔ Test 5 PASS: MAP-06 Mapping a user with role MENTOR as a mentee rejected with 400',
+      );
     } else {
       console.error('✘ Test 5 FAIL: MAP-06 failed', { status: mapMentorAsMenteeRes.status });
       failures++;
@@ -322,12 +366,19 @@ async function runMappingTests(): Promise<void> {
     });
 
     // Check mapping in batch A is closed
-    const activeMappingInA = await mentorScopeHelper.canMentorReviewAndTrack(mentorB.id, mentee1.id, batchId);
+    const activeMappingInA = await mentorScopeHelper.canMentorReviewAndTrack(
+      mentorB.id,
+      mentee1.id,
+      batchId,
+    );
 
     if (transferRes.status === 200 && !activeMappingInA) {
       console.log('✔ Test 8 PASS: MAP-09 Mentee transfer ends mapping in source batch');
     } else {
-      console.error('✘ Test 8 FAIL: MAP-09 failed', { status: transferRes.status, activeMappingInA });
+      console.error('✘ Test 8 FAIL: MAP-09 failed', {
+        status: transferRes.status,
+        activeMappingInA,
+      });
       failures++;
     }
 
@@ -348,7 +399,11 @@ async function runMappingTests(): Promise<void> {
     });
 
     // Check bulk mapped mentees in Batch A no longer active
-    const activeBulkMapping = await mentorScopeHelper.canMentorReviewAndTrack(mentorA.id, bulkMentees[0].id, batchId);
+    const activeBulkMapping = await mentorScopeHelper.canMentorReviewAndTrack(
+      mentorA.id,
+      bulkMentees[0].id,
+      batchId,
+    );
 
     if (!activeBulkMapping) {
       console.log('✔ Test 9 PASS: MAP-10 Batch Archive closed all remaining active mappings');
@@ -374,9 +429,21 @@ async function runMappingTests(): Promise<void> {
     const batchCData = (await createBatchCRes.json()) as { data: { batch: { id: string } } };
     const batchCId = batchCData.data.batch.id;
 
-    const mentorC = await getOrCreateUser(`mentor-c-${uniqueSuffix}@techeniac.com`, 'Mentor Gamma', UserRole.MENTOR);
-    const mentorD = await getOrCreateUser(`mentor-d-${uniqueSuffix}@techeniac.com`, 'Mentor Delta', UserRole.MENTOR);
-    const menteeC = await getOrCreateUser(`mentee-c-${uniqueSuffix}@techeniac.com`, 'Mentee Gamma', UserRole.MENTEE);
+    const mentorC = await getOrCreateUser(
+      `mentor-c-${uniqueSuffix}@techeniac.com`,
+      'Mentor Gamma',
+      UserRole.MENTOR,
+    );
+    const mentorD = await getOrCreateUser(
+      `mentor-d-${uniqueSuffix}@techeniac.com`,
+      'Mentor Delta',
+      UserRole.MENTOR,
+    );
+    const menteeC = await getOrCreateUser(
+      `mentee-c-${uniqueSuffix}@techeniac.com`,
+      'Mentee Gamma',
+      UserRole.MENTEE,
+    );
 
     await fetch(`${baseUrl}/batches/${batchCId}/members`, {
       method: 'POST',
@@ -400,7 +467,10 @@ async function runMappingTests(): Promise<void> {
     const blockRoleChangeRes = await fetch(`${baseUrl}/users/${mentorC.id}/role`, {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${adminToken}` },
-      body: JSON.stringify({ newRole: UserRole.MENTEE, reason: 'Transitioning mentor back to mentee' }),
+      body: JSON.stringify({
+        newRole: UserRole.MENTEE,
+        reason: 'Transitioning mentor back to mentee',
+      }),
     });
     const blockData = (await blockRoleChangeRes.json()) as { error?: { message?: string } };
 
@@ -411,7 +481,10 @@ async function runMappingTests(): Promise<void> {
     if (isBlocked) {
       console.log('✔ Test 10 PASS: USR-07 Role change blocked because mentor has active mentees');
     } else {
-      console.error('✘ Test 10 FAIL: USR-07 failed', { status: blockRoleChangeRes.status, blockData });
+      console.error('✘ Test 10 FAIL: USR-07 failed', {
+        status: blockRoleChangeRes.status,
+        blockData,
+      });
       failures++;
     }
 
@@ -430,7 +503,10 @@ async function runMappingTests(): Promise<void> {
     const succeedRoleChangeRes = await fetch(`${baseUrl}/users/${mentorC.id}/role`, {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${adminToken}` },
-      body: JSON.stringify({ newRole: UserRole.MENTEE, reason: 'Reassignment complete, demoting to mentee' }),
+      body: JSON.stringify({
+        newRole: UserRole.MENTEE,
+        reason: 'Reassignment complete, demoting to mentee',
+      }),
     });
 
     if (succeedRoleChangeRes.status === 200) {
