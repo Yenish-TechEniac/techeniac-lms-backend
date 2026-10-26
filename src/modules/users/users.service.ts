@@ -11,7 +11,7 @@ import {
   NotFoundError,
 } from '../../core/errors';
 import { logger } from '../../core/logging';
-import { BatchReasonToLeave, batchRepository, mentorMenteeRepository } from '../batches';
+import { batchService } from '../batches';
 import { type User, UserRole } from './entities/user.entity';
 import type { UserRoleHistory } from './entities/user-role-history.entity';
 import { UserRepository, userRepository } from './user.repository';
@@ -196,7 +196,7 @@ export class UsersService {
       user.role === UserRole.MENTOR &&
       (input.newRole === UserRole.MENTEE || input.newRole === UserRole.SUPER_ADMIN)
     ) {
-      const activeMappings = await mentorMenteeRepository.findActiveMappingsForMentor(user.id);
+      const activeMappings = await batchService.getActiveMappingsForMentor(user.id);
       if (activeMappings.length > 0) {
         throw new BadRequestError(
           `Cannot change role. Mentor has ${activeMappings.length} active mentee(s) that must be reassigned first.`,
@@ -239,16 +239,7 @@ export class UsersService {
 
         // PRD Section 4: Role Change Impact Matrix closures
         if (previousRole === UserRole.MENTEE || previousRole === UserRole.MENTOR) {
-          await batchRepository.closeActiveMembershipsForUser(
-            user.id,
-            BatchReasonToLeave.ROLE_CHANGE,
-            manager,
-          );
-          await mentorMenteeRepository.closeAllActiveMappingsForUser(
-            user.id,
-            BatchReasonToLeave.ROLE_CHANGE,
-            manager,
-          );
+          await batchService.handleUserRoleChange(user.id, manager, actorId);
         }
 
         return { user: savedUser, history };
@@ -351,7 +342,7 @@ export class UsersService {
       user.role === UserRole.MENTOR &&
       (newRole === UserRole.MENTEE || newRole === UserRole.SUPER_ADMIN)
     ) {
-      const mappings = await mentorMenteeRepository.findActiveMappingsForMentor(user.id);
+      const mappings = await batchService.getActiveMappingsForMentor(user.id);
       if (mappings.length > 0) {
         isBlocked = true;
         blockReason = 'ACTIVE_MENTEES';

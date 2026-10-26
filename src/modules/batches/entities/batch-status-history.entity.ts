@@ -1,13 +1,13 @@
 import { Column, CreateDateColumn, Entity, Index, JoinColumn, ManyToOne } from 'typeorm';
 
-import { BaseEntity } from '../../../core/db';
+import { AuditableEntity } from '../../../core/db';
 import { User } from '../../users';
 import { Batch } from './batch.entity';
 import { BatchStatus } from './batch.enums';
 
 @Entity({ name: 'batch_status_history' })
 @Index('idx_bsh_batch_changed', ['batchId', 'changedAt'])
-export class BatchStatusHistory extends BaseEntity {
+export class BatchStatusHistory extends AuditableEntity {
   @Column({ name: 'batch_id', type: 'uuid' })
   batchId!: string;
 
