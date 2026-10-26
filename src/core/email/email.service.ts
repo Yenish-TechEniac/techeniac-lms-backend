@@ -2,7 +2,12 @@ import nodemailer, { Transporter } from 'nodemailer';
 
 import { env } from '../config';
 import { logger } from '../logging';
-import { renderInviteEmail, renderPasswordResetEmail } from './templates';
+import {
+  renderInviteEmail,
+  renderMenteeReassignedEmail,
+  renderMentorMappedEmail,
+  renderPasswordResetEmail,
+} from './templates';
 
 export interface SendPasswordResetOptions {
   to: string;
@@ -15,6 +20,24 @@ export interface SendInviteEmailOptions {
   name: string;
   temporaryPassword: string;
   role: string;
+}
+
+export interface SendMentorMappedOptions {
+  to: string;
+  recipientName: string;
+  isMentor: boolean;
+  otherPartyName: string;
+  batchName: string;
+}
+
+export interface SendMenteeReassignedOptions {
+  to: string;
+  recipientName: string;
+  recipientRole: 'MENTEE' | 'NEW_MENTOR' | 'PREVIOUS_MENTOR';
+  menteeName: string;
+  mentorName: string;
+  batchName: string;
+  reason?: string;
 }
 
 export class EmailService {
@@ -107,6 +130,93 @@ export class EmailService {
         'Failed to dispatch user invitation email',
       );
       throw error;
+    }
+  }
+
+  public async sendMentorMappedEmail(options: SendMentorMappedOptions): Promise<void> {
+    const portalUrl = options.isMentor
+      ? `${env.FRONTEND_URL}/mentor`
+      : `${env.FRONTEND_URL}/mentee`;
+
+    const { subject, text, html } = renderMentorMappedEmail({
+      recipientName: options.recipientName,
+      isMentor: options.isMentor,
+      otherPartyName: options.otherPartyName,
+      batchName: options.batchName,
+      portalUrl,
+    });
+
+    if (!this.transporter) {
+      logger.info(
+        { to: options.to, isMentor: options.isMentor, batchName: options.batchName },
+        'SMTP not configured in environment. Mentor mapping notification skipped in development.',
+      );
+      return;
+    }
+
+    try {
+      await this.transporter.sendMail({
+        from: env.SMTP_FROM,
+        to: options.to,
+        subject,
+        text,
+        html,
+      });
+
+      logger.info(
+        { to: options.to, batchName: options.batchName },
+        'Mentor mapping email dispatched successfully via SMTP',
+      );
+    } catch (error) {
+      logger.error(
+        { err: error, event: 'EMAIL_DISPATCH_FAILURE', service: 'smtp', to: options.to },
+        'Failed to dispatch mentor mapping email',
+      );
+    }
+  }
+
+  public async sendMenteeReassignedEmail(options: SendMenteeReassignedOptions): Promise<void> {
+    const portalUrl =
+      options.recipientRole === 'MENTEE'
+        ? `${env.FRONTEND_URL}/mentee`
+        : `${env.FRONTEND_URL}/mentor`;
+
+    const { subject, text, html } = renderMenteeReassignedEmail({
+      recipientName: options.recipientName,
+      recipientRole: options.recipientRole,
+      menteeName: options.menteeName,
+      mentorName: options.mentorName,
+      batchName: options.batchName,
+      reason: options.reason,
+      portalUrl,
+    });
+
+    if (!this.transporter) {
+      logger.info(
+        { to: options.to, role: options.recipientRole, batchName: options.batchName },
+        'SMTP not configured in environment. Mentee reassignment notification skipped in development.',
+      );
+      return;
+    }
+
+    try {
+      await this.transporter.sendMail({
+        from: env.SMTP_FROM,
+        to: options.to,
+        subject,
+        text,
+        html,
+      });
+
+      logger.info(
+        { to: options.to, role: options.recipientRole, batchName: options.batchName },
+        'Mentee reassignment email dispatched successfully via SMTP',
+      );
+    } catch (error) {
+      logger.error(
+        { err: error, event: 'EMAIL_DISPATCH_FAILURE', service: 'smtp', to: options.to },
+        'Failed to dispatch mentee reassignment email',
+      );
     }
   }
 }

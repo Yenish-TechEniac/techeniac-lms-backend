@@ -176,12 +176,25 @@ export class UserRepository {
       query.andWhere(
         `EXISTS (
           SELECT 1 FROM batch_members bm
-          WHERE bm.user_id = user.id
+          WHERE bm.user_id = "user"."id"
             AND bm.batch_id = :batchId
             AND bm.is_active = true
             AND bm.deleted_at IS NULL
         )`,
         { batchId: params.batchId },
+      );
+    }
+
+    if (params.mentorId) {
+      query.andWhere(
+        `EXISTS (
+          SELECT 1 FROM mentor_mentees mm
+          WHERE mm.mentee_id = "user"."id"
+            AND mm.mentor_id = :mentorId
+            AND mm.is_active = true
+            AND mm.deleted_at IS NULL
+        )`,
+        { mentorId: params.mentorId },
       );
     }
 

@@ -1,6 +1,7 @@
 import { AppDataSource } from '../../core/db';
+import { EmailService, emailService } from '../../core/email';
 import { BadRequestError, ConflictError, ForbiddenError, NotFoundError } from '../../core/errors';
-import { UserRepository, userRepository, UserRole } from '../users';
+import { User, UserRepository, userRepository, UserRole } from '../users';
 import { BatchRepository, batchRepository } from './batch.repository';
 import { BatchMemberRole, BatchReasonToLeave, BatchStatus } from './entities';
 import { MentorMenteeRepository, mentorMenteeRepository } from './mentor-mentee.repository';
@@ -28,6 +29,7 @@ export class BatchService {
     private readonly batchRepo: BatchRepository = batchRepository,
     private readonly userRepo: UserRepository = userRepository,
     private readonly mentorMenteeRepo: MentorMenteeRepository = mentorMenteeRepository,
+    private readonly emailSvc: EmailService = emailService,
   ) {}
 
   public async createBatch(input: CreateBatchInput, actorId: string) {
@@ -327,15 +329,25 @@ export class BatchService {
       throw new BadRequestError(`Cannot map mentees in a batch with status ${batch.status}`);
     }
 
+    const mentorUser = await this.userRepo.findById(input.mentorId);
+    if (!mentorUser || mentorUser.role !== UserRole.MENTOR) {
+      throw new BadRequestError('User does not have the MENTOR role');
+    }
+
     const mentorMembership = await this.batchRepo.findActiveMemberInBatch(batchId, input.mentorId);
     if (!mentorMembership || mentorMembership.memberRole !== BatchMemberRole.MENTOR) {
       throw new BadRequestError('Specified mentor is not an active mentor member in this batch');
     }
 
-    const created = [];
+    const menteeUsers: User[] = [];
     for (const menteeId of input.menteeIds) {
       if (menteeId === input.mentorId) {
         throw new BadRequestError('A mentor cannot be mapped to themselves as a mentee');
+      }
+
+      const menteeUser = await this.userRepo.findById(menteeId);
+      if (!menteeUser || menteeUser.role !== UserRole.MENTEE) {
+        throw new BadRequestError(`User ${menteeId} does not have the MENTEE role`);
       }
 
       const menteeMembership = await this.batchRepo.findActiveMemberInBatch(batchId, menteeId);
@@ -355,13 +367,42 @@ export class BatchService {
           `Mentee is already actively mapped in this batch. Use reassign to change their mentor.`,
         );
       }
+      menteeUsers.push(menteeUser);
+    }
 
-      const mapping = await this.mentorMenteeRepo.createMapping({
-        batchId,
-        mentorId: input.mentorId,
-        menteeId,
+    const created = await AppDataSource.transaction(async (manager) => {
+      const records = [];
+      for (const menteeUser of menteeUsers) {
+        const mapping = await this.mentorMenteeRepo.createMapping(
+          {
+            batchId,
+            mentorId: input.mentorId,
+            menteeId: menteeUser.id,
+          },
+          manager,
+        );
+        records.push(mapping);
+      }
+      return records;
+    });
+
+    // Post-commit notifications (PRD Section 7.2)
+    for (const menteeUser of menteeUsers) {
+      void this.emailSvc.sendMentorMappedEmail({
+        to: mentorUser.email,
+        recipientName: mentorUser.name,
+        isMentor: true,
+        otherPartyName: menteeUser.name,
+        batchName: batch.name,
       });
-      created.push(mapping);
+
+      void this.emailSvc.sendMentorMappedEmail({
+        to: menteeUser.email,
+        recipientName: menteeUser.name,
+        isMentor: false,
+        otherPartyName: mentorUser.name,
+        batchName: batch.name,
+      });
     }
 
     return created;
@@ -379,6 +420,16 @@ export class BatchService {
 
     if (input.menteeId === input.newMentorId) {
       throw new BadRequestError('A mentor cannot be mapped to themselves as a mentee');
+    }
+
+    const newMentorUser = await this.userRepo.findById(input.newMentorId);
+    if (!newMentorUser || newMentorUser.role !== UserRole.MENTOR) {
+      throw new BadRequestError('Target mentor does not have the MENTOR role');
+    }
+
+    const menteeUser = await this.userRepo.findById(input.menteeId);
+    if (!menteeUser || menteeUser.role !== UserRole.MENTEE) {
+      throw new BadRequestError('Target user does not have the MENTEE role');
     }
 
     const newMentorMembership = await this.batchRepo.findActiveMemberInBatch(
@@ -402,7 +453,11 @@ export class BatchService {
       return existingMapping;
     }
 
-    return await AppDataSource.transaction(async (manager) => {
+    const oldMentorUser = existingMapping?.mentorId
+      ? await this.userRepo.findById(existingMapping.mentorId)
+      : null;
+
+    const result = await AppDataSource.transaction(async (manager) => {
       if (existingMapping) {
         await this.mentorMenteeRepo.closeMapping(
           existingMapping.id,
@@ -420,6 +475,41 @@ export class BatchService {
         manager,
       );
     });
+
+    // Post-commit reassignment notifications (PRD Section 7.2)
+    void this.emailSvc.sendMenteeReassignedEmail({
+      to: menteeUser.email,
+      recipientName: menteeUser.name,
+      recipientRole: 'MENTEE',
+      menteeName: menteeUser.name,
+      mentorName: newMentorUser.name,
+      batchName: batch.name,
+      reason: input.reason ?? undefined,
+    });
+
+    void this.emailSvc.sendMenteeReassignedEmail({
+      to: newMentorUser.email,
+      recipientName: newMentorUser.name,
+      recipientRole: 'NEW_MENTOR',
+      menteeName: menteeUser.name,
+      mentorName: newMentorUser.name,
+      batchName: batch.name,
+      reason: input.reason ?? undefined,
+    });
+
+    if (oldMentorUser) {
+      void this.emailSvc.sendMenteeReassignedEmail({
+        to: oldMentorUser.email,
+        recipientName: oldMentorUser.name,
+        recipientRole: 'PREVIOUS_MENTOR',
+        menteeName: menteeUser.name,
+        mentorName: newMentorUser.name,
+        batchName: batch.name,
+        reason: input.reason ?? undefined,
+      });
+    }
+
+    return result;
   }
 
   public async getBatchMappings(batchId: string) {

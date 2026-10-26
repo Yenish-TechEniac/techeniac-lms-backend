@@ -35,6 +35,7 @@ export const userQuerySchema = z.object({
   status: z.enum(['active', 'inactive']).optional(),
   search: z.string().trim().max(100).optional(),
   batchId: z.string().uuid('Invalid batch ID').optional(),
+  mentorId: z.string().uuid('Invalid mentor ID').optional(),
 });
 
 export const listUsersSchema = z.object({
