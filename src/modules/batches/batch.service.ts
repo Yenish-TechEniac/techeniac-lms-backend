@@ -4,7 +4,7 @@ import { AppDataSource, isUniqueViolation } from '../../core/db';
 import { BadRequestError, ConflictError, ForbiddenError, NotFoundError } from '../../core/errors';
 import { UserRepository, userRepository, UserRole } from '../users';
 import { BatchRepository, batchRepository } from './batch.repository';
-import { BatchMemberRole, BatchReasonToLeave, BatchStatus } from './entities';
+import { BatchMember, BatchMemberRole, BatchReasonToLeave, BatchStatus } from './entities';
 import { MentorMenteeRepository, mentorMenteeRepository } from './mentor-mentee.repository';
 import {
   AddBatchMembersInput,
@@ -98,9 +98,11 @@ export class BatchService {
       throw new NotFoundError('Batch not found');
     }
 
-    const members = await this.batchRepo.findMembersByBatchId(id);
-    const statusHistory = await this.batchRepo.getStatusHistory(id);
-    const activeMappings = await this.mentorMenteeRepo.findActiveMappingsByBatch(id);
+    const [members, statusHistory, activeMappings] = await Promise.all([
+      this.batchRepo.findMembersByBatchId(id),
+      this.batchRepo.getStatusHistory(id),
+      this.mentorMenteeRepo.findActiveMappingsByBatch(id),
+    ]);
     const mappingByMenteeId = new Map(activeMappings.map((m) => [m.menteeId, m.mentor]));
 
     const sanitizeUser = (u?: { id: string; name: string; email: string } | null) =>
@@ -392,13 +394,12 @@ export class BatchService {
       );
     }
 
-    const currentMembership = await this.batchRepo.findActiveMemberInBatch(
+    const currentMembership = await this.requireActiveMember(
       sourceBatchId,
       input.menteeId,
+      BatchMemberRole.MENTEE,
+      'Mentee is not an active member of the source batch',
     );
-    if (!currentMembership || currentMembership.memberRole !== BatchMemberRole.MENTEE) {
-      throw new NotFoundError('Mentee is not an active member of the source batch');
-    }
 
     try {
       return await AppDataSource.transaction(async (manager) => {
@@ -440,6 +441,20 @@ export class BatchService {
 
   // --- Mentor-Mentee Mapping Methods (FR-4.1 - 4.3) ---
 
+  private async requireActiveMember(
+    batchId: string,
+    userId: string,
+    role: BatchMemberRole,
+    errorMessage: string,
+    manager?: EntityManager,
+  ): Promise<BatchMember> {
+    const membership = await this.batchRepo.findActiveMemberInBatch(batchId, userId, manager);
+    if (!membership || membership.memberRole !== role) {
+      throw new NotFoundError(errorMessage);
+    }
+    return membership;
+  }
+
   public async mapMentees(batchId: string, input: MapMenteesInput, actorId?: string) {
     const batch = await this.batchRepo.findById(batchId);
     if (!batch) {
@@ -450,10 +465,12 @@ export class BatchService {
       throw new BadRequestError(`Cannot map mentees in a batch with status ${batch.status}`);
     }
 
-    const mentorMembership = await this.batchRepo.findActiveMemberInBatch(batchId, input.mentorId);
-    if (!mentorMembership || mentorMembership.memberRole !== BatchMemberRole.MENTOR) {
-      throw new NotFoundError('Specified mentor is not an active mentor member in this batch');
-    }
+    await this.requireActiveMember(
+      batchId,
+      input.mentorId,
+      BatchMemberRole.MENTOR,
+      'Specified mentor is not an active mentor member in this batch',
+    );
 
     try {
       return await AppDataSource.transaction(async (manager) => {
@@ -463,16 +480,13 @@ export class BatchService {
             throw new BadRequestError('A mentor cannot be mapped to themselves as a mentee');
           }
 
-          const menteeMembership = await this.batchRepo.findActiveMemberInBatch(
+          await this.requireActiveMember(
             batchId,
             menteeId,
+            BatchMemberRole.MENTEE,
+            `User ${menteeId} is not an active mentee member in this batch`,
             manager,
           );
-          if (!menteeMembership || menteeMembership.memberRole !== BatchMemberRole.MENTEE) {
-            throw new NotFoundError(
-              `User ${menteeId} is not an active mentee member in this batch`,
-            );
-          }
 
           const existingMapping = await this.mentorMenteeRepo.findActiveByMenteeAndBatch(
             batchId,
@@ -524,18 +538,19 @@ export class BatchService {
       throw new BadRequestError('A mentor cannot be mapped to themselves as a mentee');
     }
 
-    const newMentorMembership = await this.batchRepo.findActiveMemberInBatch(
+    await this.requireActiveMember(
       batchId,
       input.newMentorId,
+      BatchMemberRole.MENTOR,
+      'Target mentor is not an active mentor member in this batch',
     );
-    if (!newMentorMembership || newMentorMembership.memberRole !== BatchMemberRole.MENTOR) {
-      throw new NotFoundError('Target mentor is not an active mentor member in this batch');
-    }
 
-    const menteeMembership = await this.batchRepo.findActiveMemberInBatch(batchId, input.menteeId);
-    if (!menteeMembership || menteeMembership.memberRole !== BatchMemberRole.MENTEE) {
-      throw new NotFoundError('Mentee is not an active member in this batch');
-    }
+    await this.requireActiveMember(
+      batchId,
+      input.menteeId,
+      BatchMemberRole.MENTEE,
+      'Mentee is not an active member in this batch',
+    );
 
     const existingMapping = await this.mentorMenteeRepo.findActiveByMenteeAndBatch(
       batchId,

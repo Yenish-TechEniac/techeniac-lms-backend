@@ -40,7 +40,7 @@ export class Batch extends AuditableEntity {
   @Column({ name: 'description', type: 'text', nullable: true })
   description!: string | null;
 
-  @ManyToOne(() => User, { onDelete: 'RESTRICT' })
+  @ManyToOne(() => User, { onDelete: 'RESTRICT', nullable: false })
   @JoinColumn({ name: 'created_by', foreignKeyConstraintName: 'FK_batches_created_by' })
   creator!: User;
 
