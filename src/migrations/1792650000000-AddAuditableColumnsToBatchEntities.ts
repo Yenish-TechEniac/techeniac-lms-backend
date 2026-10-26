@@ -4,8 +4,9 @@ export class AddAuditableColumnsToBatchEntities1792650000000 implements Migratio
   name = 'AddAuditableColumnsToBatchEntities1792650000000';
 
   public async up(queryRunner: QueryRunner): Promise<void> {
-    // 1. batches: add updated_by
+    // 1. batches: add updated_by and align created_by nullability with AuditableEntity
     await queryRunner.query(`ALTER TABLE "batches" ADD "updated_by" uuid`);
+    await queryRunner.query(`ALTER TABLE "batches" ALTER COLUMN "created_by" DROP NOT NULL`);
 
     // 2. batch_members: add created_by, updated_by
     await queryRunner.query(`ALTER TABLE "batch_members" ADD "created_by" uuid`);
@@ -71,6 +72,7 @@ export class AddAuditableColumnsToBatchEntities1792650000000 implements Migratio
     await queryRunner.query(`ALTER TABLE "batch_members" DROP COLUMN "updated_by"`);
     await queryRunner.query(`ALTER TABLE "batch_members" DROP COLUMN "created_by"`);
 
+    await queryRunner.query(`ALTER TABLE "batches" ALTER COLUMN "created_by" SET NOT NULL`);
     await queryRunner.query(`ALTER TABLE "batches" DROP COLUMN "updated_by"`);
   }
 }

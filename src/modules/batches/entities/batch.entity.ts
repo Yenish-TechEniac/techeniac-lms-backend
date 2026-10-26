@@ -10,10 +10,7 @@ export { BatchStatus };
 
 @Entity({ name: 'batches' })
 @Index('idx_batches_status', ['status'])
-@Index('uq_batches_name_non_archived', ['name'], {
-  unique: true,
-  where: `"status" <> 'ARCHIVED' AND "deleted_at" IS NULL`,
-})
+@Index('uq_batches_name_non_archived', { synchronize: false })
 @Check('chk_batch_dates', `"start_date" <= "end_date"`)
 export class Batch extends AuditableEntity {
   @Column({ name: 'name', type: 'varchar', length: 100 })
@@ -40,7 +37,7 @@ export class Batch extends AuditableEntity {
   @Column({ name: 'description', type: 'text', nullable: true })
   description!: string | null;
 
-  @ManyToOne(() => User, { onDelete: 'RESTRICT', nullable: false })
+  @ManyToOne(() => User, { onDelete: 'RESTRICT' })
   @JoinColumn({ name: 'created_by', foreignKeyConstraintName: 'FK_batches_created_by' })
   creator!: User;
 
