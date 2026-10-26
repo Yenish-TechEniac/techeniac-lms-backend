@@ -722,7 +722,10 @@ export class CoursesService {
     const course = await this.getCourseById(courseId, true);
     this.assertCanEdit(course, user);
 
-    const existingAssignmentIds = new Set(course.assignments?.map((a) => a.id) ?? []);
+    const courseLevelIds = course.assignments?.map((a) => a.id) ?? [];
+    const topicLevelIds =
+      course.topics?.flatMap((t) => t.assignments?.map((a) => a.id) ?? []) ?? [];
+    const existingAssignmentIds = new Set([...courseLevelIds, ...topicLevelIds]);
     for (const item of items) {
       if (!existingAssignmentIds.has(item.id)) {
         throw new ValidationError(`Assignment ${item.id} does not belong to this course`);
