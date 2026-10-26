@@ -6,13 +6,7 @@ import { app } from '../src/app';
 import { hashPassword, signAccessToken } from '../src/core/auth';
 import { closeDatabase, initializeDatabase } from '../src/core/db';
 import { logger } from '../src/core/logging';
-import {
-  BatchMemberRole,
-  batchRepository,
-  BatchStatus,
-  MentorScopeAction,
-  mentorScopeHelper,
-} from '../src/modules/batches';
+import { BatchStatus, MentorScopeAction, mentorScopeHelper } from '../src/modules/batches';
 import { userRepository, UserRole } from '../src/modules/users';
 
 async function runMappingTests(): Promise<void> {
@@ -356,6 +350,26 @@ async function runMappingTests(): Promise<void> {
       console.log('✔ Test 7 PASS: MAP-08 Duplicate active mapping rejected with 409 Conflict');
     } else {
       console.error('✘ Test 7 FAIL: MAP-08 failed', { status: duplicateMapRes.status });
+      failures++;
+    }
+
+    // -------------------------------------------------------------
+    // Test 7b: Idempotent re-map to the same mentor returns 201 cleanly without error
+    // -------------------------------------------------------------
+    const idempotentMapRes = await fetch(`${baseUrl}/batches/${batchId}/mappings`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${adminToken}` },
+      body: JSON.stringify({
+        mentorId: mentorB.id,
+        menteeIds: [mentee1.id],
+      }),
+    });
+    if (idempotentMapRes.status === 201) {
+      console.log('✔ Test 7b PASS: Idempotent re-map to same mentor succeeds cleanly with 201');
+    } else {
+      console.error('✘ Test 7b FAIL: Idempotent re-map failed', {
+        status: idempotentMapRes.status,
+      });
       failures++;
     }
 

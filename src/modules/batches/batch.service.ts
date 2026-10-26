@@ -469,31 +469,33 @@ export class BatchService {
       throw new BadRequestError(`Cannot map mentees in a batch with status ${batch.status}`);
     }
 
-    const mentorUser = await this.userRepo.findById(input.mentorId);
+    const [mentorUser] = await Promise.all([
+      this.userRepo.findById(input.mentorId),
+      this.requireActiveMember(
+        batchId,
+        input.mentorId,
+        BatchMemberRole.MENTOR,
+        'Specified mentor is not an active mentor member in this batch',
+      ),
+    ]);
     if (!mentorUser || mentorUser.role !== UserRole.MENTOR) {
       throw new BadRequestError('User does not have the MENTOR role');
     }
 
-    await this.requireActiveMember(
-      batchId,
-      input.mentorId,
-      BatchMemberRole.MENTOR,
-      'Specified mentor is not an active mentor member in this batch',
-    );
-
     const uniqueMenteeIds = [...new Set(input.menteeIds)];
-    const menteeUsers: User[] = [];
-    for (const menteeId of uniqueMenteeIds) {
-      if (menteeId === input.mentorId) {
-        throw new BadRequestError('A mentor cannot be mapped to themselves as a mentee');
-      }
+    const menteeUsers = await Promise.all(
+      uniqueMenteeIds.map(async (menteeId) => {
+        if (menteeId === input.mentorId) {
+          throw new BadRequestError('A mentor cannot be mapped to themselves as a mentee');
+        }
 
-      const menteeUser = await this.userRepo.findById(menteeId);
-      if (!menteeUser || menteeUser.role !== UserRole.MENTEE) {
-        throw new BadRequestError(`User ${menteeId} does not have the MENTEE role`);
-      }
-      menteeUsers.push(menteeUser);
-    }
+        const menteeUser = await this.userRepo.findById(menteeId);
+        if (!menteeUser || menteeUser.role !== UserRole.MENTEE) {
+          throw new BadRequestError(`User ${menteeId} does not have the MENTEE role`);
+        }
+        return menteeUser;
+      }),
+    );
 
     try {
       const { created, mappedMenteeUsers } = await AppDataSource.transaction(async (manager) => {
@@ -581,29 +583,30 @@ export class BatchService {
       throw new BadRequestError('A mentor cannot be mapped to themselves as a mentee');
     }
 
-    const newMentorUser = await this.userRepo.findById(input.newMentorId);
+    const [newMentorUser, menteeUser] = await Promise.all([
+      this.userRepo.findById(input.newMentorId),
+      this.userRepo.findById(input.menteeId),
+      this.requireActiveMember(
+        batchId,
+        input.newMentorId,
+        BatchMemberRole.MENTOR,
+        'Target mentor is not an active mentor member in this batch',
+      ),
+      this.requireActiveMember(
+        batchId,
+        input.menteeId,
+        BatchMemberRole.MENTEE,
+        'Mentee is not an active member in this batch',
+      ),
+    ]);
+
     if (!newMentorUser || newMentorUser.role !== UserRole.MENTOR) {
       throw new BadRequestError('Target mentor does not have the MENTOR role');
     }
 
-    const menteeUser = await this.userRepo.findById(input.menteeId);
     if (!menteeUser || menteeUser.role !== UserRole.MENTEE) {
       throw new BadRequestError('Target user does not have the MENTEE role');
     }
-
-    await this.requireActiveMember(
-      batchId,
-      input.newMentorId,
-      BatchMemberRole.MENTOR,
-      'Target mentor is not an active mentor member in this batch',
-    );
-
-    await this.requireActiveMember(
-      batchId,
-      input.menteeId,
-      BatchMemberRole.MENTEE,
-      'Mentee is not an active member in this batch',
-    );
 
     const existingMapping = await this.mentorMenteeRepo.findActiveByMenteeAndBatch(
       batchId,

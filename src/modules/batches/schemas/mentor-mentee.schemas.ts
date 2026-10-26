@@ -9,6 +9,7 @@ export const mapMenteesSchema = z.object({
     menteeIds: z
       .array(z.string().uuid('Each mentee ID must be a valid UUID'))
       .min(1, 'At least one mentee must be selected')
+      .max(100, 'Cannot map more than 100 mentees in a single request')
       .refine((ids) => new Set(ids).size === ids.length, {
         message: 'Duplicate mentee IDs are not allowed in a single mapping request',
       }),
