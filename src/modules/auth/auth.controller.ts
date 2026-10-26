@@ -1,4 +1,5 @@
 import type { CookieOptions, Request, Response } from 'express';
+import { StatusCodes } from 'http-status-codes';
 
 import { ACCESS_TOKEN_TTL_MS, REFRESH_TOKEN_TTL_MS } from '../../core/auth';
 import { env } from '../../core/config';
@@ -10,6 +11,7 @@ import type {
   ForgotPasswordInput,
   LoginInput,
   ResetPasswordInput,
+  VerifyResetTokenInput,
 } from './schemas/auth.schemas';
 
 const isProduction = env.NODE_ENV === 'production';
@@ -91,14 +93,28 @@ export class AuthController extends BaseController {
     this.sendMessage(res, 'Password reset successfully. You may now log in.');
   };
 
+  public verifyResetToken = async (req: Request, res: Response): Promise<void> => {
+    const { token } = req.body as VerifyResetTokenInput;
+    const result = await this.service.verifyResetToken(token);
+    this.sendSuccess(res, result);
+  };
+
   public changePassword = async (req: Request, res: Response): Promise<void> => {
     const userId = req.user?.id;
     if (!userId) {
       throw new UnauthorizedError('Authentication required');
     }
 
-    await this.service.changePassword(userId, req.body as ChangePasswordInput);
-    this.sendMessage(res, 'Password changed successfully');
+    const result = await this.service.changePassword(userId, req.body as ChangePasswordInput);
+
+    res.cookie('accessToken', result.tokens.accessToken, accessCookieOptions);
+    res.cookie('refreshToken', result.tokens.refreshToken, refreshCookieOptions);
+
+    res.status(StatusCodes.OK).json({
+      success: true,
+      message: 'Password changed successfully',
+      data: result,
+    });
   };
 }
 

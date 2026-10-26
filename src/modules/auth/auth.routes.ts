@@ -5,6 +5,7 @@ import {
   passwordResetRateLimiter,
   refreshRateLimiter,
   validate,
+  verifyResetTokenRateLimiter,
 } from '../../core/http';
 import { authController } from './auth.controller';
 import { requireAuth } from './auth.middleware';
@@ -14,6 +15,7 @@ import {
   loginSchema,
   refreshTokenSchema,
   resetPasswordSchema,
+  verifyResetTokenSchema,
 } from './schemas/auth.schemas';
 
 export const authRouter = Router();
@@ -32,6 +34,12 @@ authRouter.post(
   passwordResetRateLimiter,
   validate(forgotPasswordSchema),
   authController.forgotPassword,
+);
+authRouter.post(
+  '/verify-reset-token',
+  verifyResetTokenRateLimiter,
+  validate(verifyResetTokenSchema),
+  authController.verifyResetToken,
 );
 authRouter.post(
   '/reset-password',

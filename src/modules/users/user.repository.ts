@@ -172,6 +172,19 @@ export class UserRepository {
       });
     }
 
+    if (params.batchId) {
+      query.andWhere(
+        `EXISTS (
+          SELECT 1 FROM batch_members bm
+          WHERE bm.user_id = user.id
+            AND bm.batch_id = :batchId
+            AND bm.is_active = true
+            AND bm.deleted_at IS NULL
+        )`,
+        { batchId: params.batchId },
+      );
+    }
+
     const page = Math.max(1, Number(params.page) || 1);
     const limit = Math.max(1, Math.min(100, Number(params.limit) || 20));
 
