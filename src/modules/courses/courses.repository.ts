@@ -33,10 +33,12 @@ export class CoursesRepository {
   }
 
   async findCourseById(id: string, includeFullOutline = false): Promise<Course | null> {
-    const course = await this.courseRepo.findOne({
-      where: { id },
-      relations: ['creator'],
-    });
+    const course = await this.courseRepo
+      .createQueryBuilder('course')
+      .leftJoin('course.creator', 'creator')
+      .addSelect(['creator.id', 'creator.name'])
+      .where('course.id = :id', { id })
+      .getOne();
 
     if (!course || !includeFullOutline) {
       return course;
@@ -90,7 +92,8 @@ export class CoursesRepository {
 
     const qb = this.courseRepo
       .createQueryBuilder('course')
-      .leftJoinAndSelect('course.creator', 'creator')
+      .leftJoin('course.creator', 'creator')
+      .addSelect(['creator.id', 'creator.name'])
       .where('course.deletedAt IS NULL');
 
     if (options?.isActive !== undefined) {
@@ -98,9 +101,13 @@ export class CoursesRepository {
     }
 
     if (options?.search) {
-      qb.andWhere('(LOWER(course.title) LIKE :search OR LOWER(course.description) LIKE :search)', {
-        search: `%${options.search.toLowerCase()}%`,
-      });
+      const escaped = options.search.replace(/[%_\\]/g, '\\$&');
+      qb.andWhere(
+        `(course.title ILIKE :search ESCAPE '\\' OR course.description ILIKE :search ESCAPE '\\')`,
+        {
+          search: `%${escaped}%`,
+        },
+      );
     }
 
     const sortColumn =
@@ -110,7 +117,8 @@ export class CoursesRepository {
           ? 'course.updatedAt'
           : 'course.createdAt';
 
-    qb.orderBy(sortColumn, sortOrder.toUpperCase() as 'ASC' | 'DESC');
+    const safeSortOrder = (sortOrder || 'desc').toUpperCase() as 'ASC' | 'DESC';
+    qb.orderBy(sortColumn, safeSortOrder);
     qb.skip((page - 1) * limit).take(limit);
 
     const [items, total] = await qb.getManyAndCount();

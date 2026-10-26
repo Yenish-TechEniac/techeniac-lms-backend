@@ -7,8 +7,15 @@ import { closeDatabase, initializeDatabase } from '../src/core/db';
 import { logger } from '../src/core/logging';
 
 interface ApiResponse<T = unknown> {
-  status: 'success' | 'error';
+  success: boolean;
   data?: T;
+  message?: string;
+  meta?: {
+    page: number;
+    limit: number;
+    total: number;
+    totalPages: number;
+  };
   error?: {
     code: string;
     message: string;
@@ -41,10 +48,9 @@ async function runTests(): Promise<void> {
         password: process.env.SEED_ADMIN_PASSWORD || 'Admin123456!',
       }),
     });
-    const loginData = (await loginRes.json()) as {
-      status: string;
-      data?: { tokens: { accessToken: string } };
-    };
+    const loginData = (await loginRes.json()) as ApiResponse<{
+      tokens: { accessToken: string };
+    }>;
     const token = loginData.data?.tokens.accessToken;
 
     if (!token) {
@@ -68,13 +74,11 @@ async function runTests(): Promise<void> {
       }),
     });
     const createCourseData = (await createCourseRes.json()) as ApiResponse<{
-      course: {
-        id: string;
-        title: string;
-        updatedAt: string;
-      };
+      id: string;
+      title: string;
+      updatedAt: string;
     }>;
-    const courseId = createCourseData.data?.course?.id;
+    const courseId = createCourseData.data?.id;
 
     if (createCourseRes.status === 201 && courseId) {
       logger.info({ courseId }, 'PASS: Create Course endpoint');
@@ -83,7 +87,31 @@ async function runTests(): Promise<void> {
       failures++;
     }
 
-    // 3. Create Topic (CRS-01, FR-6.1, FR-6.15)
+    // 3. List Courses landing call verification (M6-LIST-1, FR-6.6)
+    const listCoursesRes = await fetch(`${baseUrl}/courses`, {
+      method: 'GET',
+      headers,
+    });
+    const listCoursesData = (await listCoursesRes.json()) as ApiResponse<{
+      courses: Array<{ id: string }>;
+    }>;
+
+    if (
+      listCoursesRes.status === 200 &&
+      listCoursesData.success &&
+      Array.isArray(listCoursesData.data?.courses) &&
+      listCoursesData.meta?.page === 1
+    ) {
+      logger.info(
+        { total: listCoursesData.meta.total },
+        'PASS: List Courses endpoint with defaults',
+      );
+    } else {
+      logger.error({ status: listCoursesRes.status, listCoursesData }, 'FAIL: List Courses');
+      failures++;
+    }
+
+    // 4. Create Topic (CRS-01, FR-6.1, FR-6.15)
     const createTopicRes = await fetch(`${baseUrl}/courses/${courseId}/topics`, {
       method: 'POST',
       headers,
@@ -93,26 +121,20 @@ async function runTests(): Promise<void> {
       }),
     });
     const createTopicData = (await createTopicRes.json()) as ApiResponse<{
-      topic: {
-        id: string;
-        title: string;
-        displayOrder: number;
-      };
+      id: string;
+      title: string;
+      displayOrder: number;
     }>;
-    const topicId = createTopicData.data?.topic?.id;
+    const topicId = createTopicData.data?.id;
 
-    if (
-      createTopicRes.status === 201 &&
-      topicId &&
-      createTopicData.data?.topic?.displayOrder === 0
-    ) {
+    if (createTopicRes.status === 201 && topicId && createTopicData.data?.displayOrder === 0) {
       logger.info({ topicId }, 'PASS: Create Topic endpoint');
     } else {
       logger.error({ status: createTopicRes.status, createTopicData }, 'FAIL: Create Topic');
       failures++;
     }
 
-    // 4. Create Subtopic with XSS sanitization (CRS-23, FR-6.4)
+    // 5. Create Subtopic with XSS sanitization (CRS-23, FR-6.4)
     const dirtyHtml =
       '<p>Clean text</p><script>alert("xss")</script><img src="x" onerror="alert(1)"/>';
     const createSubtopicRes = await fetch(`${baseUrl}/courses/topics/${topicId}/subtopics`, {
@@ -125,13 +147,11 @@ async function runTests(): Promise<void> {
       }),
     });
     const createSubtopicData = (await createSubtopicRes.json()) as ApiResponse<{
-      subtopic: {
-        id: string;
-        content: string;
-      };
+      id: string;
+      content: string;
     }>;
 
-    const sanitizedContent = createSubtopicData.data?.subtopic?.content ?? '';
+    const sanitizedContent = createSubtopicData.data?.content ?? '';
     if (
       createSubtopicRes.status === 201 &&
       !sanitizedContent.includes('<script>') &&
@@ -147,7 +167,7 @@ async function runTests(): Promise<void> {
       failures++;
     }
 
-    // 5. Create Assignment with submission mode validation (CRS-03, FR-6.5)
+    // 6. Create Assignment with submission mode validation (CRS-03, FR-6.5)
     const createAssignmentRes = await fetch(`${baseUrl}/courses/${courseId}/assignments`, {
       method: 'POST',
       headers,
@@ -162,13 +182,11 @@ async function runTests(): Promise<void> {
       }),
     });
     const createAssignmentData = (await createAssignmentRes.json()) as ApiResponse<{
-      assignment: {
-        id: string;
-        passMarks: number;
-      };
+      id: string;
+      passMarks: number;
     }>;
 
-    if (createAssignmentRes.status === 201 && createAssignmentData.data?.assignment?.id) {
+    if (createAssignmentRes.status === 201 && createAssignmentData.data?.id) {
       logger.info('PASS: Create Course-level Assignment endpoint');
     } else {
       logger.error(
@@ -178,7 +196,7 @@ async function runTests(): Promise<void> {
       failures++;
     }
 
-    // 6. Optimistic Concurrency Check (CRS-19, FR-6.13)
+    // 7. Optimistic Concurrency Check (CRS-19, FR-6.13)
     const staleUpdatedAt = new Date(Date.now() - 3600000).toISOString();
     const conflictRes = await fetch(`${baseUrl}/courses/${courseId}`, {
       method: 'PUT',
@@ -197,40 +215,38 @@ async function runTests(): Promise<void> {
       failures++;
     }
 
-    // 7. Clone Course (CRS-21, FR-6.6)
+    // 8. Clone Course (CRS-21, FR-6.6)
     const cloneRes = await fetch(`${baseUrl}/courses/${courseId}/clone`, {
       method: 'POST',
       headers,
       body: JSON.stringify({}),
     });
     const cloneData = (await cloneRes.json()) as ApiResponse<{
-      course: {
-        id: string;
-        title: string;
-        isActive: boolean;
-      };
+      id: string;
+      title: string;
+      isActive: boolean;
     }>;
 
     if (
       cloneRes.status === 201 &&
-      cloneData.data?.course?.id &&
-      cloneData.data.course.title.includes('(Copy)') &&
-      cloneData.data.course.isActive === false
+      cloneData.data?.id &&
+      cloneData.data.title.includes('(Copy)') &&
+      cloneData.data.isActive === false
     ) {
-      logger.info({ clonedId: cloneData.data.course.id }, 'PASS: Clone Course (Copy) inactive');
+      logger.info({ clonedId: cloneData.data.id }, 'PASS: Clone Course (Copy) inactive');
     } else {
       logger.error({ status: cloneRes.status, cloneData }, 'FAIL: Clone Course');
       failures++;
     }
 
-    // 8. Soft Delete Course (FR-6.7)
+    // 9. Soft Delete Course (FR-6.7)
     const deleteRes = await fetch(`${baseUrl}/courses/${courseId}`, {
       method: 'DELETE',
       headers,
     });
     const deleteData = (await deleteRes.json()) as ApiResponse;
 
-    if (deleteRes.status === 200 && deleteData.status === 'success') {
+    if (deleteRes.status === 200 && deleteData.success) {
       logger.info('PASS: Soft Delete Course');
     } else {
       logger.error({ status: deleteRes.status, deleteData }, 'FAIL: Soft Delete');

@@ -24,97 +24,71 @@ export const coursesRouter = Router();
 coursesRouter.use(requireAuth, requireRole('SUPER_ADMIN', 'MENTOR'));
 
 // --- Course Routes ---
-coursesRouter.get('/', validate(listCoursesQuerySchema), (req, res, next) => {
-  coursesController.listCourses(req, res).catch(next);
-});
-
-coursesRouter.post('/', validate(createCourseSchema), (req, res, next) => {
-  coursesController.createCourse(req, res).catch(next);
-});
-
-coursesRouter.get('/:id', validate(courseIdParamSchema), (req, res, next) => {
-  coursesController.getCourseById(req, res).catch(next);
-});
-
-coursesRouter.put('/:id', validate(updateCourseSchema), (req, res, next) => {
-  coursesController.updateCourse(req, res).catch(next);
-});
-
-coursesRouter.patch('/:id/status', validate(statusToggleSchema), (req, res, next) => {
-  coursesController.toggleCourseStatus(req, res).catch(next);
-});
-
-coursesRouter.delete('/:id', validate(courseIdParamSchema), (req, res, next) => {
-  coursesController.deleteCourse(req, res).catch(next);
-});
-
-coursesRouter.post('/:id/clone', validate(courseIdParamSchema), (req, res, next) => {
-  coursesController.cloneCourse(req, res).catch(next);
-});
-
-coursesRouter.get('/:id/impact', validate(courseIdParamSchema), (req, res, next) => {
-  coursesController.getCourseImpact(req, res).catch(next);
-});
+coursesRouter.get('/', validate(listCoursesQuerySchema), coursesController.listCourses);
+coursesRouter.post('/', validate(createCourseSchema), coursesController.createCourse);
+coursesRouter.get('/:id', validate(courseIdParamSchema), coursesController.getCourseById);
+coursesRouter.put('/:id', validate(updateCourseSchema), coursesController.updateCourse);
+coursesRouter.patch(
+  '/:id/status',
+  validate(statusToggleSchema),
+  coursesController.toggleCourseStatus,
+);
+coursesRouter.delete('/:id', validate(courseIdParamSchema), coursesController.deleteCourse);
+coursesRouter.post('/:id/clone', validate(courseIdParamSchema), coursesController.cloneCourse);
+coursesRouter.get('/:id/impact', validate(courseIdParamSchema), coursesController.getCourseImpact);
 
 // --- Topic Routes ---
-coursesRouter.post('/:id/topics', validate(createTopicSchema), (req, res, next) => {
-  coursesController.createTopic(req, res).catch(next);
-});
-
-coursesRouter.put('/topics/:id', validate(updateTopicSchema), (req, res, next) => {
-  coursesController.updateTopic(req, res).catch(next);
-});
-
-coursesRouter.patch('/topics/:id/status', validate(statusToggleSchema), (req, res, next) => {
-  coursesController.toggleTopicStatus(req, res).catch(next);
-});
-
-coursesRouter.delete('/topics/:id', (req, res, next) => {
-  coursesController.deleteTopic(req, res).catch(next);
-});
-
-coursesRouter.put('/:id/topics/reorder', validate(reorderItemsSchema), (req, res, next) => {
-  coursesController.reorderTopics(req, res).catch(next);
-});
+coursesRouter.post('/:id/topics', validate(createTopicSchema), coursesController.createTopic);
+coursesRouter.put('/topics/:id', validate(updateTopicSchema), coursesController.updateTopic);
+coursesRouter.patch(
+  '/topics/:id/status',
+  validate(statusToggleSchema),
+  coursesController.toggleTopicStatus,
+);
+coursesRouter.delete('/topics/:id', coursesController.deleteTopic);
+coursesRouter.put(
+  '/:id/topics/reorder',
+  validate(reorderItemsSchema),
+  coursesController.reorderTopics,
+);
 
 // --- Subtopic Routes ---
-coursesRouter.post('/topics/:id/subtopics', validate(createSubtopicSchema), (req, res, next) => {
-  coursesController.createSubtopic(req, res).catch(next);
-});
-
-coursesRouter.put('/subtopics/:id', validate(updateSubtopicSchema), (req, res, next) => {
-  coursesController.updateSubtopic(req, res).catch(next);
-});
-
-coursesRouter.patch('/subtopics/:id/status', validate(statusToggleSchema), (req, res, next) => {
-  coursesController.toggleSubtopicStatus(req, res).catch(next);
-});
-
-coursesRouter.delete('/subtopics/:id', (req, res, next) => {
-  coursesController.deleteSubtopic(req, res).catch(next);
-});
-
+coursesRouter.post(
+  '/topics/:id/subtopics',
+  validate(createSubtopicSchema),
+  coursesController.createSubtopic,
+);
+coursesRouter.put(
+  '/subtopics/:id',
+  validate(updateSubtopicSchema),
+  coursesController.updateSubtopic,
+);
+coursesRouter.patch(
+  '/subtopics/:id/status',
+  validate(statusToggleSchema),
+  coursesController.toggleSubtopicStatus,
+);
+coursesRouter.delete('/subtopics/:id', coursesController.deleteSubtopic);
 coursesRouter.put(
   '/topics/:id/subtopics/reorder',
   validate(reorderItemsSchema),
-  (req, res, next) => {
-    coursesController.reorderSubtopics(req, res).catch(next);
-  },
+  coursesController.reorderSubtopics,
 );
 
 // --- Assignment Routes ---
-coursesRouter.post('/:id/assignments', validate(createAssignmentSchema), (req, res, next) => {
-  coursesController.createAssignment(req, res).catch(next);
-});
-
-coursesRouter.put('/assignments/:id', validate(updateAssignmentSchema), (req, res, next) => {
-  coursesController.updateAssignment(req, res).catch(next);
-});
-
-coursesRouter.delete('/assignments/:id', (req, res, next) => {
-  coursesController.deleteAssignment(req, res).catch(next);
-});
-
-coursesRouter.put('/:id/assignments/reorder', validate(reorderItemsSchema), (req, res, next) => {
-  coursesController.reorderAssignments(req, res).catch(next);
-});
+coursesRouter.post(
+  '/:id/assignments',
+  validate(createAssignmentSchema),
+  coursesController.createAssignment,
+);
+coursesRouter.put(
+  '/assignments/:id',
+  validate(updateAssignmentSchema),
+  coursesController.updateAssignment,
+);
+coursesRouter.delete('/assignments/:id', coursesController.deleteAssignment);
+coursesRouter.put(
+  '/:id/assignments/reorder',
+  validate(reorderItemsSchema),
+  coursesController.reorderAssignments,
+);

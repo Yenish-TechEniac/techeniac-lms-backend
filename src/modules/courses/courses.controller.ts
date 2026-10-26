@@ -2,270 +2,347 @@ import type { Request, Response } from 'express';
 import { StatusCodes } from 'http-status-codes';
 
 import type { AuthenticatedUser } from '../../core/auth';
-import { coursesService } from './courses.service';
-import type {
-  CreateAssignmentInput,
-  CreateCourseInput,
-  CreateSubtopicInput,
-  CreateTopicInput,
-  ListCoursesQueryInput,
-  ReorderItemsInput,
-  StatusToggleInput,
-  UpdateAssignmentInput,
-  UpdateCourseInput,
-  UpdateSubtopicInput,
-  UpdateTopicInput,
+import { BaseController } from '../../core/http';
+import { CoursesService, coursesService } from './courses.service';
+import type { Course } from './entities';
+import {
+  type CreateAssignmentInput,
+  type CreateCourseInput,
+  type CreateSubtopicInput,
+  type CreateTopicInput,
+  listCoursesQuerySchema,
+  type ReorderItemsInput,
+  type StatusToggleInput,
+  type UpdateAssignmentInput,
+  type UpdateCourseInput,
+  type UpdateSubtopicInput,
+  type UpdateTopicInput,
 } from './schemas/courses.schemas';
 
-export class CoursesController {
+export function toSafeCourse(course: Course): Course {
+  if (course.creator) {
+    course.creator = {
+      id: course.creator.id,
+      name: course.creator.name,
+    } as Course['creator'];
+  }
+  return course;
+}
+
+export class CoursesController extends BaseController {
+  constructor(private readonly service: CoursesService = coursesService) {
+    super();
+  }
+
   // Course Endpoints
-  async createCourse(req: Request, res: Response): Promise<void> {
+  public createCourse = async (req: Request, res: Response): Promise<void> => {
     const user = req.user as AuthenticatedUser;
     const body = req.body as CreateCourseInput;
-    const course = await coursesService.createCourse(body, user);
+    const course = await this.service.createCourse(body, user);
+    const safe = toSafeCourse(course);
     res.status(StatusCodes.CREATED).json({
-      status: 'success',
-      data: { course },
-    });
-  }
-
-  async getCourseById(req: Request, res: Response): Promise<void> {
-    const includeOutline = req.query.outline === 'true';
-    const course = await coursesService.getCourseById(String(req.params.id), includeOutline);
-    res.status(StatusCodes.OK).json({
-      status: 'success',
-      data: { course },
-    });
-  }
-
-  async listCourses(req: Request, res: Response): Promise<void> {
-    const query = req.query as unknown as ListCoursesQueryInput;
-    const page = query?.page && query.page > 0 ? query.page : 1;
-    const limit = query?.limit && query.limit > 0 ? query.limit : 20;
-    const sortBy = query?.sortBy ?? 'createdAt';
-    const sortOrder = query?.sortOrder ?? 'desc';
-    const { items, total } = await coursesService.listCourses({
-      page,
-      limit,
-      sortBy,
-      sortOrder,
-      search: query?.search,
-      isActive: query?.isActive,
-    });
-    res.status(StatusCodes.OK).json({
+      success: true,
       status: 'success',
       data: {
-        courses: items,
-        pagination: {
-          page,
-          limit,
-          total,
-          totalPages: Math.ceil(total / limit),
-        },
+        ...safe,
+        course: safe,
       },
     });
-  }
+  };
 
-  async updateCourse(req: Request, res: Response): Promise<void> {
+  public getCourseById = async (req: Request, res: Response): Promise<void> => {
+    const includeOutline = req.query.outline === 'true';
+    const course = await this.service.getCourseById(String(req.params.id), includeOutline);
+    const safe = toSafeCourse(course);
+    res.status(StatusCodes.OK).json({
+      success: true,
+      status: 'success',
+      data: {
+        ...safe,
+        course: safe,
+      },
+    });
+  };
+
+  public listCourses = async (req: Request, res: Response): Promise<void> => {
+    const query = listCoursesQuerySchema.shape.query.parse(req.query);
+    const { items, total } = await this.service.listCourses(query);
+    const safeItems = items.map(toSafeCourse);
+    const pagination = {
+      page: query.page,
+      limit: query.limit,
+      total,
+      totalPages: Math.ceil(total / query.limit),
+    };
+    res.status(StatusCodes.OK).json({
+      success: true,
+      status: 'success',
+      data: {
+        courses: safeItems,
+        pagination,
+      },
+      meta: pagination,
+    });
+  };
+
+  public updateCourse = async (req: Request, res: Response): Promise<void> => {
     const user = req.user as AuthenticatedUser;
     const body = req.body as UpdateCourseInput;
-    const course = await coursesService.updateCourse(String(req.params.id), body, user);
+    const course = await this.service.updateCourse(String(req.params.id), body, user);
+    const safe = toSafeCourse(course);
     res.status(StatusCodes.OK).json({
+      success: true,
       status: 'success',
-      data: { course },
+      data: {
+        ...safe,
+        course: safe,
+      },
     });
-  }
+  };
 
-  async toggleCourseStatus(req: Request, res: Response): Promise<void> {
+  public toggleCourseStatus = async (req: Request, res: Response): Promise<void> => {
     const user = req.user as AuthenticatedUser;
     const body = req.body as StatusToggleInput;
-    const course = await coursesService.toggleCourseStatus(
+    const course = await this.service.toggleCourseStatus(
       String(req.params.id),
       body.isActive,
       user,
       body.expectedUpdatedAt,
     );
+    const safe = toSafeCourse(course);
     res.status(StatusCodes.OK).json({
+      success: true,
       status: 'success',
-      data: { course },
+      data: {
+        ...safe,
+        course: safe,
+      },
     });
-  }
+  };
 
-  async deleteCourse(req: Request, res: Response): Promise<void> {
+  public deleteCourse = async (req: Request, res: Response): Promise<void> => {
     const user = req.user as AuthenticatedUser;
-    await coursesService.deleteCourse(String(req.params.id), user);
+    await this.service.deleteCourse(String(req.params.id), user);
     res.status(StatusCodes.OK).json({
+      success: true,
       status: 'success',
       message: 'Course deleted successfully',
     });
-  }
+  };
 
-  async cloneCourse(req: Request, res: Response): Promise<void> {
+  public cloneCourse = async (req: Request, res: Response): Promise<void> => {
     const user = req.user as AuthenticatedUser;
-    const cloned = await coursesService.cloneCourse(String(req.params.id), user);
+    const cloned = await this.service.cloneCourse(String(req.params.id), user);
+    const safe = toSafeCourse(cloned);
     res.status(StatusCodes.CREATED).json({
+      success: true,
       status: 'success',
-      data: { course: cloned },
+      data: {
+        ...safe,
+        course: safe,
+      },
     });
-  }
+  };
 
-  async getCourseImpact(req: Request, res: Response): Promise<void> {
-    const impact = await coursesService.getCourseImpact(String(req.params.id));
+  public getCourseImpact = async (req: Request, res: Response): Promise<void> => {
+    const impact = await this.service.getCourseImpact(String(req.params.id));
     res.status(StatusCodes.OK).json({
+      success: true,
       status: 'success',
-      data: { impact },
+      data: {
+        ...impact,
+        impact,
+      },
     });
-  }
+  };
 
   // Topic Endpoints
-  async createTopic(req: Request, res: Response): Promise<void> {
+  public createTopic = async (req: Request, res: Response): Promise<void> => {
     const user = req.user as AuthenticatedUser;
     const body = req.body as CreateTopicInput;
-    const topic = await coursesService.createTopic(String(req.params.id), body, user);
+    const topic = await this.service.createTopic(String(req.params.id), body, user);
     res.status(StatusCodes.CREATED).json({
+      success: true,
       status: 'success',
-      data: { topic },
+      data: {
+        ...topic,
+        topic,
+      },
     });
-  }
+  };
 
-  async updateTopic(req: Request, res: Response): Promise<void> {
+  public updateTopic = async (req: Request, res: Response): Promise<void> => {
     const user = req.user as AuthenticatedUser;
     const body = req.body as UpdateTopicInput;
-    const topic = await coursesService.updateTopic(String(req.params.id), body, user);
+    const topic = await this.service.updateTopic(String(req.params.id), body, user);
     res.status(StatusCodes.OK).json({
+      success: true,
       status: 'success',
-      data: { topic },
+      data: {
+        ...topic,
+        topic,
+      },
     });
-  }
+  };
 
-  async toggleTopicStatus(req: Request, res: Response): Promise<void> {
+  public toggleTopicStatus = async (req: Request, res: Response): Promise<void> => {
     const user = req.user as AuthenticatedUser;
     const body = req.body as StatusToggleInput;
-    const topic = await coursesService.toggleTopicStatus(
+    const topic = await this.service.toggleTopicStatus(
       String(req.params.id),
       body.isActive,
       user,
       body.expectedUpdatedAt,
     );
     res.status(StatusCodes.OK).json({
+      success: true,
       status: 'success',
-      data: { topic },
+      data: {
+        ...topic,
+        topic,
+      },
     });
-  }
+  };
 
-  async deleteTopic(req: Request, res: Response): Promise<void> {
+  public deleteTopic = async (req: Request, res: Response): Promise<void> => {
     const user = req.user as AuthenticatedUser;
-    await coursesService.deleteTopic(String(req.params.id), user);
+    await this.service.deleteTopic(String(req.params.id), user);
     res.status(StatusCodes.OK).json({
+      success: true,
       status: 'success',
       message: 'Topic deleted successfully',
     });
-  }
+  };
 
-  async reorderTopics(req: Request, res: Response): Promise<void> {
+  public reorderTopics = async (req: Request, res: Response): Promise<void> => {
     const user = req.user as AuthenticatedUser;
     const body = req.body as ReorderItemsInput;
-    await coursesService.reorderTopics(String(req.params.id), body.items, user);
+    await this.service.reorderTopics(String(req.params.id), body.items, user);
     res.status(StatusCodes.OK).json({
+      success: true,
       status: 'success',
       message: 'Topics reordered successfully',
     });
-  }
+  };
 
   // Subtopic Endpoints
-  async createSubtopic(req: Request, res: Response): Promise<void> {
+  public createSubtopic = async (req: Request, res: Response): Promise<void> => {
     const user = req.user as AuthenticatedUser;
     const body = req.body as CreateSubtopicInput;
-    const subtopic = await coursesService.createSubtopic(String(req.params.id), body, user);
+    const subtopic = await this.service.createSubtopic(String(req.params.id), body, user);
     res.status(StatusCodes.CREATED).json({
+      success: true,
       status: 'success',
-      data: { subtopic },
+      data: {
+        ...subtopic,
+        subtopic,
+      },
     });
-  }
+  };
 
-  async updateSubtopic(req: Request, res: Response): Promise<void> {
+  public updateSubtopic = async (req: Request, res: Response): Promise<void> => {
     const user = req.user as AuthenticatedUser;
     const body = req.body as UpdateSubtopicInput;
-    const subtopic = await coursesService.updateSubtopic(String(req.params.id), body, user);
+    const subtopic = await this.service.updateSubtopic(String(req.params.id), body, user);
     res.status(StatusCodes.OK).json({
+      success: true,
       status: 'success',
-      data: { subtopic },
+      data: {
+        ...subtopic,
+        subtopic,
+      },
     });
-  }
+  };
 
-  async toggleSubtopicStatus(req: Request, res: Response): Promise<void> {
+  public toggleSubtopicStatus = async (req: Request, res: Response): Promise<void> => {
     const user = req.user as AuthenticatedUser;
     const body = req.body as StatusToggleInput;
-    const subtopic = await coursesService.toggleSubtopicStatus(
+    const subtopic = await this.service.toggleSubtopicStatus(
       String(req.params.id),
       body.isActive,
       user,
       body.expectedUpdatedAt,
     );
     res.status(StatusCodes.OK).json({
+      success: true,
       status: 'success',
-      data: { subtopic },
+      data: {
+        ...subtopic,
+        subtopic,
+      },
     });
-  }
+  };
 
-  async deleteSubtopic(req: Request, res: Response): Promise<void> {
+  public deleteSubtopic = async (req: Request, res: Response): Promise<void> => {
     const user = req.user as AuthenticatedUser;
-    await coursesService.deleteSubtopic(String(req.params.id), user);
+    await this.service.deleteSubtopic(String(req.params.id), user);
     res.status(StatusCodes.OK).json({
+      success: true,
       status: 'success',
       message: 'Subtopic deleted successfully',
     });
-  }
+  };
 
-  async reorderSubtopics(req: Request, res: Response): Promise<void> {
+  public reorderSubtopics = async (req: Request, res: Response): Promise<void> => {
     const user = req.user as AuthenticatedUser;
     const body = req.body as ReorderItemsInput;
-    await coursesService.reorderSubtopics(String(req.params.id), body.items, user);
+    await this.service.reorderSubtopics(String(req.params.id), body.items, user);
     res.status(StatusCodes.OK).json({
+      success: true,
       status: 'success',
       message: 'Subtopics reordered successfully',
     });
-  }
+  };
 
   // Assignment Endpoints
-  async createAssignment(req: Request, res: Response): Promise<void> {
+  public createAssignment = async (req: Request, res: Response): Promise<void> => {
     const user = req.user as AuthenticatedUser;
     const body = req.body as CreateAssignmentInput;
-    const assignment = await coursesService.createAssignment(String(req.params.id), body, user);
+    const assignment = await this.service.createAssignment(String(req.params.id), body, user);
     res.status(StatusCodes.CREATED).json({
+      success: true,
       status: 'success',
-      data: { assignment },
+      data: {
+        ...assignment,
+        assignment,
+      },
     });
-  }
+  };
 
-  async updateAssignment(req: Request, res: Response): Promise<void> {
+  public updateAssignment = async (req: Request, res: Response): Promise<void> => {
     const user = req.user as AuthenticatedUser;
     const body = req.body as UpdateAssignmentInput;
-    const assignment = await coursesService.updateAssignment(String(req.params.id), body, user);
+    const assignment = await this.service.updateAssignment(String(req.params.id), body, user);
     res.status(StatusCodes.OK).json({
+      success: true,
       status: 'success',
-      data: { assignment },
+      data: {
+        ...assignment,
+        assignment,
+      },
     });
-  }
+  };
 
-  async deleteAssignment(req: Request, res: Response): Promise<void> {
+  public deleteAssignment = async (req: Request, res: Response): Promise<void> => {
     const user = req.user as AuthenticatedUser;
-    await coursesService.deleteAssignment(String(req.params.id), user);
+    await this.service.deleteAssignment(String(req.params.id), user);
     res.status(StatusCodes.OK).json({
+      success: true,
       status: 'success',
       message: 'Assignment deleted successfully',
     });
-  }
+  };
 
-  async reorderAssignments(req: Request, res: Response): Promise<void> {
+  public reorderAssignments = async (req: Request, res: Response): Promise<void> => {
     const user = req.user as AuthenticatedUser;
     const body = req.body as ReorderItemsInput;
-    await coursesService.reorderAssignments(String(req.params.id), body.items, user);
+    await this.service.reorderAssignments(String(req.params.id), body.items, user);
     res.status(StatusCodes.OK).json({
+      success: true,
       status: 'success',
       message: 'Assignments reordered successfully',
     });
-  }
+  };
 }
 
 export const coursesController = new CoursesController();

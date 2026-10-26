@@ -164,15 +164,15 @@ void describe('Courses API Integration Tests', () => {
 
       assert.equal(res.status, 200);
       const data = (await res.json()) as {
-        status: string;
-        data?: { course: { title: string } };
+        success: boolean;
+        data?: { title: string };
       };
-      assert.equal(data.status, 'success');
-      assert.equal(data.data?.course?.title, 'Admin Updated Title');
+      assert.equal(data.success, true);
+      assert.equal(data.data?.title, 'Admin Updated Title');
     });
   });
 
-  void describe('List Courses Defaults & Pagination (FR-6.6)', () => {
+  void describe('List Courses Defaults & Pagination (FR-6.6, M6-LIST-1, M6-SEARCH-1)', () => {
     void it('applies default pagination limit=20, page=1 when called with no query params', async () => {
       const mockCourses: Course[] = [
         {
@@ -202,18 +202,85 @@ void describe('Courses API Integration Tests', () => {
 
       assert.equal(res.status, 200);
       const data = (await res.json()) as {
-        status: string;
+        success: boolean;
         data?: {
           courses: Course[];
           pagination: { page: number; limit: number; total: number; totalPages: number };
         };
+        meta?: { page: number; limit: number; total: number; totalPages: number };
       };
 
-      assert.equal(data.status, 'success');
-      assert.equal(data.data?.pagination.page, 1);
-      assert.equal(data.data?.pagination.limit, 20);
-      assert.equal(data.data?.pagination.total, 1);
+      assert.equal(data.success, true);
+      assert.equal(data.meta?.page, 1);
+      assert.equal(data.meta?.limit, 20);
+      assert.equal(data.meta?.total, 1);
       assert.equal(data.data?.courses.length, 1);
+      assert.equal(data.data?.pagination.total, 1);
+    });
+
+    void it('properly handles search query with wildcard escaping', async () => {
+      coursesRepository.listCourses = (opts) => {
+        assert.equal(opts?.search, '100%');
+        return Promise.resolve({ items: [], total: 0 });
+      };
+
+      const res = await fetch(`${baseUrl}/courses?search=100%25`, {
+        method: 'GET',
+        headers: {
+          Authorization: `Bearer ${tokenAdmin}`,
+        },
+      });
+
+      assert.equal(res.status, 200);
+      const data = (await res.json()) as { success: boolean; meta?: { total: number } };
+      assert.equal(data.success, true);
+      assert.equal(data.meta?.total, 0);
+    });
+  });
+
+  void describe('Creator PII Stripping (M6-PII-1)', () => {
+    void it('serializes only safe creator fields (id, name) and omits email, tokenVersion', async () => {
+      const mockCourseWithPii = {
+        id: courseId,
+        title: 'Security Audited Course',
+        createdBy: mentorAId,
+        creator: {
+          id: mentorAId,
+          name: 'Mentor Alice',
+          email: 'alice@techeniac.com',
+          tokenVersion: 5,
+          mustChangePassword: true,
+          lastLoginAt: new Date(),
+        } as unknown as User,
+      } as Course;
+
+      coursesRepository.findCourseById = () => Promise.resolve(mockCourseWithPii);
+
+      const res = await fetch(`${baseUrl}/courses/${courseId}`, {
+        method: 'GET',
+        headers: {
+          Authorization: `Bearer ${tokenMentorB}`,
+        },
+      });
+
+      assert.equal(res.status, 200);
+      const data = (await res.json()) as {
+        success: boolean;
+        data?: {
+          creator?: {
+            id: string;
+            name: string;
+            email?: string;
+            tokenVersion?: number;
+          };
+        };
+      };
+
+      assert.equal(data.success, true);
+      assert.equal(data.data?.creator?.id, mentorAId);
+      assert.equal(data.data?.creator?.name, 'Mentor Alice');
+      assert.equal(data.data?.creator?.email, undefined, 'email must not be exposed');
+      assert.equal(data.data?.creator?.tokenVersion, undefined, 'tokenVersion must not be exposed');
     });
   });
 
@@ -284,11 +351,11 @@ void describe('Courses API Integration Tests', () => {
 
       assert.equal(res.status, 201);
       const data = (await res.json()) as {
-        status: string;
-        data?: { subtopic: { content: string } };
+        success: boolean;
+        data?: { content: string };
       };
-      assert.equal(data.status, 'success');
-      const savedContent = data.data?.subtopic?.content ?? '';
+      assert.equal(data.success, true);
+      const savedContent = data.data?.content ?? '';
       assert(!savedContent.includes('<script>'), 'script tag must be stripped');
       assert(!savedContent.includes('onerror'), 'onerror attribute must be stripped');
       assert(savedContent.includes('<p>Safe Text</p>'), 'safe html tags must be preserved');
