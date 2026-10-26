@@ -3,11 +3,13 @@ import { beforeEach, describe, it } from 'node:test';
 
 import type { AuthenticatedUser } from '../../src/core/auth';
 import { ForbiddenError, ValidationError } from '../../src/core/errors';
+import { sanitizeHtml } from '../../src/core/utils/sanitizer';
 import {
   type Assignment,
   type Course,
   coursesRepository,
   coursesService,
+  resourceItemSchema,
   type Subtopic,
   type Topic,
 } from '../../src/modules/courses';
@@ -375,6 +377,44 @@ void describe('CoursesService Unit Tests', () => {
           return true;
         },
       );
+    });
+  });
+
+  void describe('XSS Sanitization & Resource URL Security (M6-XSS-1, CRS-23)', () => {
+    void it('strips dangerous event handlers without whitespace like <svg/onload=alert(1)>', () => {
+      const payload = '<svg/onload=alert(1)><p>Valid Paragraph</p>';
+      const clean = sanitizeHtml(payload);
+      assert(!clean.includes('onload'), 'Must strip onload attribute');
+      assert(!clean.includes('<svg'), 'Must discard svg tag');
+      assert.equal(clean, '<p>Valid Paragraph</p>');
+    });
+
+    void it('strips unquoted javascript: href and entity-encoded javascript pseudo-protocols', () => {
+      const payload1 = '<a href=javascript:alert(2)>Click me</a>';
+      const clean1 = sanitizeHtml(payload1);
+      assert(!clean1.includes('javascript:'), 'Must strip javascript: URL');
+
+      const payload2 = '<a href="jav&#x09;ascript:alert(3)">Click me</a>';
+      const clean2 = sanitizeHtml(payload2);
+      assert(!clean2.includes('javascript'), 'Must strip entity-encoded javascript');
+    });
+
+    void it('resourceItemSchema rejects javascript: pseudo-protocols in URLs', () => {
+      const xssResource = {
+        title: 'Malicious Link',
+        url: 'javascript:alert(document.cookie)',
+        type: 'LINK',
+      };
+      const result = resourceItemSchema.safeParse(xssResource);
+      assert.equal(result.success, false, 'javascript: URL must fail validation');
+
+      const validResource = {
+        title: 'Safe Link',
+        url: 'https://example.com/handbook.pdf',
+        type: 'LINK',
+      };
+      const validResult = resourceItemSchema.safeParse(validResource);
+      assert.equal(validResult.success, true, 'https:// URL must pass validation');
     });
   });
 });

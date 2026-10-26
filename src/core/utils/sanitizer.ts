@@ -1,32 +1,52 @@
+import sanitizeHtmlLib from 'sanitize-html';
+
 /**
  * Server-side HTML sanitizer for rich-text subtopic content and assignment instructions.
- * Strips script tags, iframes, object/embed tags, javascript: pseudo-protocols,
- * and dangerous event handler attributes while preserving benign formatting tags.
- * (Enforces CRS-23).
+ * Uses an allowlist policy to strip script tags, dangerous URI protocols,
+ * and event handlers while preserving safe HTML formatting tags (CRS-23).
  */
 export function sanitizeHtml(input: string | null | undefined): string {
   if (!input) {
     return '';
   }
 
-  let sanitized = input;
-
-  // 1. Remove dangerous blocks completely (including content)
-  sanitized = sanitized.replace(/<script\b[^<]*(?:(?!<\/script>)<[^<]*)*<\/script>/gi, '');
-  sanitized = sanitized.replace(/<style\b[^<]*(?:(?!<\/style>)<[^<]*)*<\/style>/gi, '');
-  sanitized = sanitized.replace(/<iframe\b[^<]*(?:(?!<\/iframe>)<[^<]*)*<\/iframe>/gi, '');
-  sanitized = sanitized.replace(/<object\b[^<]*(?:(?!<\/object>)<[^<]*)*<\/object>/gi, '');
-  sanitized = sanitized.replace(/<embed\b[^>]*>/gi, '');
-  sanitized = sanitized.replace(/<applet\b[^<]*(?:(?!<\/applet>)<[^<]*)*<\/applet>/gi, '');
-
-  // 2. Remove inline event handlers (onload, onerror, onclick, etc.)
-  sanitized = sanitized.replace(/\s+on[a-z]+\s*=\s*(?:'[^']*'|"[^"]*"|[^\s>]+)/gi, '');
-
-  // 3. Remove javascript: or vbscript: or data: URIs in attributes
-  sanitized = sanitized.replace(
-    /(href|src)\s*=\s*(['"])\s*(?:javascript|vbscript|data):[\s\S]*?\2/gi,
-    '$1="#"',
-  );
-
-  return sanitized.trim();
+  return sanitizeHtmlLib(input, {
+    allowedTags: [
+      'p',
+      'b',
+      'i',
+      'em',
+      'strong',
+      'a',
+      'ul',
+      'ol',
+      'li',
+      'code',
+      'pre',
+      'blockquote',
+      'h1',
+      'h2',
+      'h3',
+      'h4',
+      'h5',
+      'h6',
+      'hr',
+      'br',
+      'span',
+      'img',
+      'table',
+      'thead',
+      'tbody',
+      'tr',
+      'th',
+      'td',
+    ],
+    allowedAttributes: {
+      a: ['href', 'title', 'target', 'rel'],
+      img: ['src', 'alt', 'title', 'width', 'height'],
+      '*': ['class'],
+    },
+    allowedSchemes: ['http', 'https', 'mailto'],
+    disallowedTagsMode: 'discard',
+  }).trim();
 }

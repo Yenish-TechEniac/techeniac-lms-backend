@@ -5,7 +5,11 @@ import { AssignmentScope, SubmissionMode } from '../entities';
 export const resourceItemSchema = z.object({
   id: z.string().optional(),
   title: z.string().trim().min(1, 'Resource title cannot be empty').max(150),
-  url: z.string().trim().url('Invalid resource URL'),
+  url: z
+    .string()
+    .trim()
+    .url('Invalid resource URL')
+    .refine((u) => /^https?:\/\//i.test(u), 'Only http(s) URLs are allowed'),
   type: z.enum(['LINK', 'ATTACHMENT']),
 });
 
