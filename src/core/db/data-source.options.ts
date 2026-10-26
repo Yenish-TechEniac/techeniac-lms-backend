@@ -6,5 +6,6 @@ export const baseDataSourceOptions = {
   type: 'postgres',
   uuidExtension: 'pgcrypto',
   synchronize: false,
+  migrationsTransactionMode: 'each',
   entities: [path.join(__dirname, '../../modules/**/*.entity.{ts,js}')],
 } satisfies Partial<PostgresConnectionOptions>;
