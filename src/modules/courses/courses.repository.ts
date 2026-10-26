@@ -163,46 +163,57 @@ export class CoursesRepository {
   }
 
   async softDeleteCourse(id: string): Promise<boolean> {
-    const res = await this.courseRepo.softDelete(id);
-    return (res.affected ?? 0) > 0;
+    return await AppDataSource.transaction(async (manager) => {
+      const courseRes = await manager.softDelete(Course, id);
+      const topics = await manager.find(Topic, { where: { courseId: id } });
+      const topicIds = topics.map((t) => t.id);
+
+      if (topicIds.length > 0) {
+        await manager.softDelete(Subtopic, { topicId: In(topicIds) });
+      }
+      await manager.softDelete(Topic, { courseId: id });
+      await manager.softDelete(Assignment, { courseId: id });
+
+      return (courseRes.affected ?? 0) > 0;
+    });
   }
 
-  async getCourseImpact(courseId: string): Promise<CourseImpactInfo> {
-    try {
-      // Check if course_allocations table exists
-      const tableCheck = await AppDataSource.query<Array<{ table_name: string }>>(
-        `SELECT table_name FROM information_schema.tables WHERE table_name = 'course_allocations'`,
-      );
-      if (!tableCheck || tableCheck.length === 0) {
-        return { courseId, openAllocationsCount: 0, affectedMenteesCount: 0 };
-      }
-
-      const rows = await AppDataSource.query<
-        Array<{ alloc_count?: string; mentee_count?: string }>
-      >(
-        `SELECT COUNT(DISTINCT ca.id) as alloc_count, COUNT(DISTINCT cam.mentee_id) as mentee_count
-         FROM course_allocations ca
-         LEFT JOIN course_allocation_mentees cam ON cam.allocation_id = ca.id
-         WHERE ca.course_id = $1 AND ca.status = 'ACTIVE'`,
-        [courseId],
-      );
-
-      const allocCount = parseInt(rows[0]?.alloc_count ?? '0', 10);
-      const menteeCount = parseInt(rows[0]?.mentee_count ?? '0', 10);
-      return {
-        courseId,
-        openAllocationsCount: allocCount,
-        affectedMenteesCount: menteeCount,
-      };
-    } catch {
-      return { courseId, openAllocationsCount: 0, affectedMenteesCount: 0 };
-    }
+  getCourseImpact(courseId: string): Promise<CourseImpactInfo> {
+    // When allocations module is implemented, count will be fetched via allocationsRepository
+    return Promise.resolve({
+      courseId,
+      openAllocationsCount: 0,
+      affectedMenteesCount: 0,
+    });
   }
 
   // --- Topic Operations ---
   async createTopic(data: Partial<Topic>): Promise<Topic> {
-    const topic = this.topicRepo.create(data);
-    return await this.topicRepo.save(topic);
+    return await AppDataSource.transaction(async (manager) => {
+      let displayOrder = data.displayOrder;
+      if (displayOrder === undefined && data.courseId) {
+        await manager
+          .getRepository(Course)
+          .createQueryBuilder('course')
+          .setLock('pessimistic_write')
+          .where('course.id = :id', { id: data.courseId })
+          .getOne();
+
+        const maxRow = await manager
+          .getRepository(Topic)
+          .createQueryBuilder('topic')
+          .select('COALESCE(MAX(topic.displayOrder), -1)', 'max')
+          .where('topic.courseId = :courseId', { courseId: data.courseId })
+          .andWhere('topic.deletedAt IS NULL')
+          .getRawOne<{ max?: string | number | null }>();
+
+        displayOrder = Number(maxRow?.max ?? -1) + 1;
+      }
+
+      const topicRepo = manager.getRepository(Topic);
+      const topic = topicRepo.create({ ...data, displayOrder });
+      return await topicRepo.save(topic);
+    });
   }
 
   async findTopicById(id: string): Promise<Topic | null> {
@@ -236,20 +247,22 @@ export class CoursesRepository {
   }
 
   async deleteTopic(id: string): Promise<boolean> {
-    const res = await this.topicRepo.delete(id);
-    return (res.affected ?? 0) > 0;
+    return await AppDataSource.transaction(async (manager) => {
+      const topicRes = await manager.softDelete(Topic, id);
+      await manager.softDelete(Subtopic, { topicId: id });
+      await manager.softDelete(Assignment, { topicId: id });
+      return (topicRes.affected ?? 0) > 0;
+    });
   }
 
   async getNextTopicOrder(courseId: string): Promise<number> {
     const maxRow = await this.topicRepo
       .createQueryBuilder('topic')
-      .select('MAX(topic.displayOrder)', 'max')
+      .select('COALESCE(MAX(topic.displayOrder), -1)', 'max')
       .where('topic.courseId = :courseId', { courseId })
-      .getRawOne<{ max?: string | null }>();
-    return (
-      (maxRow?.max !== null && maxRow?.max !== undefined ? parseInt(String(maxRow.max), 10) : -1) +
-      1
-    );
+      .andWhere('topic.deletedAt IS NULL')
+      .getRawOne<{ max?: string | number | null }>();
+    return Number(maxRow?.max ?? -1) + 1;
   }
 
   async reorderTopics(items: { id: string; displayOrder: number }[]): Promise<void> {
@@ -262,8 +275,31 @@ export class CoursesRepository {
 
   // --- Subtopic Operations ---
   async createSubtopic(data: Partial<Subtopic>): Promise<Subtopic> {
-    const subtopic = this.subtopicRepo.create(data);
-    return await this.subtopicRepo.save(subtopic);
+    return await AppDataSource.transaction(async (manager) => {
+      let displayOrder = data.displayOrder;
+      if (displayOrder === undefined && data.topicId) {
+        await manager
+          .getRepository(Topic)
+          .createQueryBuilder('topic')
+          .setLock('pessimistic_write')
+          .where('topic.id = :id', { id: data.topicId })
+          .getOne();
+
+        const maxRow = await manager
+          .getRepository(Subtopic)
+          .createQueryBuilder('subtopic')
+          .select('COALESCE(MAX(subtopic.displayOrder), -1)', 'max')
+          .where('subtopic.topicId = :topicId', { topicId: data.topicId })
+          .andWhere('subtopic.deletedAt IS NULL')
+          .getRawOne<{ max?: string | number | null }>();
+
+        displayOrder = Number(maxRow?.max ?? -1) + 1;
+      }
+
+      const subtopicRepo = manager.getRepository(Subtopic);
+      const subtopic = subtopicRepo.create({ ...data, displayOrder });
+      return await subtopicRepo.save(subtopic);
+    });
   }
 
   async findSubtopicById(id: string): Promise<Subtopic | null> {
@@ -276,20 +312,18 @@ export class CoursesRepository {
   }
 
   async deleteSubtopic(id: string): Promise<boolean> {
-    const res = await this.subtopicRepo.delete(id);
+    const res = await this.subtopicRepo.softDelete(id);
     return (res.affected ?? 0) > 0;
   }
 
   async getNextSubtopicOrder(topicId: string): Promise<number> {
     const maxRow = await this.subtopicRepo
       .createQueryBuilder('subtopic')
-      .select('MAX(subtopic.displayOrder)', 'max')
+      .select('COALESCE(MAX(subtopic.displayOrder), -1)', 'max')
       .where('subtopic.topicId = :topicId', { topicId })
-      .getRawOne<{ max?: string | null }>();
-    return (
-      (maxRow?.max !== null && maxRow?.max !== undefined ? parseInt(String(maxRow.max), 10) : -1) +
-      1
-    );
+      .andWhere('subtopic.deletedAt IS NULL')
+      .getRawOne<{ max?: string | number | null }>();
+    return Number(maxRow?.max ?? -1) + 1;
   }
 
   async reorderSubtopics(items: { id: string; displayOrder: number }[]): Promise<void> {
@@ -302,8 +336,38 @@ export class CoursesRepository {
 
   // --- Assignment Operations ---
   async createAssignment(data: Partial<Assignment>): Promise<Assignment> {
-    const assignment = this.assignmentRepo.create(data);
-    return await this.assignmentRepo.save(assignment);
+    return await AppDataSource.transaction(async (manager) => {
+      let displayOrder = data.displayOrder;
+      if (displayOrder === undefined && data.courseId) {
+        await manager
+          .getRepository(Course)
+          .createQueryBuilder('course')
+          .setLock('pessimistic_write')
+          .where('course.id = :id', { id: data.courseId })
+          .getOne();
+
+        const qb = manager
+          .getRepository(Assignment)
+          .createQueryBuilder('assignment')
+          .select('COALESCE(MAX(assignment.displayOrder), -1)', 'max')
+          .where('assignment.courseId = :courseId', { courseId: data.courseId })
+          .andWhere('assignment.scope = :scope', { scope: data.scope })
+          .andWhere('assignment.deletedAt IS NULL');
+
+        if (data.scope === AssignmentScope.TOPIC && data.topicId) {
+          qb.andWhere('assignment.topicId = :topicId', { topicId: data.topicId });
+        } else {
+          qb.andWhere('assignment.topicId IS NULL');
+        }
+
+        const maxRow = await qb.getRawOne<{ max?: string | number | null }>();
+        displayOrder = Number(maxRow?.max ?? -1) + 1;
+      }
+
+      const assignmentRepo = manager.getRepository(Assignment);
+      const assignment = assignmentRepo.create({ ...data, displayOrder });
+      return await assignmentRepo.save(assignment);
+    });
   }
 
   async findAssignmentById(id: string): Promise<Assignment | null> {
@@ -316,7 +380,7 @@ export class CoursesRepository {
   }
 
   async deleteAssignment(id: string): Promise<boolean> {
-    const res = await this.assignmentRepo.delete(id);
+    const res = await this.assignmentRepo.softDelete(id);
     return (res.affected ?? 0) > 0;
   }
 
@@ -327,9 +391,10 @@ export class CoursesRepository {
   ): Promise<number> {
     const qb = this.assignmentRepo
       .createQueryBuilder('assignment')
-      .select('MAX(assignment.displayOrder)', 'max')
+      .select('COALESCE(MAX(assignment.displayOrder), -1)', 'max')
       .where('assignment.courseId = :courseId', { courseId })
-      .andWhere('assignment.scope = :scope', { scope });
+      .andWhere('assignment.scope = :scope', { scope })
+      .andWhere('assignment.deletedAt IS NULL');
 
     if (topicId) {
       qb.andWhere('assignment.topicId = :topicId', { topicId });
@@ -337,11 +402,8 @@ export class CoursesRepository {
       qb.andWhere('assignment.topicId IS NULL');
     }
 
-    const maxRow = await qb.getRawOne<{ max?: string | null }>();
-    return (
-      (maxRow?.max !== null && maxRow?.max !== undefined ? parseInt(String(maxRow.max), 10) : -1) +
-      1
-    );
+    const maxRow = await qb.getRawOne<{ max?: string | number | null }>();
+    return Number(maxRow?.max ?? -1) + 1;
   }
 
   async reorderAssignments(items: { id: string; displayOrder: number }[]): Promise<void> {

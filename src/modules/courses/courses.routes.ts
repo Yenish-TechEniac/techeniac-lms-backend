@@ -9,6 +9,7 @@ import {
   createCourseSchema,
   createSubtopicSchema,
   createTopicSchema,
+  idParamSchema,
   listCoursesQuerySchema,
   reorderItemsSchema,
   statusToggleSchema,
@@ -45,7 +46,7 @@ coursesRouter.patch(
   validate(statusToggleSchema),
   coursesController.toggleTopicStatus,
 );
-coursesRouter.delete('/topics/:id', coursesController.deleteTopic);
+coursesRouter.delete('/topics/:id', validate(idParamSchema), coursesController.deleteTopic);
 coursesRouter.put(
   '/:id/topics/reorder',
   validate(reorderItemsSchema),
@@ -68,7 +69,7 @@ coursesRouter.patch(
   validate(statusToggleSchema),
   coursesController.toggleSubtopicStatus,
 );
-coursesRouter.delete('/subtopics/:id', coursesController.deleteSubtopic);
+coursesRouter.delete('/subtopics/:id', validate(idParamSchema), coursesController.deleteSubtopic);
 coursesRouter.put(
   '/topics/:id/subtopics/reorder',
   validate(reorderItemsSchema),
@@ -86,7 +87,11 @@ coursesRouter.put(
   validate(updateAssignmentSchema),
   coursesController.updateAssignment,
 );
-coursesRouter.delete('/assignments/:id', coursesController.deleteAssignment);
+coursesRouter.delete(
+  '/assignments/:id',
+  validate(idParamSchema),
+  coursesController.deleteAssignment,
+);
 coursesRouter.put(
   '/:id/assignments/reorder',
   validate(reorderItemsSchema),

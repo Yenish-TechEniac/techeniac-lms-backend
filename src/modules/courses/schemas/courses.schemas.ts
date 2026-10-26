@@ -70,6 +70,12 @@ export const courseIdParamSchema = z.object({
   }),
 });
 
+export const idParamSchema = z.object({
+  params: z.object({
+    id: z.string().uuid('Invalid ID parameter'),
+  }),
+});
+
 // Topic Schemas
 export const createTopicSchema = z.object({
   params: z.object({

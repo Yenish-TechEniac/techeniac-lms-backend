@@ -361,4 +361,45 @@ void describe('Courses API Integration Tests', () => {
       assert(savedContent.includes('<p>Safe Text</p>'), 'safe html tags must be preserved');
     });
   });
+
+  void describe('Delete Route Parameter Validation (M6-VAL-1)', () => {
+    void it('returns 400 Validation Error for non-UUID on DELETE /topics/:id', async () => {
+      const res = await fetch(`${baseUrl}/courses/topics/not-a-valid-uuid`, {
+        method: 'DELETE',
+        headers: {
+          Authorization: `Bearer ${tokenAdmin}`,
+        },
+      });
+
+      assert.equal(res.status, 400);
+      const data = (await res.json()) as { error?: { code: string } };
+      assert.equal(data.error?.code, 'VALIDATION_ERROR');
+    });
+
+    void it('returns 400 Validation Error for non-UUID on DELETE /subtopics/:id', async () => {
+      const res = await fetch(`${baseUrl}/courses/subtopics/not-a-valid-uuid`, {
+        method: 'DELETE',
+        headers: {
+          Authorization: `Bearer ${tokenAdmin}`,
+        },
+      });
+
+      assert.equal(res.status, 400);
+      const data = (await res.json()) as { error?: { code: string } };
+      assert.equal(data.error?.code, 'VALIDATION_ERROR');
+    });
+
+    void it('returns 400 Validation Error for non-UUID on DELETE /assignments/:id', async () => {
+      const res = await fetch(`${baseUrl}/courses/assignments/not-a-valid-uuid`, {
+        method: 'DELETE',
+        headers: {
+          Authorization: `Bearer ${tokenAdmin}`,
+        },
+      });
+
+      assert.equal(res.status, 400);
+      const data = (await res.json()) as { error?: { code: string } };
+      assert.equal(data.error?.code, 'VALIDATION_ERROR');
+    });
+  });
 });
