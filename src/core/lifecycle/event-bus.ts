@@ -10,7 +10,6 @@ export interface CourseTopicsChangedEvent {
 
 export type LifecycleEvents = {
   'course.topicsChanged': CourseTopicsChangedEvent;
-  [key: string]: unknown;
 };
 
 class LifecycleEventBus extends EventEmitter {
@@ -20,6 +19,17 @@ class LifecycleEventBus extends EventEmitter {
   ): boolean {
     logger.info({ event, payload }, `[LifecycleEventBus] Emitting event: ${String(event)}`);
     return this.emit(String(event), payload);
+  }
+
+  public onEvent<K extends keyof LifecycleEvents>(
+    event: K,
+    listener: (payload: LifecycleEvents[K]) => void | Promise<void>,
+  ): this {
+    return this.on(String(event), (payload: LifecycleEvents[K]) => {
+      void Promise.resolve(listener(payload)).catch((err: unknown) => {
+        logger.error({ err, event: String(event) }, '[LifecycleEventBus] Error in event listener');
+      });
+    });
   }
 }
 

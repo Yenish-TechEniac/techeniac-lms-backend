@@ -19,6 +19,8 @@
     "migration:revert": "typeorm-ts-node-commonjs migration:revert -d src/core/db/migration-source.ts",
     "migration:generate": "typeorm-ts-node-commonjs migration:generate -d src/core/db/migration-source.ts",
     "migration:create": "typeorm-ts-node-commonjs migration:create",
+    "test": "tsx --test 'tests/**/*.test.ts'",
+    "test:unit": "tsx --test 'tests/unit/**/*.test.ts'",
     "test:auth": "tsx scripts/test-auth-endpoints.ts",
     "test:courses": "tsx scripts/test-course-endpoints.ts",
     "seed:admin": "tsx --env-file=.env scripts/seed-admin.ts",

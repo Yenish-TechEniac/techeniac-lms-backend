@@ -75,38 +75,43 @@ export class CoursesRepository {
     return course;
   }
 
-  async listCourses(options: {
-    page: number;
-    limit: number;
+  async listCourses(options?: {
+    page?: number;
+    limit?: number;
     search?: string;
     isActive?: boolean;
-    sortBy: 'createdAt' | 'title' | 'updatedAt';
-    sortOrder: 'asc' | 'desc';
+    sortBy?: 'createdAt' | 'title' | 'updatedAt';
+    sortOrder?: 'asc' | 'desc';
   }): Promise<{ items: Course[]; total: number }> {
+    const page = options?.page && options.page > 0 ? options.page : 1;
+    const limit = options?.limit && options.limit > 0 ? options.limit : 20;
+    const sortBy = options?.sortBy ?? 'createdAt';
+    const sortOrder = options?.sortOrder ?? 'desc';
+
     const qb = this.courseRepo
       .createQueryBuilder('course')
       .leftJoinAndSelect('course.creator', 'creator')
       .where('course.deletedAt IS NULL');
 
-    if (options.isActive !== undefined) {
+    if (options?.isActive !== undefined) {
       qb.andWhere('course.isActive = :isActive', { isActive: options.isActive });
     }
 
-    if (options.search) {
+    if (options?.search) {
       qb.andWhere('(LOWER(course.title) LIKE :search OR LOWER(course.description) LIKE :search)', {
         search: `%${options.search.toLowerCase()}%`,
       });
     }
 
     const sortColumn =
-      options.sortBy === 'title'
+      sortBy === 'title'
         ? 'course.title'
-        : options.sortBy === 'updatedAt'
+        : sortBy === 'updatedAt'
           ? 'course.updatedAt'
           : 'course.createdAt';
 
-    qb.orderBy(sortColumn, options.sortOrder.toUpperCase() as 'ASC' | 'DESC');
-    qb.skip((options.page - 1) * options.limit).take(options.limit);
+    qb.orderBy(sortColumn, sortOrder.toUpperCase() as 'ASC' | 'DESC');
+    qb.skip((page - 1) * limit).take(limit);
 
     const [items, total] = await qb.getManyAndCount();
 

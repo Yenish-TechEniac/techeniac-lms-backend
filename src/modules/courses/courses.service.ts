@@ -64,13 +64,13 @@ export class CoursesService {
     return course;
   }
 
-  async listCourses(options: {
-    page: number;
-    limit: number;
+  async listCourses(options?: {
+    page?: number;
+    limit?: number;
     search?: string;
     isActive?: boolean;
-    sortBy: 'createdAt' | 'title' | 'updatedAt';
-    sortOrder: 'asc' | 'desc';
+    sortBy?: 'createdAt' | 'title' | 'updatedAt';
+    sortOrder?: 'asc' | 'desc';
   }) {
     return await coursesRepository.listCourses(options);
   }
@@ -417,8 +417,16 @@ export class CoursesService {
     items: { id: string; displayOrder: number }[],
     user: AuthenticatedUser,
   ): Promise<void> {
-    const course = await this.getCourseById(courseId);
+    const course = await this.getCourseById(courseId, true);
     this.assertCanEdit(course, user);
+
+    const existingTopicIds = new Set(course.topics?.map((t) => t.id) ?? []);
+    for (const item of items) {
+      if (!existingTopicIds.has(item.id)) {
+        throw new ValidationError(`Topic ${item.id} does not belong to this course`);
+      }
+    }
+
     await coursesRepository.reorderTopics(items);
   }
 
@@ -582,6 +590,14 @@ export class CoursesService {
     }
     const course = await this.getCourseById(topic.courseId);
     this.assertCanEdit(course, user);
+
+    const existingSubtopicIds = new Set(topic.subtopics?.map((s) => s.id) ?? []);
+    for (const item of items) {
+      if (!existingSubtopicIds.has(item.id)) {
+        throw new ValidationError(`Subtopic ${item.id} does not belong to this topic`);
+      }
+    }
+
     await coursesRepository.reorderSubtopics(items);
   }
 
@@ -668,6 +684,12 @@ export class CoursesService {
     this.assertCanEdit(course, user);
     this.assertNotStale(assignment.updatedAt, data.expectedUpdatedAt);
 
+    const effectiveMaxMarks = data.maxMarks !== undefined ? data.maxMarks : assignment.maxMarks;
+    const effectivePassMarks = data.passMarks !== undefined ? data.passMarks : assignment.passMarks;
+    if (effectivePassMarks > effectiveMaxMarks) {
+      throw new ValidationError('Pass marks cannot exceed max marks');
+    }
+
     const updatePayload: Partial<Assignment> = { updatedBy: user.id };
     if (data.title !== undefined) updatePayload.title = data.title;
     if (data.instructions !== undefined) {
@@ -703,8 +725,16 @@ export class CoursesService {
     items: { id: string; displayOrder: number }[],
     user: AuthenticatedUser,
   ): Promise<void> {
-    const course = await this.getCourseById(courseId);
+    const course = await this.getCourseById(courseId, true);
     this.assertCanEdit(course, user);
+
+    const existingAssignmentIds = new Set(course.assignments?.map((a) => a.id) ?? []);
+    for (const item of items) {
+      if (!existingAssignmentIds.has(item.id)) {
+        throw new ValidationError(`Assignment ${item.id} does not belong to this course`);
+      }
+    }
+
     await coursesRepository.reorderAssignments(items);
   }
 }

@@ -37,8 +37,8 @@ async function runTests(): Promise<void> {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        email: 'admin@techeniac.com',
-        password: 'Admin123456!',
+        email: process.env.SEED_ADMIN_EMAIL || 'admin@techeniac.com',
+        password: process.env.SEED_ADMIN_PASSWORD || 'Admin123456!',
       }),
     });
     const loginData = (await loginRes.json()) as {

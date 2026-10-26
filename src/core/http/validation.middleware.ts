@@ -17,21 +17,21 @@ export function validate(
       if (parsed.body !== undefined) {
         req.body = parsed.body;
       }
-      if (parsed.query !== undefined && typeof parsed.query === 'object' && parsed.query !== null) {
-        for (const key of Object.keys(req.query)) {
-          delete (req.query as Record<string, unknown>)[key];
-        }
-        Object.assign(req.query, parsed.query);
+      if (parsed.query !== undefined) {
+        Object.defineProperty(req, 'query', {
+          value: parsed.query,
+          writable: true,
+          enumerable: true,
+          configurable: true,
+        });
       }
-      if (
-        parsed.params !== undefined &&
-        typeof parsed.params === 'object' &&
-        parsed.params !== null
-      ) {
-        for (const key of Object.keys(req.params)) {
-          delete (req.params as Record<string, unknown>)[key];
-        }
-        Object.assign(req.params, parsed.params);
+      if (parsed.params !== undefined) {
+        Object.defineProperty(req, 'params', {
+          value: parsed.params,
+          writable: true,
+          enumerable: true,
+          configurable: true,
+        });
       }
       next();
     } catch (error) {

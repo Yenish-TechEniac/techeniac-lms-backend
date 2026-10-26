@@ -40,16 +40,27 @@ export class CoursesController {
 
   async listCourses(req: Request, res: Response): Promise<void> {
     const query = req.query as unknown as ListCoursesQueryInput;
-    const { items, total } = await coursesService.listCourses(query);
+    const page = query?.page && query.page > 0 ? query.page : 1;
+    const limit = query?.limit && query.limit > 0 ? query.limit : 20;
+    const sortBy = query?.sortBy ?? 'createdAt';
+    const sortOrder = query?.sortOrder ?? 'desc';
+    const { items, total } = await coursesService.listCourses({
+      page,
+      limit,
+      sortBy,
+      sortOrder,
+      search: query?.search,
+      isActive: query?.isActive,
+    });
     res.status(StatusCodes.OK).json({
       status: 'success',
       data: {
         courses: items,
         pagination: {
-          page: query.page,
-          limit: query.limit,
+          page,
+          limit,
           total,
-          totalPages: Math.ceil(total / query.limit),
+          totalPages: Math.ceil(total / limit),
         },
       },
     });
