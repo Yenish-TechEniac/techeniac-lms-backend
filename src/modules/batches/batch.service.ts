@@ -2,11 +2,12 @@ import type { EntityManager } from 'typeorm';
 
 import { AppDataSource, isUniqueViolation } from '../../core/db';
 import { EmailService, emailService } from '../../core/email';
-import { BadRequestError, ConflictError, ForbiddenError, NotFoundError } from '../../core/errors';
+import { BadRequestError, ConflictError, NotFoundError } from '../../core/errors';
 import { User, UserRepository, userRepository, UserRole } from '../users';
 import { BatchRepository, batchRepository } from './batch.repository';
 import { BatchMember, BatchMemberRole, BatchReasonToLeave, BatchStatus } from './entities';
 import { MentorMenteeRepository, mentorMenteeRepository } from './mentor-mentee.repository';
+import { MentorScopeAction, MentorScopeHelper, mentorScopeHelper } from './mentor-scope.helper';
 import {
   AddBatchMembersInput,
   BatchQueryParams,
@@ -32,6 +33,7 @@ export class BatchService {
     private readonly userRepo: UserRepository = userRepository,
     private readonly mentorMenteeRepo: MentorMenteeRepository = mentorMenteeRepository,
     private readonly emailSvc: EmailService = emailService,
+    private readonly mentorScope: MentorScopeHelper = mentorScopeHelper,
   ) {}
 
   public async createBatch(input: CreateBatchInput, actorId: string) {
@@ -707,15 +709,22 @@ export class BatchService {
   }
 
   public async getBatchByIdForMentor(batchId: string, mentorId: string) {
-    const membership = await this.batchRepo.findActiveMemberInBatch(batchId, mentorId);
-    if (!membership || membership.memberRole !== BatchMemberRole.MENTOR) {
-      throw new ForbiddenError('You are not an active mentor assigned to this batch');
-    }
+    await this.mentorScope.requireMentorScope(MentorScopeAction.MANAGE_ALLOCATION, {
+      mentorId,
+      batchId,
+    });
 
     return await this.getBatchById(batchId);
   }
 
   public async getMenteesForMentor(mentorId: string, batchId?: string) {
+    if (batchId) {
+      await this.mentorScope.requireMentorScope(MentorScopeAction.MANAGE_ALLOCATION, {
+        mentorId,
+        batchId,
+      });
+    }
+
     const mappings = await this.mentorMenteeRepo.findActiveMappingsForMentor(mentorId, batchId);
     return mappings.map((m) => ({
       id: m.id,
