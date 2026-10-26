@@ -14,7 +14,12 @@ import {
 } from '../../core/auth';
 import { AppDataSource } from '../../core/db';
 import { emailService } from '../../core/email';
-import { ForbiddenError, NotFoundError, UnauthorizedError } from '../../core/errors';
+import {
+  BadRequestError,
+  ForbiddenError,
+  NotFoundError,
+  UnauthorizedError,
+} from '../../core/errors';
 import { logger } from '../../core/logging';
 import { User, UserRepository, userRepository, UserRole } from '../users';
 import { Token, TokenRevokeReason, TokenType } from './entities/token.entity';
@@ -56,7 +61,7 @@ export interface IAuthService {
   forgotPassword(input: ForgotPasswordInput): Promise<void>;
   resetPassword(input: ResetPasswordInput): Promise<void>;
   verifyResetToken(token: string): Promise<VerifyResetTokenResult>;
-  changePassword(userId: string, input: ChangePasswordInput): Promise<void>;
+  changePassword(userId: string, input: ChangePasswordInput): Promise<AuthResult>;
 }
 
 export class AuthService implements IAuthService {
@@ -323,7 +328,7 @@ export class AuthService implements IAuthService {
     }
 
     const tokenRow = await this.tokenRepo.findByJti(payload.jti);
-    if (!tokenRow || tokenRow.tokenType !== TokenType.PASSWORD_RESET) {
+    if (tokenRow?.tokenType !== TokenType.PASSWORD_RESET) {
       logger.warn(
         { context, reason: 'token_not_found_or_wrong_type' },
         'Password reset token rejected',
@@ -347,7 +352,7 @@ export class AuthService implements IAuthService {
     }
 
     const user = await this.userRepo.findById(tokenRow.userId);
-    if (!user || !user.isActive) {
+    if (!user?.isActive) {
       logger.warn(
         { context, reason: 'user_inactive_or_not_found' },
         'Password reset token rejected',
@@ -370,7 +375,7 @@ export class AuthService implements IAuthService {
     await AppDataSource.transaction(async (manager) => {
       const marked = await this.tokenRepo.markPasswordResetUsed(tokenRow.jti, manager);
       if (!marked) {
-        throw new UnauthorizedError('Invalid or expired password reset token');
+        throw new BadRequestError('Invalid or expired password reset token');
       }
 
       await this.userRepo.updatePassword(user.id, passwordHash, manager);
@@ -391,7 +396,7 @@ export class AuthService implements IAuthService {
     return { valid: usable !== null };
   }
 
-  public async changePassword(userId: string, input: ChangePasswordInput): Promise<void> {
+  public async changePassword(userId: string, input: ChangePasswordInput): Promise<AuthResult> {
     const user = await this.userRepo.findByIdWithPassword(userId);
     if (!user) {
       throw new NotFoundError('User not found');
@@ -404,7 +409,7 @@ export class AuthService implements IAuthService {
 
     const passwordHash = await hashPassword(input.newPassword);
 
-    await AppDataSource.transaction(async (manager) => {
+    return await AppDataSource.transaction(async (manager) => {
       await this.userRepo.updatePassword(user.id, passwordHash, manager);
       await this.userRepo.incrementTokenVersion(user.id, manager);
       await this.tokenRepo.revokeAllForUser(
@@ -413,6 +418,52 @@ export class AuthService implements IAuthService {
         undefined,
         manager,
       );
+
+      const updatedUser = await this.userRepo.findById(user.id, manager);
+      const nextTokenVersion = updatedUser ? updatedUser.tokenVersion : user.tokenVersion + 1;
+      const jti = randomUUID();
+      const familyId = randomUUID();
+      const expiresAt = new Date(Date.now() + REFRESH_TOKEN_TTL_MS);
+
+      await this.tokenRepo.createToken(
+        {
+          userId: user.id,
+          tokenType: TokenType.REFRESH,
+          jti,
+          familyId,
+          tokenVersion: nextTokenVersion,
+          expiresAt,
+        },
+        manager,
+      );
+
+      const accessToken = signAccessToken({
+        sub: user.id,
+        email: user.email,
+        role: user.role,
+        tokenVersion: nextTokenVersion,
+      });
+
+      const refreshToken = signRefreshToken({
+        sub: user.id,
+        jti,
+        familyId,
+        tokenVersion: nextTokenVersion,
+      });
+
+      return {
+        user: {
+          id: user.id,
+          name: user.name,
+          email: user.email,
+          role: user.role,
+          mustChangePassword: false,
+        },
+        tokens: {
+          accessToken,
+          refreshToken,
+        },
+      };
     });
   }
 }

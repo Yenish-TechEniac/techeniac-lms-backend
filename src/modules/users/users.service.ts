@@ -1,8 +1,7 @@
 import crypto from 'node:crypto';
 
-import { QueryFailedError } from 'typeorm';
-
 import { hashPassword } from '../../core/auth/password';
+import { isUniqueViolation } from '../../core/db';
 import { emailService } from '../../core/email';
 import {
   BadGatewayError,
@@ -12,6 +11,7 @@ import {
   NotFoundError,
 } from '../../core/errors';
 import { logger } from '../../core/logging';
+import { batchService } from '../batches';
 import { type User, UserRole } from './entities/user.entity';
 import type { UserRoleHistory } from './entities/user-role-history.entity';
 import { UserRepository, userRepository } from './user.repository';
@@ -22,6 +22,8 @@ import type {
   UserQueryParams,
 } from './users.schemas';
 
+export type RoleChangeBlockReason = 'SAME_ROLE' | 'LAST_SUPER_ADMIN' | 'ACTIVE_MENTEES';
+
 function pickRandomChar(source: string): string {
   const index = crypto.randomInt(0, source.length);
   const char = source[index];
@@ -29,16 +31,6 @@ function pickRandomChar(source: string): string {
     throw new Error('Index out of bounds while picking random character');
   }
   return char;
-}
-
-function isUniqueViolation(err: unknown): boolean {
-  if (err instanceof QueryFailedError) {
-    const code =
-      (err as QueryFailedError & { driverError?: { code?: string } }).driverError?.code ??
-      (err as unknown as { code?: string }).code;
-    return code === '23505';
-  }
-  return false;
 }
 
 function generateTemporaryPassword(): string {
@@ -204,26 +196,30 @@ export class UsersService {
       user.role === UserRole.MENTOR &&
       (input.newRole === UserRole.MENTEE || input.newRole === UserRole.SUPER_ADMIN)
     ) {
-      throw new BadRequestError(
-        'Mentor role cannot be changed to Mentee or Super Admin as per LMS policy',
-        'CANNOT_CHANGE_MENTOR_ROLE',
-      );
+      const activeMappings = await batchService.getActiveMappingsForMentor(user.id);
+      if (activeMappings.length > 0) {
+        throw new BadRequestError(
+          `Cannot change role. Mentor has ${activeMappings.length} active mentee(s) that must be reassigned first.`,
+          'ACTIVE_MENTEES_EXIST',
+        );
+      }
     }
 
-    if (
-      user.role === UserRole.SUPER_ADMIN &&
-      (input.newRole === UserRole.MENTOR || input.newRole === UserRole.MENTEE)
-    ) {
-      throw new BadRequestError(
-        'Super Admin role cannot be changed into Mentor or Mentee as per LMS policy',
-        'CANNOT_CHANGE_SUPER_ADMIN_ROLE',
-      );
-    }
-
+    const previousRole = user.role;
     user.role = input.newRole;
 
     try {
       return await this.repo.transaction(async (manager) => {
+        if (previousRole === UserRole.SUPER_ADMIN && input.newRole !== UserRole.SUPER_ADMIN) {
+          const activeAdmins = await this.repo.lockAndCountActiveSuperAdmins(manager);
+          if (activeAdmins <= 1) {
+            throw new BadRequestError(
+              'Cannot demote the last active Super Admin',
+              'CANNOT_DEMOTE_LAST_SUPER_ADMIN',
+            );
+          }
+        }
+
         const savedUser = await this.repo.save(user, manager);
 
         await this.repo.incrementTokenVersion(user.id, manager);
@@ -240,6 +236,11 @@ export class UsersService {
           },
           manager,
         );
+
+        // PRD Section 4: Role Change Impact Matrix closures
+        if (previousRole === UserRole.MENTEE || previousRole === UserRole.MENTOR) {
+          await batchService.handleUserRoleChange(user.id, manager, actorId);
+        }
 
         return { user: savedUser, history };
       });
@@ -302,10 +303,100 @@ export class UsersService {
     newRole: UserRole;
     isSameRole: boolean;
     willRevokeSessions: boolean;
+    isBlocked: boolean;
+    blockReason: RoleChangeBlockReason | null;
+    activeMenteesCount: number;
+    activeMentees: Array<{
+      id: string;
+      name: string;
+      email: string;
+      batchId: string;
+      batchName: string;
+    }>;
+    impactPoints: string[];
     impactSummary: string;
   }> {
     const user = await this.getUserById(id);
     const isSameRole = user.role === newRole;
+
+    let isBlocked = false;
+    let blockReason: RoleChangeBlockReason | null = null;
+    let activeMentees: Array<{
+      id: string;
+      name: string;
+      email: string;
+      batchId: string;
+      batchName: string;
+    }> = [];
+
+    if (isSameRole) {
+      isBlocked = true;
+      blockReason = 'SAME_ROLE';
+    } else if (user.role === UserRole.SUPER_ADMIN && newRole !== UserRole.SUPER_ADMIN) {
+      const activeAdmins = await this.repo.countActiveSuperAdmins();
+      if (activeAdmins <= 1) {
+        isBlocked = true;
+        blockReason = 'LAST_SUPER_ADMIN';
+      }
+    } else if (
+      user.role === UserRole.MENTOR &&
+      (newRole === UserRole.MENTEE || newRole === UserRole.SUPER_ADMIN)
+    ) {
+      const mappings = await batchService.getActiveMappingsForMentor(user.id);
+      if (mappings.length > 0) {
+        isBlocked = true;
+        blockReason = 'ACTIVE_MENTEES';
+        activeMentees = mappings.map((m) => ({
+          id: m.mentee ? m.mentee.id : m.menteeId,
+          name: m.mentee ? m.mentee.name : 'Unknown Mentee',
+          email: m.mentee ? m.mentee.email : '',
+          batchId: m.batchId,
+          batchName: m.batch ? m.batch.name : 'Active Batch',
+        }));
+      }
+    }
+
+    const impactPoints: string[] = [];
+    if (isSameRole) {
+      impactPoints.push(`User already holds the role ${newRole}. No modifications will be made.`);
+    } else {
+      if (user.role === UserRole.MENTEE) {
+        impactPoints.push('Learner batch pairings and active course submission access will end');
+        impactPoints.push('Active batch membership will be closed with reason: ROLE_CHANGE');
+        impactPoints.push(
+          'Prior grades, learning history, and submitted assignments remain preserved',
+        );
+      } else if (user.role === UserRole.MENTOR) {
+        impactPoints.push('Batch mentor memberships and mappings in those batches will end');
+        impactPoints.push(
+          'Created courses remain preserved in the library under creator attribution',
+        );
+        if (newRole === UserRole.MENTEE) {
+          impactPoints.push(
+            'User will become eligible to be added to a new batch and mapped to a mentor',
+          );
+        }
+      } else if (user.role === UserRole.SUPER_ADMIN) {
+        impactPoints.push(
+          'Administrative configuration and global management permissions will be revoked',
+        );
+        impactPoints.push('Created courses remain preserved in the library');
+      }
+      impactPoints.push(
+        'All active user sessions will be immediately terminated (tokenVersion incremented)',
+      );
+    }
+
+    let impactSummary = '';
+    if (isSameRole) {
+      impactSummary = `User already has the role ${newRole}. No changes will be applied.`;
+    } else if (isBlocked && blockReason === 'ACTIVE_MENTEES') {
+      impactSummary = `Mentor has ${activeMentees.length} active mentee(s). All mentees must be reassigned before changing role.`;
+    } else if (isBlocked && blockReason === 'LAST_SUPER_ADMIN') {
+      impactSummary = 'Cannot demote the last active Super Admin in the system.';
+    } else {
+      impactSummary = `Changing role from ${user.role} to ${newRole} will invalidate all active sessions and reassign permissions immediately.`;
+    }
 
     return {
       userId: user.id,
@@ -315,9 +406,12 @@ export class UsersService {
       newRole,
       isSameRole,
       willRevokeSessions: !isSameRole,
-      impactSummary: isSameRole
-        ? `User already has the role ${newRole}. No changes will be applied.`
-        : `Changing role from ${user.role} to ${newRole} will invalidate all active sessions and reassign permissions immediately.`,
+      isBlocked,
+      blockReason,
+      activeMenteesCount: activeMentees.length,
+      activeMentees,
+      impactPoints,
+      impactSummary,
     };
   }
 
