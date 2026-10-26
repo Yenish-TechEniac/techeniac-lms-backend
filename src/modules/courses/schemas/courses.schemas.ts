@@ -9,7 +9,14 @@ export const resourceItemSchema = z.object({
     .string()
     .trim()
     .url('Invalid resource URL')
-    .refine((u) => /^https?:\/\//i.test(u), 'Only http(s) URLs are allowed'),
+    .refine((u) => {
+      try {
+        const parsed = new URL(u);
+        return ['http:', 'https:'].includes(parsed.protocol);
+      } catch {
+        return false;
+      }
+    }, 'Only http(s) URLs are allowed'),
   type: z.enum(['LINK', 'ATTACHMENT']),
 });
 

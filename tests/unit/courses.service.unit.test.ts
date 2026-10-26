@@ -425,7 +425,7 @@ void describe('CoursesService Unit Tests', () => {
       assert(!clean2.includes('javascript'), 'Must strip entity-encoded javascript');
     });
 
-    void it('resourceItemSchema rejects javascript: pseudo-protocols in URLs', () => {
+    void it('resourceItemSchema rejects non-http(s) pseudo-protocols in URLs', () => {
       const xssResource = {
         title: 'Malicious Link',
         url: 'javascript:alert(document.cookie)',
@@ -433,6 +433,14 @@ void describe('CoursesService Unit Tests', () => {
       };
       const result = resourceItemSchema.safeParse(xssResource);
       assert.equal(result.success, false, 'javascript: URL must fail validation');
+
+      const dataUriResource = {
+        title: 'Data URI Link',
+        url: 'data:text/html,<script>alert(1)</script>',
+        type: 'LINK',
+      };
+      const dataResult = resourceItemSchema.safeParse(dataUriResource);
+      assert.equal(dataResult.success, false, 'data: URL must fail validation');
 
       const validResource = {
         title: 'Safe Link',
