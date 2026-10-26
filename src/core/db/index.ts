@@ -1,10 +1,20 @@
-import { DataSource } from 'typeorm';
+import { DataSource, QueryFailedError } from 'typeorm';
 
 import { logger } from '../logging';
 import { AppDataSource } from './data-source';
 
 export { AuditableEntity } from './auditable.entity';
 export { AppDataSource } from './data-source';
+
+export function isUniqueViolation(err: unknown): boolean {
+  if (err instanceof QueryFailedError) {
+    const code =
+      (err as QueryFailedError & { driverError?: { code?: string } }).driverError?.code ??
+      (err as unknown as { code?: string }).code;
+    return code === '23505';
+  }
+  return false;
+}
 
 export async function initializeDatabase(): Promise<DataSource> {
   if (AppDataSource.isInitialized) {

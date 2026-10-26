@@ -1,8 +1,7 @@
 import crypto from 'node:crypto';
 
-import { QueryFailedError } from 'typeorm';
-
 import { hashPassword } from '../../core/auth/password';
+import { isUniqueViolation } from '../../core/db';
 import { emailService } from '../../core/email';
 import {
   BadGatewayError,
@@ -30,16 +29,6 @@ function pickRandomChar(source: string): string {
     throw new Error('Index out of bounds while picking random character');
   }
   return char;
-}
-
-function isUniqueViolation(err: unknown): boolean {
-  if (err instanceof QueryFailedError) {
-    const code =
-      (err as QueryFailedError & { driverError?: { code?: string } }).driverError?.code ??
-      (err as unknown as { code?: string }).code;
-    return code === '23505';
-  }
-  return false;
 }
 
 function generateTemporaryPassword(): string {

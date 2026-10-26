@@ -43,8 +43,20 @@ export class BatchRepository {
     this.historyRepo = dataSource.getRepository(BatchStatusHistory);
   }
 
-  public async findById(id: string): Promise<Batch | null> {
-    return this.batchRepo.findOne({
+  private getBatchRepo(manager?: EntityManager): Repository<Batch> {
+    return manager ? manager.getRepository(Batch) : this.batchRepo;
+  }
+
+  private getMemberRepo(manager?: EntityManager): Repository<BatchMember> {
+    return manager ? manager.getRepository(BatchMember) : this.memberRepo;
+  }
+
+  private getHistoryRepo(manager?: EntityManager): Repository<BatchStatusHistory> {
+    return manager ? manager.getRepository(BatchStatusHistory) : this.historyRepo;
+  }
+
+  public async findById(id: string, manager?: EntityManager): Promise<Batch | null> {
+    return this.getBatchRepo(manager).findOne({
       where: { id },
       relations: {
         creator: true,
@@ -52,14 +64,18 @@ export class BatchRepository {
     });
   }
 
-  public async findByCode(code: string): Promise<Batch | null> {
-    return this.batchRepo.findOne({
+  public async findByCode(code: string, manager?: EntityManager): Promise<Batch | null> {
+    return this.getBatchRepo(manager).findOne({
       where: { code: code.trim().toUpperCase() },
     });
   }
 
-  public async findActiveByName(name: string, excludeId?: string): Promise<Batch | null> {
-    const qb = this.batchRepo
+  public async findActiveByName(
+    name: string,
+    excludeId?: string,
+    manager?: EntityManager,
+  ): Promise<Batch | null> {
+    const qb = this.getBatchRepo(manager)
       .createQueryBuilder('batch')
       .where('LOWER(batch.name) = LOWER(:name)', { name: name.trim() })
       .andWhere('batch.status <> :archivedStatus', { archivedStatus: BatchStatus.ARCHIVED });
@@ -71,8 +87,13 @@ export class BatchRepository {
     return qb.getOne();
   }
 
-  public async create(data: CreateBatchData, actorId?: string): Promise<Batch> {
-    const batch = this.batchRepo.create({
+  public async create(
+    data: CreateBatchData,
+    actorId?: string,
+    manager?: EntityManager,
+  ): Promise<Batch> {
+    const repo = this.getBatchRepo(manager);
+    const batch = repo.create({
       name: data.name.trim(),
       code: data.code.trim().toUpperCase(),
       startDate: data.startDate,
@@ -82,10 +103,16 @@ export class BatchRepository {
       createdBy: data.createdBy,
       updatedBy: actorId ?? data.createdBy,
     });
-    return this.batchRepo.save(batch);
+    return repo.save(batch);
   }
 
-  public async update(id: string, data: UpdateBatchData, actorId?: string): Promise<Batch> {
+  public async update(
+    id: string,
+    data: UpdateBatchData,
+    actorId?: string,
+    manager?: EntityManager,
+  ): Promise<Batch> {
+    const repo = this.getBatchRepo(manager);
     const updatePayload: Partial<Batch> = {};
     if (data.name !== undefined) updatePayload.name = data.name.trim();
     if (data.startDate !== undefined) updatePayload.startDate = data.startDate;
@@ -97,21 +124,27 @@ export class BatchRepository {
       updatePayload.updatedBy = actorId;
     }
 
-    await this.batchRepo.update(id, updatePayload);
-    const updated = await this.findById(id);
+    await repo.update(id, updatePayload);
+    const updated = await this.findById(id, manager);
     if (!updated) {
       throw new Error('Batch not found after update');
     }
     return updated;
   }
 
-  public async updateStatus(id: string, toStatus: BatchStatus, actorId?: string): Promise<Batch> {
+  public async updateStatus(
+    id: string,
+    toStatus: BatchStatus,
+    actorId?: string,
+    manager?: EntityManager,
+  ): Promise<Batch> {
+    const repo = this.getBatchRepo(manager);
     const updatePayload: Partial<Batch> = { status: toStatus };
     if (actorId !== undefined) {
       updatePayload.updatedBy = actorId;
     }
-    await this.batchRepo.update(id, updatePayload);
-    const updated = await this.findById(id);
+    await repo.update(id, updatePayload);
+    const updated = await this.findById(id, manager);
     if (!updated) {
       throw new Error('Batch not found after status update');
     }
@@ -187,8 +220,10 @@ export class BatchRepository {
     toStatus: BatchStatus,
     changedBy: string,
     reason?: string | null,
+    manager?: EntityManager,
   ): Promise<BatchStatusHistory> {
-    const history = this.historyRepo.create({
+    const repo = this.getHistoryRepo(manager);
+    const history = repo.create({
       batchId,
       fromStatus,
       toStatus,
@@ -197,11 +232,14 @@ export class BatchRepository {
       createdBy: changedBy,
       updatedBy: changedBy,
     });
-    return this.historyRepo.save(history);
+    return repo.save(history);
   }
 
-  public async getStatusHistory(batchId: string): Promise<BatchStatusHistory[]> {
-    return this.historyRepo.find({
+  public async getStatusHistory(
+    batchId: string,
+    manager?: EntityManager,
+  ): Promise<BatchStatusHistory[]> {
+    return this.getHistoryRepo(manager).find({
       where: { batchId },
       relations: { changer: true },
       order: { changedAt: 'ASC' },
@@ -209,8 +247,11 @@ export class BatchRepository {
   }
 
   // --- Batch Members ---
-  public async findActiveMenteeMembership(userId: string): Promise<BatchMember | null> {
-    return this.memberRepo.findOne({
+  public async findActiveMenteeMembership(
+    userId: string,
+    manager?: EntityManager,
+  ): Promise<BatchMember | null> {
+    return this.getMemberRepo(manager).findOne({
       where: {
         userId,
         memberRole: BatchMemberRole.MENTEE,
@@ -225,8 +266,9 @@ export class BatchRepository {
   public async findActiveMemberInBatch(
     batchId: string,
     userId: string,
+    manager?: EntityManager,
   ): Promise<BatchMember | null> {
-    return this.memberRepo.findOne({
+    return this.getMemberRepo(manager).findOne({
       where: {
         batchId,
         userId,
@@ -238,8 +280,11 @@ export class BatchRepository {
     });
   }
 
-  public async findMembersByBatchId(batchId: string): Promise<BatchMember[]> {
-    return this.memberRepo.find({
+  public async findMembersByBatchId(
+    batchId: string,
+    manager?: EntityManager,
+  ): Promise<BatchMember[]> {
+    return this.getMemberRepo(manager).find({
       where: {
         batchId,
         isActive: true,
@@ -258,8 +303,10 @@ export class BatchRepository {
     userId: string,
     memberRole: BatchMemberRole,
     actorId?: string,
+    manager?: EntityManager,
   ): Promise<BatchMember> {
-    const member = this.memberRepo.create({
+    const repo = this.getMemberRepo(manager);
+    const member = repo.create({
       batchId,
       userId,
       memberRole,
@@ -268,15 +315,17 @@ export class BatchRepository {
       createdBy: actorId ?? null,
       updatedBy: actorId ?? null,
     });
-    return this.memberRepo.save(member);
+    return repo.save(member);
   }
 
   public async removeMember(
     membershipId: string,
     reason: BatchReasonToLeave = BatchReasonToLeave.REMOVED,
     actorId?: string,
+    manager?: EntityManager,
   ): Promise<void> {
-    await this.memberRepo.update(membershipId, {
+    const repo = this.getMemberRepo(manager);
+    await repo.update(membershipId, {
       isActive: false,
       leftAt: new Date(),
       reasonToLeave: reason,
@@ -284,8 +333,8 @@ export class BatchRepository {
     });
   }
 
-  public async countActiveMentors(batchId: string): Promise<number> {
-    return this.memberRepo.count({
+  public async countActiveMentors(batchId: string, manager?: EntityManager): Promise<number> {
+    return this.getMemberRepo(manager).count({
       where: {
         batchId,
         memberRole: BatchMemberRole.MENTOR,
@@ -294,8 +343,13 @@ export class BatchRepository {
     });
   }
 
-  public async closeoutActiveMentees(batchId: string, actorId?: string): Promise<void> {
-    const activeMentees = await this.memberRepo.find({
+  public async closeoutActiveMentees(
+    batchId: string,
+    actorId?: string,
+    manager?: EntityManager,
+  ): Promise<void> {
+    const repo = this.getMemberRepo(manager);
+    const activeMentees = await repo.find({
       where: {
         batchId,
         memberRole: BatchMemberRole.MENTEE,
@@ -305,7 +359,7 @@ export class BatchRepository {
 
     if (activeMentees.length > 0) {
       const now = new Date();
-      await this.memberRepo.update(
+      await repo.update(
         { id: In(activeMentees.map((m) => m.id)) },
         {
           isActive: false,

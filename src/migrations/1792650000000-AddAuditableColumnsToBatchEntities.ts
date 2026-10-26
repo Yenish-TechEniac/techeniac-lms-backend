@@ -76,9 +76,20 @@ export class AddAuditableColumnsToBatchEntities1792650000000 implements Migratio
         END
       )
     `);
+
+    // 7. batches: case-insensitive unique index on LOWER(name)
+    await queryRunner.query(`DROP INDEX IF EXISTS "public"."uq_batches_name_non_archived"`);
+    await queryRunner.query(
+      `CREATE UNIQUE INDEX "uq_batches_name_non_archived" ON "batches" (LOWER("name")) WHERE "status" <> 'ARCHIVED' AND "deleted_at" IS NULL`,
+    );
   }
 
   public async down(queryRunner: QueryRunner): Promise<void> {
+    await queryRunner.query(`DROP INDEX IF EXISTS "public"."uq_batches_name_non_archived"`);
+    await queryRunner.query(
+      `CREATE UNIQUE INDEX "uq_batches_name_non_archived" ON "batches" ("name") WHERE "status" <> 'ARCHIVED' AND "deleted_at" IS NULL`,
+    );
+
     await queryRunner.query(`
       ALTER TABLE "mentor_mentees"
       ALTER COLUMN "end_reason" TYPE text
