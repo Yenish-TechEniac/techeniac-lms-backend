@@ -1,6 +1,7 @@
 import { DataSource, EntityManager, Repository } from 'typeorm';
 
 import { AppDataSource } from '../../core/db';
+import { BatchReasonToLeave } from './entities/batch.enums';
 import { MentorMentee } from './entities/mentor-mentee.entity';
 
 export class MentorMenteeRepository {
@@ -32,6 +33,7 @@ export class MentorMenteeRepository {
   public async createMapping(
     data: { batchId: string; mentorId: string; menteeId: string },
     manager?: EntityManager,
+    actorId?: string,
   ): Promise<MentorMentee> {
     const repo = this.getRepo(manager);
     const mapping = repo.create({
@@ -40,20 +42,26 @@ export class MentorMenteeRepository {
       menteeId: data.menteeId,
       isActive: true,
       startDate: new Date(),
+      createdBy: actorId ?? null,
+      updatedBy: actorId ?? null,
     });
     return await repo.save(mapping);
   }
 
   public async closeMapping(
     mappingId: string,
-    endReason: string,
+    endReason: BatchReasonToLeave,
     manager?: EntityManager,
+    actorId?: string,
   ): Promise<void> {
     const updatePayload: Record<string, unknown> = {
       isActive: false,
       endDate: new Date(),
       endReason,
     };
+    if (actorId) {
+      updatePayload.updatedBy = actorId;
+    }
     await this.getRepo(manager).update(mappingId, updatePayload);
   }
 
@@ -111,22 +119,27 @@ export class MentorMenteeRepository {
 
   public async closeAllMappingsForBatch(
     batchId: string,
-    endReason: string,
+    endReason: BatchReasonToLeave,
     manager?: EntityManager,
+    actorId?: string,
   ): Promise<void> {
     const updatePayload: Record<string, unknown> = {
       isActive: false,
       endDate: new Date(),
       endReason,
     };
+    if (actorId) {
+      updatePayload.updatedBy = actorId;
+    }
     await this.getRepo(manager).update({ batchId, isActive: true }, updatePayload);
   }
 
   public async closeAllMappingsForMember(
     batchId: string,
     userId: string,
-    endReason: string,
+    endReason: BatchReasonToLeave,
     manager?: EntityManager,
+    actorId?: string,
   ): Promise<void> {
     const repo = this.getRepo(manager);
     const updatePayload: Record<string, unknown> = {
@@ -134,6 +147,9 @@ export class MentorMenteeRepository {
       endDate: new Date(),
       endReason,
     };
+    if (actorId) {
+      updatePayload.updatedBy = actorId;
+    }
     await repo
       .createQueryBuilder()
       .update(MentorMentee)
@@ -145,8 +161,9 @@ export class MentorMenteeRepository {
 
   public async closeAllActiveMappingsForUser(
     userId: string,
-    endReason: string,
+    endReason: BatchReasonToLeave,
     manager?: EntityManager,
+    actorId?: string,
   ): Promise<void> {
     const repo = this.getRepo(manager);
     const updatePayload: Record<string, unknown> = {
@@ -154,6 +171,9 @@ export class MentorMenteeRepository {
       endDate: new Date(),
       endReason,
     };
+    if (actorId) {
+      updatePayload.updatedBy = actorId;
+    }
     await repo
       .createQueryBuilder()
       .update(MentorMentee)

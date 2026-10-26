@@ -211,7 +211,12 @@ export class BatchService {
       // Auto-closeout if ARCHIVED
       if (targetStatus === BatchStatus.ARCHIVED) {
         await this.batchRepo.closeoutActiveMentees(id, actorId, manager);
-        await this.mentorMenteeRepo.closeAllMappingsForBatch(id, 'BATCH_ARCHIVED', manager);
+        await this.mentorMenteeRepo.closeAllMappingsForBatch(
+          id,
+          BatchReasonToLeave.BATCH_ARCHIVED,
+          manager,
+          actorId,
+        );
       }
 
       if (targetStatus === BatchStatus.COMPLETED) {
@@ -360,6 +365,7 @@ export class BatchService {
         userId,
         BatchReasonToLeave.REMOVED,
         manager,
+        actorId,
       );
     });
   }
@@ -413,6 +419,7 @@ export class BatchService {
           input.menteeId,
           BatchReasonToLeave.BATCH_TRANSFER,
           manager,
+          actorId,
         );
 
         // 3. Add to target batch
@@ -450,7 +457,7 @@ export class BatchService {
     return membership;
   }
 
-  public async mapMentees(batchId: string, input: MapMenteesInput) {
+  public async mapMentees(batchId: string, input: MapMenteesInput, actorId?: string) {
     const batch = await this.batchRepo.findById(batchId);
     if (!batch) {
       throw new NotFoundError('Batch not found');
@@ -521,6 +528,7 @@ export class BatchService {
               menteeId: menteeUser.id,
             },
             manager,
+            actorId,
           );
           createdRecords.push(mapping);
           mappedUsers.push(menteeUser);
@@ -557,7 +565,7 @@ export class BatchService {
     }
   }
 
-  public async reassignMentee(batchId: string, input: ReassignMenteeInput) {
+  public async reassignMentee(batchId: string, input: ReassignMenteeInput, actorId?: string) {
     const batch = await this.batchRepo.findById(batchId);
     if (!batch) {
       throw new NotFoundError('Batch not found');
@@ -612,8 +620,9 @@ export class BatchService {
         if (existingMapping) {
           await this.mentorMenteeRepo.closeMapping(
             existingMapping.id,
-            input.reason ?? 'REASSIGNED',
+            BatchReasonToLeave.REASSIGNED,
             manager,
+            actorId,
           );
         }
 
@@ -624,6 +633,7 @@ export class BatchService {
             menteeId: input.menteeId,
           },
           manager,
+          actorId,
         );
       });
 
@@ -746,6 +756,30 @@ export class BatchService {
         : null,
       joinedAt: membership.joinedAt,
     };
+  }
+
+  // --- Domain Boundary Delegation (Invoked by UsersService on role lifecycle events) ---
+
+  public async handleUserRoleChange(
+    userId: string,
+    manager?: EntityManager,
+    actorId?: string,
+  ): Promise<void> {
+    await this.batchRepo.closeActiveMembershipsForUser(
+      userId,
+      BatchReasonToLeave.ROLE_CHANGE,
+      manager,
+    );
+    await this.mentorMenteeRepo.closeAllActiveMappingsForUser(
+      userId,
+      BatchReasonToLeave.ROLE_CHANGE,
+      manager,
+      actorId,
+    );
+  }
+
+  public async getActiveMappingsForMentor(mentorId: string) {
+    return await this.mentorMenteeRepo.findActiveMappingsForMentor(mentorId);
   }
 }
 
