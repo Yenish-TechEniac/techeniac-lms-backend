@@ -148,7 +148,7 @@ export class EmailService {
 
     if (!this.transporter) {
       logger.info(
-        { to: options.to, isMentor: options.isMentor, batchName: options.batchName },
+        { isMentor: options.isMentor, batchName: options.batchName },
         'SMTP not configured in environment. Mentor mapping notification skipped in development.',
       );
       return;
@@ -164,12 +164,12 @@ export class EmailService {
       });
 
       logger.info(
-        { to: options.to, batchName: options.batchName },
+        { batchName: options.batchName },
         'Mentor mapping email dispatched successfully via SMTP',
       );
     } catch (error) {
       logger.error(
-        { err: error, event: 'EMAIL_DISPATCH_FAILURE', service: 'smtp', to: options.to },
+        { err: error, event: 'EMAIL_DISPATCH_FAILURE', service: 'smtp' },
         'Failed to dispatch mentor mapping email',
       );
     }
@@ -193,7 +193,7 @@ export class EmailService {
 
     if (!this.transporter) {
       logger.info(
-        { to: options.to, role: options.recipientRole, batchName: options.batchName },
+        { role: options.recipientRole, batchName: options.batchName },
         'SMTP not configured in environment. Mentee reassignment notification skipped in development.',
       );
       return;
@@ -209,12 +209,12 @@ export class EmailService {
       });
 
       logger.info(
-        { to: options.to, role: options.recipientRole, batchName: options.batchName },
+        { role: options.recipientRole, batchName: options.batchName },
         'Mentee reassignment email dispatched successfully via SMTP',
       );
     } catch (error) {
       logger.error(
-        { err: error, event: 'EMAIL_DISPATCH_FAILURE', service: 'smtp', to: options.to },
+        { err: error, event: 'EMAIL_DISPATCH_FAILURE', service: 'smtp' },
         'Failed to dispatch mentee reassignment email',
       );
     }

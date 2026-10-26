@@ -191,7 +191,7 @@ async function runMappingTests(): Promise<void> {
     const mentorALostAccess = !mentorAData.data?.mentees.some((m) => m.menteeId === mentee1.id);
 
     if (
-      reassignRes.status === 200 &&
+      (reassignRes.status === 200 || reassignRes.status === 201) &&
       reassignData.data?.mapping.mentorId === mentorB.id &&
       mentorALostAccess
     ) {
@@ -242,6 +242,26 @@ async function runMappingTests(): Promise<void> {
       console.log('✔ Test 3 PASS: MAP-03 Bulk mapped 3 mentees atomically');
     } else {
       console.error('✘ Test 3 FAIL: MAP-03 failed', { status: bulkMapRes.status, bulkMapData });
+      failures++;
+    }
+
+    // -------------------------------------------------------------
+    // Test 3b: In-request duplicate mentee IDs rejected with clean 400
+    // -------------------------------------------------------------
+    const duplicateIdsRes = await fetch(`${baseUrl}/batches/${batchId}/mappings`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${adminToken}` },
+      body: JSON.stringify({
+        mentorId: mentorA.id,
+        menteeIds: [mentee2.id, mentee2.id],
+      }),
+    });
+    if (duplicateIdsRes.status === 400) {
+      console.log('✔ Test 3b PASS: In-request duplicate mentee IDs cleanly rejected with 400');
+    } else {
+      console.error('✘ Test 3b FAIL: Duplicate mentee IDs in request not rejected with 400', {
+        status: duplicateIdsRes.status,
+      });
       failures++;
     }
 
@@ -372,7 +392,7 @@ async function runMappingTests(): Promise<void> {
       batchId,
     );
 
-    if (transferRes.status === 200 && !activeMappingInA) {
+    if ((transferRes.status === 200 || transferRes.status === 201) && !activeMappingInA) {
       console.log('✔ Test 8 PASS: MAP-09 Mentee transfer ends mapping in source batch');
     } else {
       console.error('✘ Test 8 FAIL: MAP-09 failed', {

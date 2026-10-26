@@ -445,7 +445,7 @@ export class BatchService {
   ): Promise<BatchMember> {
     const membership = await this.batchRepo.findActiveMemberInBatch(batchId, userId, manager);
     if (!membership || membership.memberRole !== role) {
-      throw new NotFoundError(errorMessage);
+      throw new BadRequestError(errorMessage);
     }
     return membership;
   }
@@ -472,8 +472,9 @@ export class BatchService {
       'Specified mentor is not an active mentor member in this batch',
     );
 
+    const uniqueMenteeIds = [...new Set(input.menteeIds)];
     const menteeUsers: User[] = [];
-    for (const menteeId of input.menteeIds) {
+    for (const menteeId of uniqueMenteeIds) {
       if (menteeId === input.mentorId) {
         throw new BadRequestError('A mentor cannot be mapped to themselves as a mentee');
       }
