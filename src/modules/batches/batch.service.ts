@@ -166,7 +166,12 @@ export class BatchService {
 
     // Archived: batch mappings end
     if (targetStatus === BatchStatus.ARCHIVED) {
-      await this.mentorMenteeRepo.closeAllMappingsForBatch(id, 'BATCH_ARCHIVED');
+      await this.mentorMenteeRepo.closeAllMappingsForBatch(
+        id,
+        BatchReasonToLeave.BATCH_ARCHIVED,
+        undefined,
+        actorId,
+      );
     }
 
     const updated = await this.batchRepo.updateStatus(id, targetStatus, actorId);
@@ -261,7 +266,7 @@ export class BatchService {
     await this.mentorMenteeRepo.closeAllMappingsForMember(
       batchId,
       userId,
-      'MEMBER_REMOVED',
+      BatchReasonToLeave.REMOVED,
       undefined,
       actorId,
     );
@@ -312,7 +317,7 @@ export class BatchService {
     await this.mentorMenteeRepo.closeAllMappingsForMember(
       sourceBatchId,
       input.menteeId,
-      'BATCH_TRANSFER',
+      BatchReasonToLeave.BATCH_TRANSFER,
       undefined,
       actorId,
     );
@@ -423,9 +428,10 @@ export class BatchService {
       if (existingMapping) {
         await this.mentorMenteeRepo.closeMapping(
           existingMapping.id,
-          input.reason || 'REASSIGNED',
+          BatchReasonToLeave.REASSIGNED,
           manager,
           actorId,
+          input.reason ?? null,
         );
       }
 

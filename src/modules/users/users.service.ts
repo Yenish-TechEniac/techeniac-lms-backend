@@ -255,7 +255,7 @@ export class UsersService {
           );
           await mentorMenteeRepository.closeAllActiveMappingsForUser(
             user.id,
-            'ROLE_CHANGE',
+            BatchReasonToLeave.ROLE_CHANGE,
             manager,
           );
         } else if (previousRole === UserRole.MENTOR) {
@@ -266,7 +266,7 @@ export class UsersService {
           );
           await mentorMenteeRepository.closeAllActiveMappingsForUser(
             user.id,
-            'ROLE_CHANGE',
+            BatchReasonToLeave.ROLE_CHANGE,
             manager,
           );
         }

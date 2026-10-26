@@ -2,6 +2,25 @@ import { z } from 'zod';
 
 import { BatchMemberRole, BatchStatus } from '../entities/batch.enums';
 
+const calendarDateSchema = (fieldName: string) =>
+  z
+    .string({ required_error: `${fieldName} is required` })
+    .regex(/^\d{4}-\d{2}-\d{2}$/, `${fieldName} must be in YYYY-MM-DD format`)
+    .refine((s) => {
+      const d = new Date(s);
+      return !Number.isNaN(d.getTime()) && d.toISOString().slice(0, 10) === s;
+    }, 'Invalid calendar date');
+
+const optionalCalendarDateSchema = (fieldName: string) =>
+  z
+    .string()
+    .regex(/^\d{4}-\d{2}-\d{2}$/, `${fieldName} must be in YYYY-MM-DD format`)
+    .refine((s) => {
+      const d = new Date(s);
+      return !Number.isNaN(d.getTime()) && d.toISOString().slice(0, 10) === s;
+    }, 'Invalid calendar date')
+    .optional();
+
 export const createBatchSchema = z.object({
   body: z
     .object({
@@ -19,12 +38,8 @@ export const createBatchSchema = z.object({
           /^[A-Z0-9-]+$/,
           'Batch code must contain only uppercase alphanumeric characters and hyphens',
         ),
-      startDate: z
-        .string({ required_error: 'Start date is required' })
-        .regex(/^\d{4}-\d{2}-\d{2}$/, 'Start date must be in YYYY-MM-DD format'),
-      endDate: z
-        .string({ required_error: 'End date is required' })
-        .regex(/^\d{4}-\d{2}-\d{2}$/, 'End date must be in YYYY-MM-DD format'),
+      startDate: calendarDateSchema('Start date'),
+      endDate: calendarDateSchema('End date'),
       description: z
         .string()
         .max(5000, 'Description must not exceed 5000 characters')
@@ -52,27 +67,34 @@ export const updateBatchSchema = z.object({
   params: z.object({
     id: z.string().uuid('Invalid batch ID'),
   }),
-  body: z.object({
-    name: z
-      .string()
-      .trim()
-      .min(3, 'Batch name must be at least 3 characters')
-      .max(100, 'Batch name must not exceed 100 characters')
-      .optional(),
-    startDate: z
-      .string()
-      .regex(/^\d{4}-\d{2}-\d{2}$/, 'Start date must be in YYYY-MM-DD format')
-      .optional(),
-    endDate: z
-      .string()
-      .regex(/^\d{4}-\d{2}-\d{2}$/, 'End date must be in YYYY-MM-DD format')
-      .optional(),
-    description: z
-      .string()
-      .max(5000, 'Description must not exceed 5000 characters')
-      .optional()
-      .nullable(),
-  }),
+  body: z
+    .object({
+      name: z
+        .string()
+        .trim()
+        .min(3, 'Batch name must be at least 3 characters')
+        .max(100, 'Batch name must not exceed 100 characters')
+        .optional(),
+      startDate: optionalCalendarDateSchema('Start date'),
+      endDate: optionalCalendarDateSchema('End date'),
+      description: z
+        .string()
+        .max(5000, 'Description must not exceed 5000 characters')
+        .optional()
+        .nullable(),
+    })
+    .refine(
+      (data) => {
+        if (data.startDate && data.endDate) {
+          return new Date(data.startDate) <= new Date(data.endDate);
+        }
+        return true;
+      },
+      {
+        message: 'Start date must be before or equal to end date',
+        path: ['endDate'],
+      },
+    ),
 });
 
 export const changeBatchStatusSchema = z.object({

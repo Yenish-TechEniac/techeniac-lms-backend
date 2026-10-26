@@ -3,6 +3,7 @@ import { Check, Column, CreateDateColumn, Entity, Index, JoinColumn, ManyToOne }
 import { AuditableEntity } from '../../../core/db';
 import { User } from '../../users';
 import { Batch } from './batch.entity';
+import { BatchReasonToLeave } from './batch.enums';
 
 @Entity({ name: 'mentor_mentees' })
 @Index('uq_mm_one_active_mentor_per_batch', ['batchId', 'menteeId'], {
@@ -47,6 +48,15 @@ export class MentorMentee extends AuditableEntity {
   @Column({ name: 'is_active', type: 'boolean', default: true })
   isActive!: boolean;
 
-  @Column({ name: 'end_reason', type: 'text', nullable: true })
-  endReason!: string | null;
+  @Column({
+    name: 'end_reason',
+    type: 'enum',
+    enum: BatchReasonToLeave,
+    enumName: 'batch_members_reason_to_leave_enum',
+    nullable: true,
+  })
+  endReason!: BatchReasonToLeave | null;
+
+  @Column({ name: 'end_notes', type: 'text', nullable: true })
+  endNotes!: string | null;
 }

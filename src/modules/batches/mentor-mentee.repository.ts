@@ -1,6 +1,7 @@
 import { DataSource, EntityManager, Repository } from 'typeorm';
 
 import { AppDataSource } from '../../core/db';
+import { BatchReasonToLeave } from './entities/batch.enums';
 import { MentorMentee } from './entities/mentor-mentee.entity';
 
 export class MentorMenteeRepository {
@@ -49,16 +50,21 @@ export class MentorMenteeRepository {
 
   public async closeMapping(
     mappingId: string,
-    endReason: string,
+    endReason: BatchReasonToLeave,
     manager?: EntityManager,
     actorId?: string,
+    endNotes?: string | null,
   ): Promise<void> {
-    await this.getRepo(manager).update(mappingId, {
+    const updatePayload: Record<string, unknown> = {
       isActive: false,
       endDate: new Date(),
       endReason,
-      updatedBy: actorId ?? null,
-    });
+      endNotes: endNotes ?? null,
+    };
+    if (actorId) {
+      updatePayload.updatedBy = actorId;
+    }
+    await this.getRepo(manager).update(mappingId, updatePayload);
   }
 
   public async findActiveMappingsByBatch(
@@ -115,19 +121,25 @@ export class MentorMenteeRepository {
 
   public async closeAllMappingsForBatch(
     batchId: string,
-    endReason: string,
+    endReason: BatchReasonToLeave,
     manager?: EntityManager,
+    actorId?: string,
   ): Promise<void> {
-    await this.getRepo(manager).update(
-      { batchId, isActive: true },
-      { isActive: false, endDate: new Date(), endReason },
-    );
+    const updatePayload: Record<string, unknown> = {
+      isActive: false,
+      endDate: new Date(),
+      endReason,
+    };
+    if (actorId) {
+      updatePayload.updatedBy = actorId;
+    }
+    await this.getRepo(manager).update({ batchId, isActive: true }, updatePayload);
   }
 
   public async closeAllMappingsForMember(
     batchId: string,
     userId: string,
-    endReason: string,
+    endReason: BatchReasonToLeave,
     manager?: EntityManager,
     actorId?: string,
   ): Promise<void> {
@@ -151,7 +163,7 @@ export class MentorMenteeRepository {
 
   public async closeAllActiveMappingsForUser(
     userId: string,
-    endReason: string,
+    endReason: BatchReasonToLeave,
     manager?: EntityManager,
     actorId?: string,
   ): Promise<void> {

@@ -53,9 +53,39 @@ export class AddAuditableColumnsToBatchEntities1792650000000 implements Migratio
       ADD CONSTRAINT "FK_mentor_mentees_updated_by"
       FOREIGN KEY ("updated_by") REFERENCES "users"("id") ON DELETE SET NULL
     `);
+
+    // 5. Expand batch_members_reason_to_leave_enum
+    await queryRunner.query(
+      `ALTER TYPE "public"."batch_members_reason_to_leave_enum" ADD VALUE IF NOT EXISTS 'BATCH_ARCHIVED'`,
+    );
+    await queryRunner.query(
+      `ALTER TYPE "public"."batch_members_reason_to_leave_enum" ADD VALUE IF NOT EXISTS 'REASSIGNED'`,
+    );
+
+    // 6. mentor_mentees: add end_notes and convert end_reason to enum
+    await queryRunner.query(`ALTER TABLE "mentor_mentees" ADD "end_notes" text`);
+    await queryRunner.query(`
+      ALTER TABLE "mentor_mentees"
+      ALTER COLUMN "end_reason" TYPE "public"."batch_members_reason_to_leave_enum"
+      USING (
+        CASE
+          WHEN "end_reason" = 'MEMBER_REMOVED' THEN 'REMOVED'::"public"."batch_members_reason_to_leave_enum"
+          WHEN "end_reason" IN ('ROLE_CHANGE', 'BATCH_TRANSFER', 'REMOVED', 'BATCH_COMPLETED', 'BATCH_ARCHIVED', 'REASSIGNED')
+            THEN "end_reason"::"public"."batch_members_reason_to_leave_enum"
+          ELSE NULL
+        END
+      )
+    `);
   }
 
   public async down(queryRunner: QueryRunner): Promise<void> {
+    await queryRunner.query(`
+      ALTER TABLE "mentor_mentees"
+      ALTER COLUMN "end_reason" TYPE text
+      USING "end_reason"::text
+    `);
+    await queryRunner.query(`ALTER TABLE "mentor_mentees" DROP COLUMN "end_notes"`);
+
     await queryRunner.query(
       `ALTER TABLE "mentor_mentees" DROP CONSTRAINT "FK_mentor_mentees_updated_by"`,
     );

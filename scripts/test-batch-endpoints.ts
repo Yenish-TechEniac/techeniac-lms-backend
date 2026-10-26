@@ -215,7 +215,7 @@ async function runBatchTests(): Promise<void> {
       }),
     });
 
-    if (addMentorRes.status === 200) {
+    if (addMentorRes.status === 201) {
       console.log('✔ Test 6 PASS: Mentor added to batch successfully');
     } else {
       console.error('✘ Test 6 FAIL: Failed to add mentor', { status: addMentorRes.status });
@@ -262,7 +262,7 @@ async function runBatchTests(): Promise<void> {
       }),
     });
 
-    if (addMenteeRes.status === 200) {
+    if (addMenteeRes.status === 201) {
       console.log('✔ Test 8 PASS: Mentee added to batch successfully');
     } else {
       console.error('✘ Test 8 FAIL: Failed to add mentee', { status: addMenteeRes.status });
@@ -331,7 +331,7 @@ async function runBatchTests(): Promise<void> {
       }),
     });
 
-    if (transferRes.status === 200) {
+    if (transferRes.status === 201) {
       console.log('✔ Test 10 PASS: Mentee successfully transferred to new batch');
     } else {
       console.error('✘ Test 10 FAIL: Mentee transfer failed', { status: transferRes.status });
