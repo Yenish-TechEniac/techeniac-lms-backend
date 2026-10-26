@@ -105,5 +105,6 @@ batchRouter.get(
   '/:id/mappings',
   requireAuth,
   requireRole(UserRole.SUPER_ADMIN),
+  validate(getBatchByIdSchema),
   batchController.getBatchMappings,
 );

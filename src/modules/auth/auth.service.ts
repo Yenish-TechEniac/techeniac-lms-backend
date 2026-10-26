@@ -419,7 +419,8 @@ export class AuthService implements IAuthService {
         manager,
       );
 
-      const nextTokenVersion = user.tokenVersion + 1;
+      const updatedUser = await this.userRepo.findById(user.id, manager);
+      const nextTokenVersion = updatedUser ? updatedUser.tokenVersion : user.tokenVersion + 1;
       const jti = randomUUID();
       const familyId = randomUUID();
       const expiresAt = new Date(Date.now() + REFRESH_TOKEN_TTL_MS);

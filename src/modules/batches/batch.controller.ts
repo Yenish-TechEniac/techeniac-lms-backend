@@ -1,6 +1,7 @@
 import type { Request, Response } from 'express';
-import { StatusCodes } from 'http-status-codes';
 
+import { UnauthorizedError } from '../../core/errors';
+import { BaseController } from '../../core/http';
 import { UserRole } from '../users';
 import { BatchService, batchService } from './batch.service';
 import {
@@ -14,160 +15,131 @@ import {
   UpdateBatchInput,
 } from './schemas';
 
-export class BatchController {
-  constructor(private readonly service: BatchService = batchService) {}
+export class BatchController extends BaseController {
+  constructor(private readonly service: BatchService = batchService) {
+    super();
+  }
+
+  private getAuthUser(req: Request) {
+    if (!req.user) {
+      throw new UnauthorizedError('Authentication required');
+    }
+    return req.user;
+  }
 
   public createBatch = async (req: Request, res: Response): Promise<void> => {
-    const actorId = req.user!.id;
-    const batch = await this.service.createBatch(req.body as CreateBatchInput, actorId);
-    res.status(StatusCodes.CREATED).json({
-      success: true,
-      data: { batch },
-    });
+    const user = this.getAuthUser(req);
+    const batch = await this.service.createBatch(req.body as CreateBatchInput, user.id);
+    this.sendCreated(res, { batch });
   };
 
   public getBatches = async (req: Request, res: Response): Promise<void> => {
-    const user = req.user!;
-    const mentorId = (user.role as UserRole) === UserRole.MENTOR ? user.id : undefined;
-    const result = await this.service.getBatches(req.query as unknown as BatchQueryParams);
-    // If user is mentor, filter items
-    if (mentorId) {
-      const mentorResult = await this.service.getBatchesForMentor(
-        mentorId,
-        req.query as unknown as BatchQueryParams,
-      );
-      res.status(StatusCodes.OK).json({
-        success: true,
-        data: mentorResult,
-      });
+    const user = this.getAuthUser(req);
+    const params = req.query as unknown as BatchQueryParams;
+
+    if ((user.role as UserRole) === UserRole.MENTOR) {
+      const mentorResult = await this.service.getBatchesForMentor(user.id, params);
+      this.sendSuccess(res, mentorResult);
       return;
     }
 
-    res.status(StatusCodes.OK).json({
-      success: true,
-      data: result,
-    });
+    const result = await this.service.getBatches(params);
+    this.sendSuccess(res, result);
   };
 
   public getBatchById = async (req: Request, res: Response): Promise<void> => {
     const id = String(req.params.id);
-    const user = req.user!;
+    const user = this.getAuthUser(req);
 
     if ((user.role as UserRole) === UserRole.MENTOR) {
       const result = await this.service.getBatchByIdForMentor(id, user.id);
-      res.status(StatusCodes.OK).json({
-        success: true,
-        data: result,
-      });
+      this.sendSuccess(res, result);
       return;
     }
 
     const result = await this.service.getBatchById(id);
-    res.status(StatusCodes.OK).json({
-      success: true,
-      data: result,
-    });
+    this.sendSuccess(res, result);
   };
 
   public updateBatch = async (req: Request, res: Response): Promise<void> => {
     const id = String(req.params.id);
-    const batch = await this.service.updateBatch(id, req.body as UpdateBatchInput);
-    res.status(StatusCodes.OK).json({
-      success: true,
-      data: { batch },
-    });
+    const user = this.getAuthUser(req);
+    const batch = await this.service.updateBatch(id, req.body as UpdateBatchInput, user.id);
+    this.sendSuccess(res, { batch });
   };
 
   public changeBatchStatus = async (req: Request, res: Response): Promise<void> => {
     const id = String(req.params.id);
-    const actorId = req.user!.id;
+    const user = this.getAuthUser(req);
     const batch = await this.service.changeBatchStatus(
       id,
       req.body as ChangeBatchStatusInput,
-      actorId,
+      user.id,
     );
-    res.status(StatusCodes.OK).json({
-      success: true,
-      data: { batch },
-    });
+    this.sendSuccess(res, { batch });
   };
 
   public addMembers = async (req: Request, res: Response): Promise<void> => {
     const id = String(req.params.id);
-    const members = await this.service.addMembers(id, req.body as AddBatchMembersInput);
-    res.status(StatusCodes.OK).json({
-      success: true,
-      data: { members },
-    });
+    const user = this.getAuthUser(req);
+    const members = await this.service.addMembers(id, req.body as AddBatchMembersInput, user.id);
+    this.sendCreated(res, { members });
   };
 
   public removeMember = async (req: Request, res: Response): Promise<void> => {
     const id = String(req.params.id);
     const userId = String(req.params.userId);
-    await this.service.removeMember(id, userId);
-    res.status(StatusCodes.OK).json({
-      success: true,
-      data: { message: 'Member removed successfully' },
-    });
+    const user = this.getAuthUser(req);
+    await this.service.removeMember(id, userId, user.id);
+    this.sendSuccess(res, { message: 'Member removed successfully' });
   };
 
   public transferMentee = async (req: Request, res: Response): Promise<void> => {
     const id = String(req.params.id);
-    const membership = await this.service.transferMentee(id, req.body as TransferMenteeInput);
-    res.status(StatusCodes.OK).json({
-      success: true,
-      data: { membership },
-    });
+    const user = this.getAuthUser(req);
+    const membership = await this.service.transferMentee(
+      id,
+      req.body as TransferMenteeInput,
+      user.id,
+    );
+    this.sendCreated(res, { membership });
   };
 
   // --- Mentor-Mentee Mappings ---
 
   public mapMentees = async (req: Request, res: Response): Promise<void> => {
     const id = String(req.params.id);
-    const mappings = await this.service.mapMentees(id, req.body as MapMenteesInput);
-    res.status(StatusCodes.CREATED).json({
-      success: true,
-      data: { mappings },
-    });
+    const user = this.getAuthUser(req);
+    const mappings = await this.service.mapMentees(id, req.body as MapMenteesInput, user.id);
+    this.sendCreated(res, { mappings });
   };
 
   public reassignMentee = async (req: Request, res: Response): Promise<void> => {
     const id = String(req.params.id);
-    const mapping = await this.service.reassignMentee(id, req.body as ReassignMenteeInput);
-    res.status(StatusCodes.OK).json({
-      success: true,
-      data: { mapping },
-    });
+    const user = this.getAuthUser(req);
+    const mapping = await this.service.reassignMentee(id, req.body as ReassignMenteeInput, user.id);
+    this.sendCreated(res, { mapping });
   };
 
   public getBatchMappings = async (req: Request, res: Response): Promise<void> => {
     const id = String(req.params.id);
     const mappings = await this.service.getBatchMappings(id);
-    res.status(StatusCodes.OK).json({
-      success: true,
-      data: { mappings },
-    });
+    this.sendSuccess(res, { mappings });
   };
 
   // --- Mentor and Mentee Specific Views ---
 
   public getMentorMentees = async (req: Request, res: Response): Promise<void> => {
-    const mentorId = req.user!.id;
+    const user = this.getAuthUser(req);
     const batchId = typeof req.query.batchId === 'string' ? req.query.batchId : undefined;
-    const mentees = await this.service.getMenteesForMentor(mentorId, batchId);
-    res.status(StatusCodes.OK).json({
-      success: true,
-      data: { mentees },
-    });
+    const mentees = await this.service.getMenteesForMentor(user.id, batchId);
+    this.sendSuccess(res, { mentees });
   };
 
   public getMyBatch = async (req: Request, res: Response): Promise<void> => {
-    const menteeId = req.user!.id;
-    const result = await this.service.getBatchForMentee(menteeId);
-    res.status(StatusCodes.OK).json({
-      success: true,
-      data: result,
-    });
+    const user = this.getAuthUser(req);
+    const result = await this.service.getBatchForMentee(user.id);
+    this.sendSuccess(res, result);
   };
 }
 

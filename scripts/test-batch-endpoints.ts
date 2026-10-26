@@ -1,15 +1,20 @@
 import 'reflect-metadata';
 
+import { randomUUID } from 'node:crypto';
 import type { Server } from 'node:http';
 
 import { app } from '../src/app';
 import { hashPassword, signAccessToken } from '../src/core/auth';
-import { closeDatabase, initializeDatabase } from '../src/core/db';
+import { AppDataSource, closeDatabase, initializeDatabase } from '../src/core/db';
 import { logger } from '../src/core/logging';
 import { BatchStatus } from '../src/modules/batches';
 import { userRepository, UserRole } from '../src/modules/users';
 
 async function runBatchTests(): Promise<void> {
+  if (process.env.NODE_ENV === 'production') {
+    throw new Error('Integration test script cannot be run in production environments');
+  }
+
   await initializeDatabase();
 
   const server: Server = await new Promise((resolve) => {
@@ -21,22 +26,25 @@ async function runBatchTests(): Promise<void> {
   const baseUrl = `http://127.0.0.1:${port}/api/v1/batches`;
 
   let failures = 0;
+  const createdUserIds: string[] = [];
+  const createdBatchIds: string[] = [];
 
   try {
     logger.info({ baseUrl }, 'Running M5 Batch Management Verification Tests...');
 
-    async function getOrCreateUser(email: string, name: string, role: UserRole) {
-      let u = await userRepository.findByEmail(email);
-      if (!u) {
-        const passwordHash = await hashPassword('Password123!');
-        u = await userRepository.create({
-          name,
-          email,
-          passwordHash,
-          role,
-          mustChangePassword: false,
-        });
-      }
+    async function createDisposableUser(name: string, role: UserRole) {
+      const randomId = randomUUID();
+      const email = `test-${role.toLowerCase()}-${randomId.slice(0, 8)}@test.local`;
+      const password = `TestP@ss-${randomUUID()}`;
+      const passwordHash = await hashPassword(password);
+      const u = await userRepository.create({
+        name,
+        email,
+        passwordHash,
+        role,
+        mustChangePassword: false,
+      });
+      createdUserIds.push(u.id);
       return u;
     }
 
@@ -44,17 +52,9 @@ async function runBatchTests(): Promise<void> {
     const batchCode1 = `BAT-${uniqueSuffix}-A`;
     const batchCode2 = `BAT-${uniqueSuffix}-B`;
 
-    const admin = await getOrCreateUser('admin@techeniac.com', 'Super Admin', UserRole.SUPER_ADMIN);
-    const mentor = await getOrCreateUser(
-      `mentor-batch-${uniqueSuffix}@techeniac.com`,
-      'Mentor Batch',
-      UserRole.MENTOR,
-    );
-    const mentee = await getOrCreateUser(
-      `mentee-batch-${uniqueSuffix}@techeniac.com`,
-      'Mentee Batch',
-      UserRole.MENTEE,
-    );
+    const admin = await createDisposableUser('Disposable Super Admin', UserRole.SUPER_ADMIN);
+    const mentor = await createDisposableUser('Disposable Mentor Batch', UserRole.MENTOR);
+    const mentee = await createDisposableUser('Disposable Mentee Batch', UserRole.MENTEE);
 
     const adminToken = signAccessToken({
       sub: admin.id,
@@ -104,7 +104,10 @@ async function runBatchTests(): Promise<void> {
       failures++;
     }
 
-    const batch1Id = createData.data.batch.id;
+    const batch1Id = createData.data?.batch?.id;
+    if (batch1Id) {
+      createdBatchIds.push(batch1Id);
+    }
 
     // 2. Mentee cannot create batch (RBAC check)
     const menteeCreateRes = await fetch(baseUrl, {
@@ -212,7 +215,7 @@ async function runBatchTests(): Promise<void> {
       }),
     });
 
-    if (addMentorRes.status === 200) {
+    if (addMentorRes.status === 201) {
       console.log('✔ Test 6 PASS: Mentor added to batch successfully');
     } else {
       console.error('✘ Test 6 FAIL: Failed to add mentor', { status: addMentorRes.status });
@@ -259,7 +262,7 @@ async function runBatchTests(): Promise<void> {
       }),
     });
 
-    if (addMenteeRes.status === 200) {
+    if (addMenteeRes.status === 201) {
       console.log('✔ Test 8 PASS: Mentee added to batch successfully');
     } else {
       console.error('✘ Test 8 FAIL: Failed to add mentee', { status: addMenteeRes.status });
@@ -281,7 +284,10 @@ async function runBatchTests(): Promise<void> {
       }),
     });
     const batch2Data = (await createBatch2Res.json()) as { data: { batch: { id: string } } };
-    const batch2Id = batch2Data.data.batch.id;
+    const batch2Id = batch2Data.data?.batch?.id;
+    if (batch2Id) {
+      createdBatchIds.push(batch2Id);
+    }
 
     const dupMenteeRes = await fetch(`${baseUrl}/${batch2Id}/members`, {
       method: 'POST',
@@ -325,7 +331,7 @@ async function runBatchTests(): Promise<void> {
       }),
     });
 
-    if (transferRes.status === 200) {
+    if (transferRes.status === 201) {
       console.log('✔ Test 10 PASS: Mentee successfully transferred to new batch');
     } else {
       console.error('✘ Test 10 FAIL: Mentee transfer failed', { status: transferRes.status });
@@ -354,6 +360,35 @@ async function runBatchTests(): Promise<void> {
     logger.error({ err: error }, 'Test runner encountered unhandled error');
     failures++;
   } finally {
+    try {
+      if (createdBatchIds.length > 0) {
+        await AppDataSource.query(`DELETE FROM mentor_mentees WHERE batch_id = ANY($1::uuid[])`, [
+          createdBatchIds,
+        ]);
+        await AppDataSource.query(
+          `DELETE FROM batch_status_history WHERE batch_id = ANY($1::uuid[])`,
+          [createdBatchIds],
+        );
+        await AppDataSource.query(`DELETE FROM batch_members WHERE batch_id = ANY($1::uuid[])`, [
+          createdBatchIds,
+        ]);
+        await AppDataSource.query(`DELETE FROM batches WHERE id = ANY($1::uuid[])`, [
+          createdBatchIds,
+        ]);
+      }
+      if (createdUserIds.length > 0) {
+        await AppDataSource.query(`DELETE FROM refresh_tokens WHERE user_id = ANY($1::uuid[])`, [
+          createdUserIds,
+        ]);
+        await AppDataSource.query(`DELETE FROM user_role_history WHERE user_id = ANY($1::uuid[])`, [
+          createdUserIds,
+        ]);
+        await AppDataSource.query(`DELETE FROM users WHERE id = ANY($1::uuid[])`, [createdUserIds]);
+      }
+    } catch (cleanupError) {
+      logger.error({ err: cleanupError }, 'Failed to clean up test entities');
+    }
+
     server.close();
     await closeDatabase();
     if (failures > 0) {
