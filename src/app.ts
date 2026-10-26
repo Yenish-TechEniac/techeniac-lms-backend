@@ -7,8 +7,8 @@ import { env } from './core/config';
 import { healthRouter } from './core/health';
 import { corsMiddleware, errorMiddleware, notFoundMiddleware } from './core/http';
 import { authRouter } from './modules/auth';
-import { coursesRouter } from './modules/courses';
 import { batchRouter, menteeRouter, mentorRouter } from './modules/batches';
+import { coursesRouter } from './modules/courses';
 // eslint-disable-next-line architecture/cross-module-index-imports -- router mount isolated from barrel to eliminate circular dependency
 import { usersRouter } from './modules/users/users.routes';
 
