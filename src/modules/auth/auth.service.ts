@@ -328,7 +328,7 @@ export class AuthService implements IAuthService {
     }
 
     const tokenRow = await this.tokenRepo.findByJti(payload.jti);
-    if (!tokenRow || tokenRow.tokenType !== TokenType.PASSWORD_RESET) {
+    if (tokenRow?.tokenType !== TokenType.PASSWORD_RESET) {
       logger.warn(
         { context, reason: 'token_not_found_or_wrong_type' },
         'Password reset token rejected',
@@ -352,7 +352,7 @@ export class AuthService implements IAuthService {
     }
 
     const user = await this.userRepo.findById(tokenRow.userId);
-    if (!user || !user.isActive) {
+    if (!user?.isActive) {
       logger.warn(
         { context, reason: 'user_inactive_or_not_found' },
         'Password reset token rejected',
