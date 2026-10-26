@@ -1,6 +1,6 @@
 import { Check, Column, Entity, Index, JoinColumn, ManyToOne, OneToMany } from 'typeorm';
 
-import { AuditableEntity } from '../../../core/db';
+import { BaseEntity } from '../../../core/db';
 import { User } from '../../users';
 import { BatchStatus } from './batch.enums';
 import { BatchMember } from './batch-member.entity';
@@ -15,7 +15,7 @@ export { BatchStatus };
   where: `"status" <> 'ARCHIVED' AND "deleted_at" IS NULL`,
 })
 @Check('chk_batch_dates', `"start_date" <= "end_date"`)
-export class Batch extends AuditableEntity {
+export class Batch extends BaseEntity {
   @Column({ name: 'name', type: 'varchar', length: 100 })
   name!: string;
 
@@ -39,6 +39,9 @@ export class Batch extends AuditableEntity {
 
   @Column({ name: 'description', type: 'text', nullable: true })
   description!: string | null;
+
+  @Column({ name: 'created_by', type: 'uuid' })
+  createdBy!: string;
 
   @ManyToOne(() => User, { onDelete: 'RESTRICT', nullable: false })
   @JoinColumn({ name: 'created_by', foreignKeyConstraintName: 'FK_batches_created_by' })

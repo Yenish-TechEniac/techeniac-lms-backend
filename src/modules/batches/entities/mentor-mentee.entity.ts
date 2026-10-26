@@ -1,9 +1,8 @@
 import { Check, Column, CreateDateColumn, Entity, Index, JoinColumn, ManyToOne } from 'typeorm';
 
-import { AuditableEntity } from '../../../core/db';
+import { BaseEntity } from '../../../core/db';
 import { User } from '../../users';
 import { Batch } from './batch.entity';
-import { BatchReasonToLeave } from './batch.enums';
 
 @Entity({ name: 'mentor_mentees' })
 @Index('uq_mm_one_active_mentor_per_batch', ['batchId', 'menteeId'], {
@@ -13,7 +12,7 @@ import { BatchReasonToLeave } from './batch.enums';
 @Index('idx_mm_batch_mentor_active', ['batchId', 'mentorId', 'isActive'])
 @Index('idx_mm_mentee_start', ['menteeId', 'startDate'])
 @Check('chk_mm_not_self', `"mentor_id" <> "mentee_id"`)
-export class MentorMentee extends AuditableEntity {
+export class MentorMentee extends BaseEntity {
   @Column({ name: 'batch_id', type: 'uuid' })
   batchId!: string;
 
@@ -48,15 +47,6 @@ export class MentorMentee extends AuditableEntity {
   @Column({ name: 'is_active', type: 'boolean', default: true })
   isActive!: boolean;
 
-  @Column({
-    name: 'end_reason',
-    type: 'enum',
-    enum: BatchReasonToLeave,
-    enumName: 'batch_members_reason_to_leave_enum',
-    nullable: true,
-  })
-  endReason!: BatchReasonToLeave | null;
-
-  @Column({ name: 'end_notes', type: 'text', nullable: true })
-  endNotes!: string | null;
+  @Column({ name: 'end_reason', type: 'text', nullable: true })
+  endReason!: string | null;
 }

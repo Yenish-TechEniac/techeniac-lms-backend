@@ -101,7 +101,6 @@ export class BatchRepository {
       description: data.description?.trim() ?? null,
       status: BatchStatus.DRAFT,
       createdBy: data.createdBy,
-      updatedBy: actorId ?? data.createdBy,
     });
     return repo.save(batch);
   }
@@ -109,7 +108,7 @@ export class BatchRepository {
   public async update(
     id: string,
     data: UpdateBatchData,
-    actorId?: string,
+    _actorId?: string,
     manager?: EntityManager,
   ): Promise<Batch> {
     const repo = this.getBatchRepo(manager);
@@ -119,9 +118,6 @@ export class BatchRepository {
     if (data.endDate !== undefined) updatePayload.endDate = data.endDate;
     if (data.description !== undefined) {
       updatePayload.description = data.description?.trim() ?? null;
-    }
-    if (actorId !== undefined) {
-      updatePayload.updatedBy = actorId;
     }
 
     await repo.update(id, updatePayload);
@@ -135,14 +131,11 @@ export class BatchRepository {
   public async updateStatus(
     id: string,
     toStatus: BatchStatus,
-    actorId?: string,
+    _actorId?: string,
     manager?: EntityManager,
   ): Promise<Batch> {
     const repo = this.getBatchRepo(manager);
     const updatePayload: Partial<Batch> = { status: toStatus };
-    if (actorId !== undefined) {
-      updatePayload.updatedBy = actorId;
-    }
     await repo.update(id, updatePayload);
     const updated = await this.findById(id, manager);
     if (!updated) {
@@ -229,8 +222,6 @@ export class BatchRepository {
       toStatus,
       changedBy,
       reason: reason?.trim() ?? null,
-      createdBy: changedBy,
-      updatedBy: changedBy,
     });
     return repo.save(history);
   }
@@ -312,8 +303,6 @@ export class BatchRepository {
       memberRole,
       isActive: true,
       joinedAt: new Date(),
-      createdBy: actorId ?? null,
-      updatedBy: actorId ?? null,
     });
     return repo.save(member);
   }
@@ -321,7 +310,7 @@ export class BatchRepository {
   public async removeMember(
     membershipId: string,
     reason: BatchReasonToLeave = BatchReasonToLeave.REMOVED,
-    actorId?: string,
+    _actorId?: string,
     manager?: EntityManager,
   ): Promise<void> {
     const repo = this.getMemberRepo(manager);
@@ -329,7 +318,6 @@ export class BatchRepository {
       isActive: false,
       leftAt: new Date(),
       reasonToLeave: reason,
-      updatedBy: actorId ?? null,
     });
   }
 
@@ -345,7 +333,7 @@ export class BatchRepository {
 
   public async closeoutActiveMentees(
     batchId: string,
-    actorId?: string,
+    _actorId?: string,
     manager?: EntityManager,
   ): Promise<void> {
     const repo = this.getMemberRepo(manager);
@@ -365,7 +353,6 @@ export class BatchRepository {
           isActive: false,
           leftAt: now,
           reasonToLeave: BatchReasonToLeave.BATCH_COMPLETED,
-          updatedBy: actorId ?? null,
         },
       );
     }

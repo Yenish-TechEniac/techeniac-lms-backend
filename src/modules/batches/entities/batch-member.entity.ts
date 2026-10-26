@@ -1,6 +1,6 @@
 import { Check, Column, CreateDateColumn, Entity, Index, JoinColumn, ManyToOne } from 'typeorm';
 
-import { AuditableEntity } from '../../../core/db';
+import { BaseEntity } from '../../../core/db';
 import { User } from '../../users';
 import { Batch } from './batch.entity';
 import { BatchMemberRole, BatchReasonToLeave } from './batch.enums';
@@ -18,7 +18,7 @@ export { BatchMemberRole, BatchReasonToLeave };
   'chk_bm_active_left',
   `("is_active" = true AND "left_at" IS NULL) OR ("is_active" = false AND "left_at" IS NOT NULL)`,
 )
-export class BatchMember extends AuditableEntity {
+export class BatchMember extends BaseEntity {
   @Column({ name: 'batch_id', type: 'uuid' })
   batchId!: string;
 

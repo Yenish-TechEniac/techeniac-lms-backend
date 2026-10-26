@@ -109,15 +109,13 @@ export class BatchController extends BaseController {
 
   public mapMentees = async (req: Request, res: Response): Promise<void> => {
     const id = String(req.params.id);
-    const user = this.getAuthUser(req);
-    const mappings = await this.service.mapMentees(id, req.body as MapMenteesInput, user.id);
+    const mappings = await this.service.mapMentees(id, req.body as MapMenteesInput);
     this.sendCreated(res, { mappings });
   };
 
   public reassignMentee = async (req: Request, res: Response): Promise<void> => {
     const id = String(req.params.id);
-    const user = this.getAuthUser(req);
-    const mapping = await this.service.reassignMentee(id, req.body as ReassignMenteeInput, user.id);
+    const mapping = await this.service.reassignMentee(id, req.body as ReassignMenteeInput);
     this.sendCreated(res, { mapping });
   };
 
