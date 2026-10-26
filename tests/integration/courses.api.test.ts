@@ -112,7 +112,10 @@ void describe('Courses API Integration Tests', () => {
           'Content-Type': 'application/json',
           Authorization: `Bearer ${tokenMentorB}`,
         },
-        body: JSON.stringify({ title: 'Hacked by Mentor B' }),
+        body: JSON.stringify({
+          title: 'Hacked by Mentor B',
+          expectedUpdatedAt: mockCourse.updatedAt.toISOString(),
+        }),
       });
 
       assert.equal(res.status, 403);
@@ -159,7 +162,10 @@ void describe('Courses API Integration Tests', () => {
           'Content-Type': 'application/json',
           Authorization: `Bearer ${tokenAdmin}`,
         },
-        body: JSON.stringify({ title: 'Admin Updated Title' }),
+        body: JSON.stringify({
+          title: 'Admin Updated Title',
+          expectedUpdatedAt: mockCourse.updatedAt.toISOString(),
+        }),
       });
 
       assert.equal(res.status, 200);
@@ -309,6 +315,30 @@ void describe('Courses API Integration Tests', () => {
       const data = (await res.json()) as { error?: { code: string; message: string } };
       assert.equal(data.error?.code, 'VALIDATION_ERROR');
       assert.match(data.error?.message ?? '', /does not belong to this course/);
+    });
+
+    void it('returns 400 Validation Error when reordering with duplicate item IDs', async () => {
+      const res = await fetch(`${baseUrl}/courses/${courseId}/topics/reorder`, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${tokenMentorA}`,
+        },
+        body: JSON.stringify({
+          items: [
+            { id: topicId, displayOrder: 0 },
+            { id: topicId, displayOrder: 1 },
+          ],
+        }),
+      });
+
+      assert.equal(res.status, 400);
+      const data = (await res.json()) as {
+        error?: { code: string; message: string; details?: Array<{ message: string }> };
+      };
+      assert.equal(data.error?.code, 'VALIDATION_ERROR');
+      const detailMsg = data.error?.details?.map((d) => d.message).join(' ') ?? '';
+      assert.match(detailMsg, /Duplicate item IDs/);
     });
   });
 

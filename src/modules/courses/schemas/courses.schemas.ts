@@ -46,7 +46,9 @@ export const updateCourseSchema = z.object({
       .nullable()
       .optional(),
     isActive: z.boolean().optional(),
-    expectedUpdatedAt: z.string().optional(),
+    expectedUpdatedAt: z
+      .string()
+      .datetime({ offset: true, message: 'expectedUpdatedAt must be a valid ISO 8601 datetime' }),
   }),
 });
 
@@ -111,7 +113,9 @@ export const updateTopicSchema = z.object({
       .nullable()
       .optional(),
     isActive: z.boolean().optional(),
-    expectedUpdatedAt: z.string().optional(),
+    expectedUpdatedAt: z
+      .string()
+      .datetime({ offset: true, message: 'expectedUpdatedAt must be a valid ISO 8601 datetime' }),
   }),
 });
 
@@ -124,7 +128,16 @@ export const reorderItemsSchema = z.object({
           displayOrder: z.coerce.number().int().min(0),
         }),
       )
-      .min(1, 'At least one item must be provided for reordering'),
+      .min(1, 'At least one item must be provided for reordering')
+      .refine(
+        (items) => {
+          const ids = new Set(items.map((i) => i.id));
+          return ids.size === items.length;
+        },
+        {
+          message: 'Duplicate item IDs are not allowed in reordering payload',
+        },
+      ),
   }),
 });
 
@@ -163,7 +176,9 @@ export const updateSubtopicSchema = z.object({
       .nullable()
       .optional(),
     isActive: z.boolean().optional(),
-    expectedUpdatedAt: z.string().optional(),
+    expectedUpdatedAt: z
+      .string()
+      .datetime({ offset: true, message: 'expectedUpdatedAt must be a valid ISO 8601 datetime' }),
   }),
 });
 
@@ -244,7 +259,9 @@ export const updateAssignmentSchema = z.object({
       urlMode: z.nativeEnum(SubmissionMode).optional(),
       resources: z.array(resourceItemSchema).nullable().optional(),
       displayOrder: z.coerce.number().int().min(0).optional(),
-      expectedUpdatedAt: z.string().optional(),
+      expectedUpdatedAt: z
+        .string()
+        .datetime({ offset: true, message: 'expectedUpdatedAt must be a valid ISO 8601 datetime' }),
     })
     .refine(
       (data) => {
@@ -266,7 +283,9 @@ export const statusToggleSchema = z.object({
   }),
   body: z.object({
     isActive: z.boolean(),
-    expectedUpdatedAt: z.string().optional(),
+    expectedUpdatedAt: z
+      .string()
+      .datetime({ offset: true, message: 'expectedUpdatedAt must be a valid ISO 8601 datetime' }),
   }),
 });
 

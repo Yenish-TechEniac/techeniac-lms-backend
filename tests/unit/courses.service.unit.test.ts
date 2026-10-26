@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { beforeEach, describe, it } from 'node:test';
 
 import type { AuthenticatedUser } from '../../src/core/auth';
-import { ForbiddenError, ValidationError } from '../../src/core/errors';
+import { ConflictError, ForbiddenError, ValidationError } from '../../src/core/errors';
 import { sanitizeHtml } from '../../src/core/utils/sanitizer';
 import {
   type Assignment,
@@ -10,6 +10,7 @@ import {
   coursesRepository,
   coursesService,
   resourceItemSchema,
+  SubmissionMode,
   type Subtopic,
   type Topic,
 } from '../../src/modules/courses';
@@ -288,6 +289,31 @@ void describe('CoursesService Unit Tests', () => {
       assert.equal(updated.maxMarks, 120);
       assert.equal(updated.passMarks, 80);
     });
+
+    void it('rejects switching all submission modes to OFF in partial update', async () => {
+      const mockAssignmentWithModes = {
+        id: 'assign-1',
+        courseId: 'c1',
+        maxMarks: 100,
+        passMarks: 70,
+        pdfMode: SubmissionMode.OFF,
+        zipMode: SubmissionMode.OFF,
+        urlMode: SubmissionMode.REQUIRED,
+        updatedAt: new Date(),
+      } as unknown as Assignment;
+      coursesRepository.findAssignmentById = () => Promise.resolve({ ...mockAssignmentWithModes });
+
+      await assert.rejects(
+        async () => {
+          await coursesService.updateAssignment('assign-1', { urlMode: SubmissionMode.OFF }, user);
+        },
+        (err: unknown) => {
+          assert(err instanceof ValidationError);
+          assert.match(err.message, /At least one submission mode/);
+          return true;
+        },
+      );
+    });
   });
 
   void describe('Reordering IDOR Ownership Checks', () => {
@@ -415,6 +441,43 @@ void describe('CoursesService Unit Tests', () => {
       };
       const validResult = resourceItemSchema.safeParse(validResource);
       assert.equal(validResult.success, true, 'https:// URL must pass validation');
+    });
+  });
+
+  void describe('Optimistic Concurrency Control (M6-OCC-1, FR-6.13)', () => {
+    const user = createTestUser({
+      id: 'mentor-1',
+      role: 'MENTOR',
+      email: 'mentor1@example.com',
+      tokenVersion: 1,
+    });
+
+    void it('throws ConflictError when expectedUpdatedAt does not match actual row timestamp', async () => {
+      const mockCourse = {
+        id: 'c-occ',
+        title: 'Original Title',
+        createdBy: user.id,
+        updatedAt: new Date('2026-10-26T12:00:00.000Z'),
+      } as Course;
+
+      coursesRepository.findCourseById = () => Promise.resolve(mockCourse);
+
+      const staleTimestamp = new Date('2026-10-26T11:00:00.000Z').toISOString();
+
+      await assert.rejects(
+        async () => {
+          await coursesService.updateCourse(
+            'c-occ',
+            { title: 'New Title', expectedUpdatedAt: staleTimestamp },
+            user,
+          );
+        },
+        (err: unknown) => {
+          assert(err instanceof ConflictError);
+          assert.match(err.message, /modified concurrently by another user/);
+          return true;
+        },
+      );
     });
   });
 });

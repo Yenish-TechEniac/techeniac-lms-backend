@@ -1,6 +1,7 @@
-import { In } from 'typeorm';
+import { In, IsNull } from 'typeorm';
 
 import { AppDataSource } from '../../core/db';
+import { ConflictError, NotFoundError, ValidationError } from '../../core/errors';
 import { Assignment, AssignmentScope, Course, Subtopic, Topic } from './entities';
 
 export interface CourseImpactInfo {
@@ -157,9 +158,149 @@ export class CoursesRepository {
     return { items, total };
   }
 
-  async updateCourse(id: string, data: Partial<Course>): Promise<Course | null> {
-    await this.courseRepo.update(id, data);
+  async updateCourse(
+    id: string,
+    data: Partial<Course>,
+    expectedUpdatedAt?: string,
+  ): Promise<Course | null> {
+    const qb = this.courseRepo
+      .createQueryBuilder()
+      .update(Course)
+      .set({ ...data, updatedAt: () => 'now()' })
+      .where('id = :id', { id })
+      .andWhere('deletedAt IS NULL');
+
+    if (expectedUpdatedAt) {
+      qb.andWhere(
+        "date_trunc('milliseconds', updatedAt) = date_trunc('milliseconds', :expectedUpdatedAt::timestamptz)",
+        { expectedUpdatedAt },
+      );
+    }
+
+    const res = await qb.execute();
+    if (res.affected === 0) {
+      const exists = await this.courseRepo.findOne({ where: { id } });
+      if (!exists) {
+        return null;
+      }
+      throw new ConflictError(
+        'This item was modified concurrently by another user. Please reload the latest changes.',
+      );
+    }
     return await this.courseRepo.findOne({ where: { id } });
+  }
+
+  async cloneCourse(sourceCourseId: string, newCreatorId: string): Promise<Course> {
+    return await AppDataSource.transaction(async (manager) => {
+      const source = await this.findCourseById(sourceCourseId, true);
+      if (!source) {
+        throw new NotFoundError('Source course not found');
+      }
+
+      // 1. Create inactive course copy (FR-6.7, CRS-21)
+      const courseRepo = manager.getRepository(Course);
+      const clonedCourse = courseRepo.create({
+        title: `${source.title} (Copy)`.slice(0, 150),
+        description: source.description,
+        estimatedMinutes: source.estimatedMinutes,
+        isActive: false,
+        createdBy: newCreatorId,
+      });
+      const savedCourse = await courseRepo.save(clonedCourse);
+
+      // 2. Clone topics and build oldId -> newId map
+      const topicRepo = manager.getRepository(Topic);
+      const subtopicRepo = manager.getRepository(Subtopic);
+      const assignmentRepo = manager.getRepository(Assignment);
+
+      if (source.topics && source.topics.length > 0) {
+        for (const t of source.topics) {
+          const clonedTopic = topicRepo.create({
+            courseId: savedCourse.id,
+            title: t.title,
+            description: t.description,
+            resources: t.resources,
+            displayOrder: t.displayOrder,
+            isActive: t.isActive,
+            estimatedMinutes: t.estimatedMinutes,
+            createdBy: newCreatorId,
+          });
+          const savedTopic = await topicRepo.save(clonedTopic);
+
+          // Batch clone subtopics for this topic
+          if (t.subtopics && t.subtopics.length > 0) {
+            const subtopicsToInsert = t.subtopics.map((st) =>
+              subtopicRepo.create({
+                topicId: savedTopic.id,
+                title: st.title,
+                content: st.content,
+                resources: st.resources,
+                displayOrder: st.displayOrder,
+                isActive: st.isActive,
+                estimatedMinutes: st.estimatedMinutes,
+                createdBy: newCreatorId,
+              }),
+            );
+            await subtopicRepo.save(subtopicsToInsert);
+          }
+
+          // Batch clone topic-level assignments for this topic
+          if (t.assignments && t.assignments.length > 0) {
+            const assignmentsToInsert = t.assignments.map((a) =>
+              assignmentRepo.create({
+                courseId: savedCourse.id,
+                topicId: savedTopic.id,
+                scope: a.scope,
+                displayOrder: a.displayOrder,
+                title: a.title,
+                instructions: a.instructions,
+                estimatedMinutes: a.estimatedMinutes,
+                maxMarks: a.maxMarks,
+                passMarks: a.passMarks,
+                allowLate: a.allowLate,
+                pdfMode: a.pdfMode,
+                zipMode: a.zipMode,
+                urlMode: a.urlMode,
+                resources: a.resources,
+                createdBy: newCreatorId,
+              }),
+            );
+            await assignmentRepo.save(assignmentsToInsert);
+          }
+        }
+      }
+
+      // 3. Batch clone course-level assignments
+      if (source.assignments && source.assignments.length > 0) {
+        const courseLevelAssignments = source.assignments.filter(
+          (a) => a.scope === AssignmentScope.COURSE,
+        );
+        if (courseLevelAssignments.length > 0) {
+          const courseAssignmentsToInsert = courseLevelAssignments.map((a) =>
+            assignmentRepo.create({
+              courseId: savedCourse.id,
+              topicId: null,
+              scope: AssignmentScope.COURSE,
+              displayOrder: a.displayOrder,
+              title: a.title,
+              instructions: a.instructions,
+              estimatedMinutes: a.estimatedMinutes,
+              maxMarks: a.maxMarks,
+              passMarks: a.passMarks,
+              allowLate: a.allowLate,
+              pdfMode: a.pdfMode,
+              zipMode: a.zipMode,
+              urlMode: a.urlMode,
+              resources: a.resources,
+              createdBy: newCreatorId,
+            }),
+          );
+          await assignmentRepo.save(courseAssignmentsToInsert);
+        }
+      }
+
+      return savedCourse;
+    });
   }
 
   async softDeleteCourse(id: string): Promise<boolean> {
@@ -241,8 +382,35 @@ export class CoursesRepository {
     return topic;
   }
 
-  async updateTopic(id: string, data: Partial<Topic>): Promise<Topic | null> {
-    await this.topicRepo.update(id, data);
+  async updateTopic(
+    id: string,
+    data: Partial<Topic>,
+    expectedUpdatedAt?: string,
+  ): Promise<Topic | null> {
+    const qb = this.topicRepo
+      .createQueryBuilder()
+      .update(Topic)
+      .set({ ...data, updatedAt: () => 'now()' })
+      .where('id = :id', { id })
+      .andWhere('deletedAt IS NULL');
+
+    if (expectedUpdatedAt) {
+      qb.andWhere(
+        "date_trunc('milliseconds', updatedAt) = date_trunc('milliseconds', :expectedUpdatedAt::timestamptz)",
+        { expectedUpdatedAt },
+      );
+    }
+
+    const res = await qb.execute();
+    if (res.affected === 0) {
+      const exists = await this.topicRepo.findOne({ where: { id } });
+      if (!exists) {
+        return null;
+      }
+      throw new ConflictError(
+        'This item was modified concurrently by another user. Please reload the latest changes.',
+      );
+    }
     return await this.topicRepo.findOne({ where: { id } });
   }
 
@@ -265,10 +433,22 @@ export class CoursesRepository {
     return Number(maxRow?.max ?? -1) + 1;
   }
 
-  async reorderTopics(items: { id: string; displayOrder: number }[]): Promise<void> {
+  async reorderTopics(
+    courseId: string,
+    items: { id: string; displayOrder: number }[],
+  ): Promise<void> {
     await AppDataSource.transaction(async (manager) => {
+      let affected = 0;
       for (const item of items) {
-        await manager.update(Topic, item.id, { displayOrder: item.displayOrder });
+        const res = await manager.update(
+          Topic,
+          { id: item.id, courseId, deletedAt: IsNull() },
+          { displayOrder: item.displayOrder },
+        );
+        affected += res.affected ?? 0;
+      }
+      if (affected !== items.length) {
+        throw new ValidationError('One or more items do not belong to this course');
       }
     });
   }
@@ -306,8 +486,35 @@ export class CoursesRepository {
     return await this.subtopicRepo.findOne({ where: { id } });
   }
 
-  async updateSubtopic(id: string, data: Partial<Subtopic>): Promise<Subtopic | null> {
-    await this.subtopicRepo.update(id, data);
+  async updateSubtopic(
+    id: string,
+    data: Partial<Subtopic>,
+    expectedUpdatedAt?: string,
+  ): Promise<Subtopic | null> {
+    const qb = this.subtopicRepo
+      .createQueryBuilder()
+      .update(Subtopic)
+      .set({ ...data, updatedAt: () => 'now()' })
+      .where('id = :id', { id })
+      .andWhere('deletedAt IS NULL');
+
+    if (expectedUpdatedAt) {
+      qb.andWhere(
+        "date_trunc('milliseconds', updatedAt) = date_trunc('milliseconds', :expectedUpdatedAt::timestamptz)",
+        { expectedUpdatedAt },
+      );
+    }
+
+    const res = await qb.execute();
+    if (res.affected === 0) {
+      const exists = await this.subtopicRepo.findOne({ where: { id } });
+      if (!exists) {
+        return null;
+      }
+      throw new ConflictError(
+        'This item was modified concurrently by another user. Please reload the latest changes.',
+      );
+    }
     return await this.subtopicRepo.findOne({ where: { id } });
   }
 
@@ -326,10 +533,22 @@ export class CoursesRepository {
     return Number(maxRow?.max ?? -1) + 1;
   }
 
-  async reorderSubtopics(items: { id: string; displayOrder: number }[]): Promise<void> {
+  async reorderSubtopics(
+    topicId: string,
+    items: { id: string; displayOrder: number }[],
+  ): Promise<void> {
     await AppDataSource.transaction(async (manager) => {
+      let affected = 0;
       for (const item of items) {
-        await manager.update(Subtopic, item.id, { displayOrder: item.displayOrder });
+        const res = await manager.update(
+          Subtopic,
+          { id: item.id, topicId, deletedAt: IsNull() },
+          { displayOrder: item.displayOrder },
+        );
+        affected += res.affected ?? 0;
+      }
+      if (affected !== items.length) {
+        throw new ValidationError('One or more items do not belong to this topic');
       }
     });
   }
@@ -374,8 +593,35 @@ export class CoursesRepository {
     return await this.assignmentRepo.findOne({ where: { id } });
   }
 
-  async updateAssignment(id: string, data: Partial<Assignment>): Promise<Assignment | null> {
-    await this.assignmentRepo.update(id, data);
+  async updateAssignment(
+    id: string,
+    data: Partial<Assignment>,
+    expectedUpdatedAt?: string,
+  ): Promise<Assignment | null> {
+    const qb = this.assignmentRepo
+      .createQueryBuilder()
+      .update(Assignment)
+      .set({ ...data, updatedAt: () => 'now()' })
+      .where('id = :id', { id })
+      .andWhere('deletedAt IS NULL');
+
+    if (expectedUpdatedAt) {
+      qb.andWhere(
+        "date_trunc('milliseconds', updatedAt) = date_trunc('milliseconds', :expectedUpdatedAt::timestamptz)",
+        { expectedUpdatedAt },
+      );
+    }
+
+    const res = await qb.execute();
+    if (res.affected === 0) {
+      const exists = await this.assignmentRepo.findOne({ where: { id } });
+      if (!exists) {
+        return null;
+      }
+      throw new ConflictError(
+        'This item was modified concurrently by another user. Please reload the latest changes.',
+      );
+    }
     return await this.assignmentRepo.findOne({ where: { id } });
   }
 
@@ -406,10 +652,22 @@ export class CoursesRepository {
     return Number(maxRow?.max ?? -1) + 1;
   }
 
-  async reorderAssignments(items: { id: string; displayOrder: number }[]): Promise<void> {
+  async reorderAssignments(
+    courseId: string,
+    items: { id: string; displayOrder: number }[],
+  ): Promise<void> {
     await AppDataSource.transaction(async (manager) => {
+      let affected = 0;
       for (const item of items) {
-        await manager.update(Assignment, item.id, { displayOrder: item.displayOrder });
+        const res = await manager.update(
+          Assignment,
+          { id: item.id, courseId, deletedAt: IsNull() },
+          { displayOrder: item.displayOrder },
+        );
+        affected += res.affected ?? 0;
+      }
+      if (affected !== items.length) {
+        throw new ValidationError('One or more items do not belong to this course');
       }
     });
   }

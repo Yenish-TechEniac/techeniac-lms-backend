@@ -13,6 +13,52 @@ import {
   Topic,
 } from './entities';
 
+// Duration calculation & budget formatting helpers (M6-DUP-1)
+function sumMinutes(items?: Array<{ estimatedMinutes?: number | null }>): number {
+  return items?.reduce((acc, t) => acc + (t.estimatedMinutes ?? 0), 0) ?? 0;
+}
+
+function formatDuration(minutes: number): string {
+  const safeMinutes = Math.max(0, minutes);
+  return `${Math.floor(safeMinutes / 60)}h ${safeMinutes % 60}m`;
+}
+
+function assertWithinBudget(params: {
+  parentBudget?: number | null;
+  usedMinutes: number;
+  requestedMinutes: number;
+  itemLabel: string;
+  parentLabel: string;
+}): void {
+  const { parentBudget, usedMinutes, requestedMinutes, itemLabel, parentLabel } = params;
+  if (parentBudget !== null && parentBudget !== undefined && parentBudget > 0) {
+    const remainingBudget = parentBudget - usedMinutes;
+    if (requestedMinutes > remainingBudget) {
+      throw new ValidationError(
+        `${itemLabel} duration (${formatDuration(requestedMinutes)}) exceeds ${parentLabel} remaining duration budget (${formatDuration(remainingBudget)} remaining out of ${formatDuration(parentBudget)} total).`,
+      );
+    }
+  }
+}
+
+function assertFloorBudget(params: {
+  parentDuration?: number | null;
+  childrenTotalMinutes: number;
+  itemLabel: string;
+  childLabel: string;
+}): void {
+  const { parentDuration, childrenTotalMinutes, itemLabel, childLabel } = params;
+  if (
+    parentDuration !== null &&
+    parentDuration !== undefined &&
+    parentDuration < childrenTotalMinutes
+  ) {
+    throw new ValidationError(
+      `${itemLabel} duration (${formatDuration(parentDuration)}) cannot be less than the total allocated duration of its ${childLabel} (${formatDuration(childrenTotalMinutes)}).`,
+    );
+  }
+}
+
 export class CoursesService {
   // Permission helper (CRS-18)
   private assertCanEdit(course: Course, user: AuthenticatedUser): void {
@@ -56,6 +102,8 @@ export class CoursesService {
     });
   }
 
+  // Shared library access (PRD Section 9.6, CRS-18):
+  // All mentors can view course details and outlines to discover materials and evaluate curricula.
   async getCourseById(id: string, includeFullOutline = false): Promise<Course> {
     const course = await coursesRepository.findCourseById(id, includeFullOutline);
     if (!course) {
@@ -91,12 +139,13 @@ export class CoursesService {
     this.assertNotStale(course.updatedAt, data.expectedUpdatedAt);
 
     if (data.estimatedMinutes !== undefined && data.estimatedMinutes !== null) {
-      const topicsSum = course.topics?.reduce((acc, t) => acc + (t.estimatedMinutes || 0), 0) || 0;
-      if (data.estimatedMinutes < topicsSum) {
-        throw new ValidationError(
-          `Course duration (${Math.floor(data.estimatedMinutes / 60)}h ${data.estimatedMinutes % 60}m) cannot be less than the total allocated duration of its topics (${Math.floor(topicsSum / 60)}h ${topicsSum % 60}m).`,
-        );
-      }
+      const topicsSum = sumMinutes(course.topics);
+      assertFloorBudget({
+        parentDuration: data.estimatedMinutes,
+        childrenTotalMinutes: topicsSum,
+        itemLabel: 'Course',
+        childLabel: 'topics',
+      });
     }
 
     const updatePayload: Partial<Course> = {
@@ -107,7 +156,7 @@ export class CoursesService {
     if (data.estimatedMinutes !== undefined) updatePayload.estimatedMinutes = data.estimatedMinutes;
     if (data.isActive !== undefined) updatePayload.isActive = data.isActive;
 
-    const updated = await coursesRepository.updateCourse(id, updatePayload);
+    const updated = await coursesRepository.updateCourse(id, updatePayload, data.expectedUpdatedAt);
     if (!updated) {
       throw new NotFoundError('Course not found');
     }
@@ -124,11 +173,18 @@ export class CoursesService {
     this.assertCanEdit(course, user);
     this.assertNotStale(course.updatedAt, expectedUpdatedAt);
 
-    const updated = await coursesRepository.updateCourse(id, {
-      isActive,
-      updatedBy: user.id,
-    });
-    return updated!;
+    const updated = await coursesRepository.updateCourse(
+      id,
+      {
+        isActive,
+        updatedBy: user.id,
+      },
+      expectedUpdatedAt,
+    );
+    if (!updated) {
+      throw new NotFoundError('Course not found');
+    }
+    return updated;
   }
 
   async deleteCourse(id: string, user: AuthenticatedUser): Promise<void> {
@@ -145,100 +201,16 @@ export class CoursesService {
     await coursesRepository.softDeleteCourse(id);
   }
 
+  // Shared library access (PRD Section 9.6, CRS-21, FR-6.7, M6-AUTHZ-Q, M6-CLONE-1):
+  // Any authenticated mentor can clone any existing course template into an inactive copy owned by themselves.
+  // Execution runs inside an all-or-nothing database transaction preventing partial duplicates.
   async cloneCourse(id: string, user: AuthenticatedUser): Promise<Course> {
-    const source = await this.getCourseById(id, true);
-
-    // Create inactive copy (FR-6.7, CRS-21)
-    const clonedCourse = await coursesRepository.createCourse({
-      title: `${source.title} (Copy)`.slice(0, 150),
-      description: source.description,
-      estimatedMinutes: source.estimatedMinutes,
-      isActive: false,
-      createdBy: user.id,
-    });
-
-    // Clone topics and their subtopics & assignments
-    if (source.topics && source.topics.length > 0) {
-      for (const t of source.topics) {
-        const clonedTopic = await coursesRepository.createTopic({
-          courseId: clonedCourse.id,
-          title: t.title,
-          description: t.description,
-          resources: t.resources,
-          displayOrder: t.displayOrder,
-          isActive: t.isActive,
-          estimatedMinutes: t.estimatedMinutes,
-          createdBy: user.id,
-        });
-
-        if (t.subtopics && t.subtopics.length > 0) {
-          for (const st of t.subtopics) {
-            await coursesRepository.createSubtopic({
-              topicId: clonedTopic.id,
-              title: st.title,
-              content: st.content,
-              resources: st.resources,
-              displayOrder: st.displayOrder,
-              isActive: st.isActive,
-              estimatedMinutes: st.estimatedMinutes,
-              createdBy: user.id,
-            });
-          }
-        }
-
-        if (t.assignments && t.assignments.length > 0) {
-          for (const a of t.assignments) {
-            await coursesRepository.createAssignment({
-              courseId: clonedCourse.id,
-              topicId: clonedTopic.id,
-              scope: a.scope,
-              displayOrder: a.displayOrder,
-              title: a.title,
-              instructions: a.instructions,
-              estimatedMinutes: a.estimatedMinutes,
-              maxMarks: a.maxMarks,
-              passMarks: a.passMarks,
-              allowLate: a.allowLate,
-              pdfMode: a.pdfMode,
-              zipMode: a.zipMode,
-              urlMode: a.urlMode,
-              resources: a.resources,
-              createdBy: user.id,
-            });
-          }
-        }
-      }
-    }
-
-    // Clone course-level assignments
-    if (source.assignments && source.assignments.length > 0) {
-      const courseAssignments = source.assignments.filter(
-        (a) => a.scope === AssignmentScope.COURSE,
-      );
-      for (const a of courseAssignments) {
-        await coursesRepository.createAssignment({
-          courseId: clonedCourse.id,
-          topicId: null,
-          scope: AssignmentScope.COURSE,
-          displayOrder: a.displayOrder,
-          title: a.title,
-          instructions: a.instructions,
-          estimatedMinutes: a.estimatedMinutes,
-          maxMarks: a.maxMarks,
-          passMarks: a.passMarks,
-          allowLate: a.allowLate,
-          pdfMode: a.pdfMode,
-          zipMode: a.zipMode,
-          urlMode: a.urlMode,
-          resources: a.resources,
-          createdBy: user.id,
-        });
-      }
-    }
-
-    return clonedCourse;
+    await this.getCourseById(id);
+    return await coursesRepository.cloneCourse(id, user.id);
   }
 
+  // Shared library access (PRD Section 9.6, M6-AUTHZ-Q):
+  // Mentors can view impact statistics (active allocations and mentee counts) across courses.
   async getCourseImpact(id: string) {
     await this.getCourseById(id);
     return await coursesRepository.getCourseImpact(id);
@@ -260,21 +232,15 @@ export class CoursesService {
     const course = await this.getCourseById(courseId, true);
     this.assertCanEdit(course, user);
 
-    if (
-      course.estimatedMinutes !== null &&
-      course.estimatedMinutes !== undefined &&
-      course.estimatedMinutes > 0 &&
-      data.estimatedMinutes !== undefined &&
-      data.estimatedMinutes !== null
-    ) {
-      const otherTopicsSum =
-        course.topics?.reduce((acc, t) => acc + (t.estimatedMinutes || 0), 0) || 0;
-      const remainingBudget = course.estimatedMinutes - otherTopicsSum;
-      if (data.estimatedMinutes > remainingBudget) {
-        throw new ValidationError(
-          `Topic duration (${Math.floor(data.estimatedMinutes / 60)}h ${data.estimatedMinutes % 60}m) exceeds the course's remaining duration budget (${Math.max(0, Math.floor(remainingBudget / 60))}h ${Math.max(0, remainingBudget % 60)}m remaining out of ${Math.floor(course.estimatedMinutes / 60)}h ${course.estimatedMinutes % 60}m total).`,
-        );
-      }
+    if (data.estimatedMinutes !== undefined && data.estimatedMinutes !== null) {
+      const otherTopicsSum = sumMinutes(course.topics);
+      assertWithinBudget({
+        parentBudget: course.estimatedMinutes,
+        usedMinutes: otherTopicsSum,
+        requestedMinutes: data.estimatedMinutes,
+        itemLabel: 'Topic',
+        parentLabel: "the course's",
+      });
     }
 
     const displayOrder =
@@ -326,31 +292,23 @@ export class CoursesService {
 
     if (data.estimatedMinutes !== undefined && data.estimatedMinutes !== null) {
       // 1. Check parent course budget ceiling (if course has estimatedMinutes)
-      if (
-        course.estimatedMinutes !== null &&
-        course.estimatedMinutes !== undefined &&
-        course.estimatedMinutes > 0
-      ) {
-        const otherTopicsSum =
-          course.topics
-            ?.filter((t) => t.id !== id)
-            .reduce((acc, t) => acc + (t.estimatedMinutes || 0), 0) || 0;
-        const remainingBudget = course.estimatedMinutes - otherTopicsSum;
-        if (data.estimatedMinutes > remainingBudget) {
-          throw new ValidationError(
-            `Topic duration (${Math.floor(data.estimatedMinutes / 60)}h ${data.estimatedMinutes % 60}m) exceeds the course's remaining duration budget (${Math.max(0, Math.floor(remainingBudget / 60))}h ${Math.max(0, remainingBudget % 60)}m remaining out of ${Math.floor(course.estimatedMinutes / 60)}h ${course.estimatedMinutes % 60}m total).`,
-          );
-        }
-      }
+      const otherTopicsSum = sumMinutes(course.topics?.filter((t) => t.id !== id));
+      assertWithinBudget({
+        parentBudget: course.estimatedMinutes,
+        usedMinutes: otherTopicsSum,
+        requestedMinutes: data.estimatedMinutes,
+        itemLabel: 'Topic',
+        parentLabel: "the course's",
+      });
 
       // 2. Check subtopics floor
-      const subtopicsSum =
-        topic.subtopics?.reduce((acc, s) => acc + (s.estimatedMinutes || 0), 0) || 0;
-      if (data.estimatedMinutes < subtopicsSum) {
-        throw new ValidationError(
-          `Topic duration (${Math.floor(data.estimatedMinutes / 60)}h ${data.estimatedMinutes % 60}m) cannot be less than the total allocated duration of its subtopics (${Math.floor(subtopicsSum / 60)}h ${subtopicsSum % 60}m).`,
-        );
-      }
+      const subtopicsSum = sumMinutes(topic.subtopics);
+      assertFloorBudget({
+        parentDuration: data.estimatedMinutes,
+        childrenTotalMinutes: subtopicsSum,
+        itemLabel: 'Topic',
+        childLabel: 'subtopics',
+      });
     }
 
     const updatePayload: Partial<Topic> = { updatedBy: user.id };
@@ -361,8 +319,11 @@ export class CoursesService {
     if (data.estimatedMinutes !== undefined) updatePayload.estimatedMinutes = data.estimatedMinutes;
     if (data.isActive !== undefined) updatePayload.isActive = data.isActive;
 
-    const updated = await coursesRepository.updateTopic(id, updatePayload);
-    return updated!;
+    const updated = await coursesRepository.updateTopic(id, updatePayload, data.expectedUpdatedAt);
+    if (!updated) {
+      throw new NotFoundError('Topic not found');
+    }
+    return updated;
   }
 
   async toggleTopicStatus(
@@ -379,10 +340,14 @@ export class CoursesService {
     this.assertCanEdit(course, user);
     this.assertNotStale(topic.updatedAt, expectedUpdatedAt);
 
-    const updated = await coursesRepository.updateTopic(id, {
-      isActive,
-      updatedBy: user.id,
-    });
+    const updated = await coursesRepository.updateTopic(
+      id,
+      {
+        isActive,
+        updatedBy: user.id,
+      },
+      expectedUpdatedAt,
+    );
 
     // Emit FR-6.15 lifecycle event
     eventBus.emitEvent('course.topicsChanged', {
@@ -391,7 +356,10 @@ export class CoursesService {
       action: isActive ? 'REACTIVATED' : 'DEACTIVATED',
     });
 
-    return updated!;
+    if (!updated) {
+      throw new NotFoundError('Topic not found');
+    }
+    return updated;
   }
 
   async deleteTopic(id: string, user: AuthenticatedUser): Promise<void> {
@@ -427,7 +395,7 @@ export class CoursesService {
       }
     }
 
-    await coursesRepository.reorderTopics(items);
+    await coursesRepository.reorderTopics(courseId, items);
   }
 
   // --- Subtopic Service Methods ---
@@ -450,21 +418,15 @@ export class CoursesService {
     const course = await this.getCourseById(topic.courseId);
     this.assertCanEdit(course, user);
 
-    if (
-      topic.estimatedMinutes !== null &&
-      topic.estimatedMinutes !== undefined &&
-      topic.estimatedMinutes > 0 &&
-      data.estimatedMinutes !== undefined &&
-      data.estimatedMinutes !== null
-    ) {
-      const otherSubtopicsSum =
-        topic.subtopics?.reduce((acc, s) => acc + (s.estimatedMinutes || 0), 0) || 0;
-      const remainingBudget = topic.estimatedMinutes - otherSubtopicsSum;
-      if (data.estimatedMinutes > remainingBudget) {
-        throw new ValidationError(
-          `Subtopic duration (${Math.floor(data.estimatedMinutes / 60)}h ${data.estimatedMinutes % 60}m) exceeds topic "${topic.title}" remaining duration budget (${Math.max(0, Math.floor(remainingBudget / 60))}h ${Math.max(0, remainingBudget % 60)}m remaining out of ${Math.floor(topic.estimatedMinutes / 60)}h ${topic.estimatedMinutes % 60}m total).`,
-        );
-      }
+    if (data.estimatedMinutes !== undefined && data.estimatedMinutes !== null) {
+      const otherSubtopicsSum = sumMinutes(topic.subtopics);
+      assertWithinBudget({
+        parentBudget: topic.estimatedMinutes,
+        usedMinutes: otherSubtopicsSum,
+        requestedMinutes: data.estimatedMinutes,
+        itemLabel: 'Subtopic',
+        parentLabel: `topic "${topic.title}"`,
+      });
     }
 
     const displayOrder =
@@ -513,22 +475,14 @@ export class CoursesService {
     this.assertNotStale(subtopic.updatedAt, data.expectedUpdatedAt);
 
     if (data.estimatedMinutes !== undefined && data.estimatedMinutes !== null) {
-      if (
-        topic.estimatedMinutes !== null &&
-        topic.estimatedMinutes !== undefined &&
-        topic.estimatedMinutes > 0
-      ) {
-        const otherSubtopicsSum =
-          topic.subtopics
-            ?.filter((s) => s.id !== id)
-            .reduce((acc, s) => acc + (s.estimatedMinutes || 0), 0) || 0;
-        const remainingBudget = topic.estimatedMinutes - otherSubtopicsSum;
-        if (data.estimatedMinutes > remainingBudget) {
-          throw new ValidationError(
-            `Subtopic duration (${Math.floor(data.estimatedMinutes / 60)}h ${data.estimatedMinutes % 60}m) exceeds topic "${topic.title}" remaining duration budget (${Math.max(0, Math.floor(remainingBudget / 60))}h ${Math.max(0, remainingBudget % 60)}m remaining out of ${Math.floor(topic.estimatedMinutes / 60)}h ${topic.estimatedMinutes % 60}m total).`,
-          );
-        }
-      }
+      const otherSubtopicsSum = sumMinutes(topic.subtopics?.filter((s) => s.id !== id));
+      assertWithinBudget({
+        parentBudget: topic.estimatedMinutes,
+        usedMinutes: otherSubtopicsSum,
+        requestedMinutes: data.estimatedMinutes,
+        itemLabel: 'Subtopic',
+        parentLabel: `topic "${topic.title}"`,
+      });
     }
 
     const updatePayload: Partial<Subtopic> = { updatedBy: user.id };
@@ -541,8 +495,15 @@ export class CoursesService {
     if (data.estimatedMinutes !== undefined) updatePayload.estimatedMinutes = data.estimatedMinutes;
     if (data.isActive !== undefined) updatePayload.isActive = data.isActive;
 
-    const updated = await coursesRepository.updateSubtopic(id, updatePayload);
-    return updated!;
+    const updated = await coursesRepository.updateSubtopic(
+      id,
+      updatePayload,
+      data.expectedUpdatedAt,
+    );
+    if (!updated) {
+      throw new NotFoundError('Subtopic not found');
+    }
+    return updated;
   }
 
   async toggleSubtopicStatus(
@@ -556,15 +517,25 @@ export class CoursesService {
       throw new NotFoundError('Subtopic not found');
     }
     const topic = await coursesRepository.findTopicById(subtopic.topicId);
-    const course = await this.getCourseById(topic!.courseId);
+    if (!topic) {
+      throw new NotFoundError('Topic not found');
+    }
+    const course = await this.getCourseById(topic.courseId);
     this.assertCanEdit(course, user);
     this.assertNotStale(subtopic.updatedAt, expectedUpdatedAt);
 
-    const updated = await coursesRepository.updateSubtopic(id, {
-      isActive,
-      updatedBy: user.id,
-    });
-    return updated!;
+    const updated = await coursesRepository.updateSubtopic(
+      id,
+      {
+        isActive,
+        updatedBy: user.id,
+      },
+      expectedUpdatedAt,
+    );
+    if (!updated) {
+      throw new NotFoundError('Subtopic not found');
+    }
+    return updated;
   }
 
   async deleteSubtopic(id: string, user: AuthenticatedUser): Promise<void> {
@@ -573,7 +544,10 @@ export class CoursesService {
       throw new NotFoundError('Subtopic not found');
     }
     const topic = await coursesRepository.findTopicById(subtopic.topicId);
-    const course = await this.getCourseById(topic!.courseId);
+    if (!topic) {
+      throw new NotFoundError('Topic not found');
+    }
+    const course = await this.getCourseById(topic.courseId);
     this.assertCanEdit(course, user);
 
     await coursesRepository.deleteSubtopic(id);
@@ -598,7 +572,7 @@ export class CoursesService {
       }
     }
 
-    await coursesRepository.reorderSubtopics(items);
+    await coursesRepository.reorderSubtopics(topicId, items);
   }
 
   // --- Assignment Service Methods ---
@@ -684,10 +658,23 @@ export class CoursesService {
     this.assertCanEdit(course, user);
     this.assertNotStale(assignment.updatedAt, data.expectedUpdatedAt);
 
-    const effectiveMaxMarks = data.maxMarks !== undefined ? data.maxMarks : assignment.maxMarks;
-    const effectivePassMarks = data.passMarks !== undefined ? data.passMarks : assignment.passMarks;
-    if (effectivePassMarks > effectiveMaxMarks) {
+    const nextMaxMarks = Number(data.maxMarks !== undefined ? data.maxMarks : assignment.maxMarks);
+    const nextPassMarks = Number(
+      data.passMarks !== undefined ? data.passMarks : assignment.passMarks,
+    );
+    if (nextPassMarks > nextMaxMarks) {
       throw new ValidationError('Pass marks cannot exceed max marks');
+    }
+
+    const nextPdfMode = data.pdfMode !== undefined ? data.pdfMode : assignment.pdfMode;
+    const nextZipMode = data.zipMode !== undefined ? data.zipMode : assignment.zipMode;
+    const nextUrlMode = data.urlMode !== undefined ? data.urlMode : assignment.urlMode;
+    if (
+      nextPdfMode === SubmissionMode.OFF &&
+      nextZipMode === SubmissionMode.OFF &&
+      nextUrlMode === SubmissionMode.OFF
+    ) {
+      throw new ValidationError('At least one submission mode (PDF, ZIP, or URL) must be enabled');
     }
 
     const updatePayload: Partial<Assignment> = { updatedBy: user.id };
@@ -705,8 +692,15 @@ export class CoursesService {
     if (data.resources !== undefined) updatePayload.resources = data.resources;
     if (data.displayOrder !== undefined) updatePayload.displayOrder = data.displayOrder;
 
-    const updated = await coursesRepository.updateAssignment(id, updatePayload);
-    return updated!;
+    const updated = await coursesRepository.updateAssignment(
+      id,
+      updatePayload,
+      data.expectedUpdatedAt,
+    );
+    if (!updated) {
+      throw new NotFoundError('Assignment not found');
+    }
+    return updated;
   }
 
   async deleteAssignment(id: string, user: AuthenticatedUser): Promise<void> {
@@ -735,7 +729,7 @@ export class CoursesService {
       }
     }
 
-    await coursesRepository.reorderAssignments(items);
+    await coursesRepository.reorderAssignments(courseId, items);
   }
 }
 

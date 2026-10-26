@@ -2,6 +2,7 @@ import type { Request, Response } from 'express';
 import { StatusCodes } from 'http-status-codes';
 
 import type { AuthenticatedUser } from '../../core/auth';
+import { UnauthorizedError } from '../../core/errors';
 import { BaseController } from '../../core/http';
 import { CoursesService, coursesService } from './courses.service';
 import type { Course } from './entities';
@@ -18,6 +19,13 @@ import {
   type UpdateSubtopicInput,
   type UpdateTopicInput,
 } from './schemas/courses.schemas';
+
+export function getAuthUser(req: Request): AuthenticatedUser {
+  if (!req.user) {
+    throw new UnauthorizedError('Authentication required');
+  }
+  return req.user;
+}
 
 export function toSafeCourse(course: Course): Course {
   if (course.creator) {
@@ -36,7 +44,7 @@ export class CoursesController extends BaseController {
 
   // Course Endpoints
   public createCourse = async (req: Request, res: Response): Promise<void> => {
-    const user = req.user as AuthenticatedUser;
+    const user = getAuthUser(req);
     const body = req.body as CreateCourseInput;
     const course = await this.service.createCourse(body, user);
     const safe = toSafeCourse(course);
@@ -86,7 +94,7 @@ export class CoursesController extends BaseController {
   };
 
   public updateCourse = async (req: Request, res: Response): Promise<void> => {
-    const user = req.user as AuthenticatedUser;
+    const user = getAuthUser(req);
     const body = req.body as UpdateCourseInput;
     const course = await this.service.updateCourse(String(req.params.id), body, user);
     const safe = toSafeCourse(course);
@@ -101,7 +109,7 @@ export class CoursesController extends BaseController {
   };
 
   public toggleCourseStatus = async (req: Request, res: Response): Promise<void> => {
-    const user = req.user as AuthenticatedUser;
+    const user = getAuthUser(req);
     const body = req.body as StatusToggleInput;
     const course = await this.service.toggleCourseStatus(
       String(req.params.id),
@@ -121,7 +129,7 @@ export class CoursesController extends BaseController {
   };
 
   public deleteCourse = async (req: Request, res: Response): Promise<void> => {
-    const user = req.user as AuthenticatedUser;
+    const user = getAuthUser(req);
     await this.service.deleteCourse(String(req.params.id), user);
     res.status(StatusCodes.OK).json({
       success: true,
@@ -131,7 +139,7 @@ export class CoursesController extends BaseController {
   };
 
   public cloneCourse = async (req: Request, res: Response): Promise<void> => {
-    const user = req.user as AuthenticatedUser;
+    const user = getAuthUser(req);
     const cloned = await this.service.cloneCourse(String(req.params.id), user);
     const safe = toSafeCourse(cloned);
     res.status(StatusCodes.CREATED).json({
@@ -158,7 +166,7 @@ export class CoursesController extends BaseController {
 
   // Topic Endpoints
   public createTopic = async (req: Request, res: Response): Promise<void> => {
-    const user = req.user as AuthenticatedUser;
+    const user = getAuthUser(req);
     const body = req.body as CreateTopicInput;
     const topic = await this.service.createTopic(String(req.params.id), body, user);
     res.status(StatusCodes.CREATED).json({
@@ -172,7 +180,7 @@ export class CoursesController extends BaseController {
   };
 
   public updateTopic = async (req: Request, res: Response): Promise<void> => {
-    const user = req.user as AuthenticatedUser;
+    const user = getAuthUser(req);
     const body = req.body as UpdateTopicInput;
     const topic = await this.service.updateTopic(String(req.params.id), body, user);
     res.status(StatusCodes.OK).json({
@@ -186,7 +194,7 @@ export class CoursesController extends BaseController {
   };
 
   public toggleTopicStatus = async (req: Request, res: Response): Promise<void> => {
-    const user = req.user as AuthenticatedUser;
+    const user = getAuthUser(req);
     const body = req.body as StatusToggleInput;
     const topic = await this.service.toggleTopicStatus(
       String(req.params.id),
@@ -205,7 +213,7 @@ export class CoursesController extends BaseController {
   };
 
   public deleteTopic = async (req: Request, res: Response): Promise<void> => {
-    const user = req.user as AuthenticatedUser;
+    const user = getAuthUser(req);
     await this.service.deleteTopic(String(req.params.id), user);
     res.status(StatusCodes.OK).json({
       success: true,
@@ -215,7 +223,7 @@ export class CoursesController extends BaseController {
   };
 
   public reorderTopics = async (req: Request, res: Response): Promise<void> => {
-    const user = req.user as AuthenticatedUser;
+    const user = getAuthUser(req);
     const body = req.body as ReorderItemsInput;
     await this.service.reorderTopics(String(req.params.id), body.items, user);
     res.status(StatusCodes.OK).json({
@@ -227,7 +235,7 @@ export class CoursesController extends BaseController {
 
   // Subtopic Endpoints
   public createSubtopic = async (req: Request, res: Response): Promise<void> => {
-    const user = req.user as AuthenticatedUser;
+    const user = getAuthUser(req);
     const body = req.body as CreateSubtopicInput;
     const subtopic = await this.service.createSubtopic(String(req.params.id), body, user);
     res.status(StatusCodes.CREATED).json({
@@ -241,7 +249,7 @@ export class CoursesController extends BaseController {
   };
 
   public updateSubtopic = async (req: Request, res: Response): Promise<void> => {
-    const user = req.user as AuthenticatedUser;
+    const user = getAuthUser(req);
     const body = req.body as UpdateSubtopicInput;
     const subtopic = await this.service.updateSubtopic(String(req.params.id), body, user);
     res.status(StatusCodes.OK).json({
@@ -255,7 +263,7 @@ export class CoursesController extends BaseController {
   };
 
   public toggleSubtopicStatus = async (req: Request, res: Response): Promise<void> => {
-    const user = req.user as AuthenticatedUser;
+    const user = getAuthUser(req);
     const body = req.body as StatusToggleInput;
     const subtopic = await this.service.toggleSubtopicStatus(
       String(req.params.id),
@@ -274,7 +282,7 @@ export class CoursesController extends BaseController {
   };
 
   public deleteSubtopic = async (req: Request, res: Response): Promise<void> => {
-    const user = req.user as AuthenticatedUser;
+    const user = getAuthUser(req);
     await this.service.deleteSubtopic(String(req.params.id), user);
     res.status(StatusCodes.OK).json({
       success: true,
@@ -284,7 +292,7 @@ export class CoursesController extends BaseController {
   };
 
   public reorderSubtopics = async (req: Request, res: Response): Promise<void> => {
-    const user = req.user as AuthenticatedUser;
+    const user = getAuthUser(req);
     const body = req.body as ReorderItemsInput;
     await this.service.reorderSubtopics(String(req.params.id), body.items, user);
     res.status(StatusCodes.OK).json({
@@ -296,7 +304,7 @@ export class CoursesController extends BaseController {
 
   // Assignment Endpoints
   public createAssignment = async (req: Request, res: Response): Promise<void> => {
-    const user = req.user as AuthenticatedUser;
+    const user = getAuthUser(req);
     const body = req.body as CreateAssignmentInput;
     const assignment = await this.service.createAssignment(String(req.params.id), body, user);
     res.status(StatusCodes.CREATED).json({
@@ -310,7 +318,7 @@ export class CoursesController extends BaseController {
   };
 
   public updateAssignment = async (req: Request, res: Response): Promise<void> => {
-    const user = req.user as AuthenticatedUser;
+    const user = getAuthUser(req);
     const body = req.body as UpdateAssignmentInput;
     const assignment = await this.service.updateAssignment(String(req.params.id), body, user);
     res.status(StatusCodes.OK).json({
@@ -324,7 +332,7 @@ export class CoursesController extends BaseController {
   };
 
   public deleteAssignment = async (req: Request, res: Response): Promise<void> => {
-    const user = req.user as AuthenticatedUser;
+    const user = getAuthUser(req);
     await this.service.deleteAssignment(String(req.params.id), user);
     res.status(StatusCodes.OK).json({
       success: true,
@@ -334,7 +342,7 @@ export class CoursesController extends BaseController {
   };
 
   public reorderAssignments = async (req: Request, res: Response): Promise<void> => {
-    const user = req.user as AuthenticatedUser;
+    const user = getAuthUser(req);
     const body = req.body as ReorderItemsInput;
     await this.service.reorderAssignments(String(req.params.id), body.items, user);
     res.status(StatusCodes.OK).json({
