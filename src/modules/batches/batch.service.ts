@@ -104,7 +104,7 @@ export class BatchService {
     };
   }
 
-  public async updateBatch(id: string, input: UpdateBatchInput) {
+  public async updateBatch(id: string, input: UpdateBatchInput, actorId?: string) {
     const batch = await this.batchRepo.findById(id);
     if (!batch) {
       throw new NotFoundError('Batch not found');
@@ -127,7 +127,7 @@ export class BatchService {
       throw new BadRequestError('Start date must be before or equal to end date');
     }
 
-    const updated = await this.batchRepo.update(id, input);
+    const updated = await this.batchRepo.update(id, input, actorId);
 
     return updated;
   }
@@ -161,7 +161,7 @@ export class BatchService {
 
     // FR-5.3 rule: Completed ends mentee memberships with BATCH_COMPLETED
     if (targetStatus === BatchStatus.COMPLETED) {
-      await this.batchRepo.closeoutActiveMentees(id);
+      await this.batchRepo.closeoutActiveMentees(id, actorId);
     }
 
     // Archived: batch mappings end
@@ -169,7 +169,7 @@ export class BatchService {
       await this.mentorMenteeRepo.closeAllMappingsForBatch(id, 'BATCH_ARCHIVED');
     }
 
-    const updated = await this.batchRepo.updateStatus(id, targetStatus);
+    const updated = await this.batchRepo.updateStatus(id, targetStatus, actorId);
 
     await this.batchRepo.recordStatusHistory(
       id,
@@ -182,7 +182,7 @@ export class BatchService {
     return updated;
   }
 
-  public async addMembers(id: string, input: AddBatchMembersInput) {
+  public async addMembers(id: string, input: AddBatchMembersInput, actorId?: string) {
     const batch = await this.batchRepo.findById(id);
     if (!batch) {
       throw new NotFoundError('Batch not found');
@@ -228,14 +228,14 @@ export class BatchService {
         }
       }
 
-      const member = await this.batchRepo.addMember(id, userId, input.memberRole);
+      const member = await this.batchRepo.addMember(id, userId, input.memberRole, actorId);
       addedMembers.push(member);
     }
 
     return addedMembers;
   }
 
-  public async removeMember(batchId: string, userId: string) {
+  public async removeMember(batchId: string, userId: string, actorId?: string) {
     const batch = await this.batchRepo.findById(batchId);
     if (!batch) {
       throw new NotFoundError('Batch not found');
@@ -257,11 +257,17 @@ export class BatchService {
       }
     }
 
-    await this.batchRepo.removeMember(membership.id, BatchReasonToLeave.REMOVED);
-    await this.mentorMenteeRepo.closeAllMappingsForMember(batchId, userId, 'MEMBER_REMOVED');
+    await this.batchRepo.removeMember(membership.id, BatchReasonToLeave.REMOVED, actorId);
+    await this.mentorMenteeRepo.closeAllMappingsForMember(
+      batchId,
+      userId,
+      'MEMBER_REMOVED',
+      undefined,
+      actorId,
+    );
   }
 
-  public async transferMentee(sourceBatchId: string, input: TransferMenteeInput) {
+  public async transferMentee(sourceBatchId: string, input: TransferMenteeInput, actorId?: string) {
     if (sourceBatchId === input.targetBatchId) {
       throw new BadRequestError('Source and target batches must be different');
     }
@@ -296,13 +302,19 @@ export class BatchService {
     }
 
     // 1. End old membership with BATCH_TRANSFER
-    await this.batchRepo.removeMember(currentMembership.id, BatchReasonToLeave.BATCH_TRANSFER);
+    await this.batchRepo.removeMember(
+      currentMembership.id,
+      BatchReasonToLeave.BATCH_TRANSFER,
+      actorId,
+    );
 
     // 2. End old mapping in source batch
     await this.mentorMenteeRepo.closeAllMappingsForMember(
       sourceBatchId,
       input.menteeId,
       'BATCH_TRANSFER',
+      undefined,
+      actorId,
     );
 
     // 3. Add to target batch
@@ -310,6 +322,7 @@ export class BatchService {
       input.targetBatchId,
       input.menteeId,
       BatchMemberRole.MENTEE,
+      actorId,
     );
 
     return newMembership;
@@ -317,7 +330,7 @@ export class BatchService {
 
   // --- Mentor-Mentee Mapping Methods (FR-4.1 - 4.3) ---
 
-  public async mapMentees(batchId: string, input: MapMenteesInput) {
+  public async mapMentees(batchId: string, input: MapMenteesInput, actorId?: string) {
     const batch = await this.batchRepo.findById(batchId);
     if (!batch) {
       throw new NotFoundError('Batch not found');
@@ -356,18 +369,22 @@ export class BatchService {
         );
       }
 
-      const mapping = await this.mentorMenteeRepo.createMapping({
-        batchId,
-        mentorId: input.mentorId,
-        menteeId,
-      });
+      const mapping = await this.mentorMenteeRepo.createMapping(
+        {
+          batchId,
+          mentorId: input.mentorId,
+          menteeId,
+        },
+        undefined,
+        actorId,
+      );
       created.push(mapping);
     }
 
     return created;
   }
 
-  public async reassignMentee(batchId: string, input: ReassignMenteeInput) {
+  public async reassignMentee(batchId: string, input: ReassignMenteeInput, actorId?: string) {
     const batch = await this.batchRepo.findById(batchId);
     if (!batch) {
       throw new NotFoundError('Batch not found');
@@ -408,6 +425,7 @@ export class BatchService {
           existingMapping.id,
           input.reason || 'REASSIGNED',
           manager,
+          actorId,
         );
       }
 
@@ -418,6 +436,7 @@ export class BatchService {
           menteeId: input.menteeId,
         },
         manager,
+        actorId,
       );
     });
   }

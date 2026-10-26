@@ -32,6 +32,7 @@ export class MentorMenteeRepository {
   public async createMapping(
     data: { batchId: string; mentorId: string; menteeId: string },
     manager?: EntityManager,
+    actorId?: string,
   ): Promise<MentorMentee> {
     const repo = this.getRepo(manager);
     const mapping = repo.create({
@@ -40,6 +41,8 @@ export class MentorMenteeRepository {
       menteeId: data.menteeId,
       isActive: true,
       startDate: new Date(),
+      createdBy: actorId ?? null,
+      updatedBy: actorId ?? null,
     });
     return await repo.save(mapping);
   }
@@ -48,11 +51,13 @@ export class MentorMenteeRepository {
     mappingId: string,
     endReason: string,
     manager?: EntityManager,
+    actorId?: string,
   ): Promise<void> {
     await this.getRepo(manager).update(mappingId, {
       isActive: false,
       endDate: new Date(),
       endReason,
+      updatedBy: actorId ?? null,
     });
   }
 
@@ -124,12 +129,21 @@ export class MentorMenteeRepository {
     userId: string,
     endReason: string,
     manager?: EntityManager,
+    actorId?: string,
   ): Promise<void> {
     const repo = this.getRepo(manager);
+    const updatePayload: Record<string, unknown> = {
+      isActive: false,
+      endDate: new Date(),
+      endReason,
+    };
+    if (actorId) {
+      updatePayload.updatedBy = actorId;
+    }
     await repo
       .createQueryBuilder()
       .update(MentorMentee)
-      .set({ isActive: false, endDate: new Date(), endReason })
+      .set(updatePayload)
       .where('batch_id = :batchId AND is_active = true', { batchId })
       .andWhere('(mentor_id = :userId OR mentee_id = :userId)', { userId })
       .execute();
@@ -139,12 +153,21 @@ export class MentorMenteeRepository {
     userId: string,
     endReason: string,
     manager?: EntityManager,
+    actorId?: string,
   ): Promise<void> {
     const repo = this.getRepo(manager);
+    const updatePayload: Record<string, unknown> = {
+      isActive: false,
+      endDate: new Date(),
+      endReason,
+    };
+    if (actorId) {
+      updatePayload.updatedBy = actorId;
+    }
     await repo
       .createQueryBuilder()
       .update(MentorMentee)
-      .set({ isActive: false, endDate: new Date(), endReason })
+      .set(updatePayload)
       .where('is_active = true AND (mentor_id = :userId OR mentee_id = :userId)', { userId })
       .execute();
   }

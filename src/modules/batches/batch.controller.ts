@@ -71,7 +71,8 @@ export class BatchController {
 
   public updateBatch = async (req: Request, res: Response): Promise<void> => {
     const id = String(req.params.id);
-    const batch = await this.service.updateBatch(id, req.body as UpdateBatchInput);
+    const actorId = req.user!.id;
+    const batch = await this.service.updateBatch(id, req.body as UpdateBatchInput, actorId);
     res.status(StatusCodes.OK).json({
       success: true,
       data: { batch },
@@ -94,7 +95,8 @@ export class BatchController {
 
   public addMembers = async (req: Request, res: Response): Promise<void> => {
     const id = String(req.params.id);
-    const members = await this.service.addMembers(id, req.body as AddBatchMembersInput);
+    const actorId = req.user!.id;
+    const members = await this.service.addMembers(id, req.body as AddBatchMembersInput, actorId);
     res.status(StatusCodes.OK).json({
       success: true,
       data: { members },
@@ -104,7 +106,8 @@ export class BatchController {
   public removeMember = async (req: Request, res: Response): Promise<void> => {
     const id = String(req.params.id);
     const userId = String(req.params.userId);
-    await this.service.removeMember(id, userId);
+    const actorId = req.user!.id;
+    await this.service.removeMember(id, userId, actorId);
     res.status(StatusCodes.OK).json({
       success: true,
       data: { message: 'Member removed successfully' },
@@ -113,7 +116,12 @@ export class BatchController {
 
   public transferMentee = async (req: Request, res: Response): Promise<void> => {
     const id = String(req.params.id);
-    const membership = await this.service.transferMentee(id, req.body as TransferMenteeInput);
+    const actorId = req.user!.id;
+    const membership = await this.service.transferMentee(
+      id,
+      req.body as TransferMenteeInput,
+      actorId,
+    );
     res.status(StatusCodes.OK).json({
       success: true,
       data: { membership },
@@ -124,7 +132,8 @@ export class BatchController {
 
   public mapMentees = async (req: Request, res: Response): Promise<void> => {
     const id = String(req.params.id);
-    const mappings = await this.service.mapMentees(id, req.body as MapMenteesInput);
+    const actorId = req.user!.id;
+    const mappings = await this.service.mapMentees(id, req.body as MapMenteesInput, actorId);
     res.status(StatusCodes.CREATED).json({
       success: true,
       data: { mappings },
@@ -133,7 +142,8 @@ export class BatchController {
 
   public reassignMentee = async (req: Request, res: Response): Promise<void> => {
     const id = String(req.params.id);
-    const mapping = await this.service.reassignMentee(id, req.body as ReassignMenteeInput);
+    const actorId = req.user!.id;
+    const mapping = await this.service.reassignMentee(id, req.body as ReassignMenteeInput, actorId);
     res.status(StatusCodes.OK).json({
       success: true,
       data: { mapping },

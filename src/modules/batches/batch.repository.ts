@@ -71,7 +71,7 @@ export class BatchRepository {
     return qb.getOne();
   }
 
-  public async create(data: CreateBatchData): Promise<Batch> {
+  public async create(data: CreateBatchData, actorId?: string): Promise<Batch> {
     const batch = this.batchRepo.create({
       name: data.name.trim(),
       code: data.code.trim().toUpperCase(),
@@ -80,17 +80,21 @@ export class BatchRepository {
       description: data.description?.trim() ?? null,
       status: BatchStatus.DRAFT,
       createdBy: data.createdBy,
+      updatedBy: actorId ?? data.createdBy,
     });
     return this.batchRepo.save(batch);
   }
 
-  public async update(id: string, data: UpdateBatchData): Promise<Batch> {
+  public async update(id: string, data: UpdateBatchData, actorId?: string): Promise<Batch> {
     const updatePayload: Partial<Batch> = {};
     if (data.name !== undefined) updatePayload.name = data.name.trim();
     if (data.startDate !== undefined) updatePayload.startDate = data.startDate;
     if (data.endDate !== undefined) updatePayload.endDate = data.endDate;
     if (data.description !== undefined) {
       updatePayload.description = data.description?.trim() ?? null;
+    }
+    if (actorId !== undefined) {
+      updatePayload.updatedBy = actorId;
     }
 
     await this.batchRepo.update(id, updatePayload);
@@ -101,8 +105,12 @@ export class BatchRepository {
     return updated;
   }
 
-  public async updateStatus(id: string, toStatus: BatchStatus): Promise<Batch> {
-    await this.batchRepo.update(id, { status: toStatus });
+  public async updateStatus(id: string, toStatus: BatchStatus, actorId?: string): Promise<Batch> {
+    const updatePayload: Partial<Batch> = { status: toStatus };
+    if (actorId !== undefined) {
+      updatePayload.updatedBy = actorId;
+    }
+    await this.batchRepo.update(id, updatePayload);
     const updated = await this.findById(id);
     if (!updated) {
       throw new Error('Batch not found after status update');
@@ -186,6 +194,8 @@ export class BatchRepository {
       toStatus,
       changedBy,
       reason: reason?.trim() ?? null,
+      createdBy: changedBy,
+      updatedBy: changedBy,
     });
     return this.historyRepo.save(history);
   }
@@ -247,6 +257,7 @@ export class BatchRepository {
     batchId: string,
     userId: string,
     memberRole: BatchMemberRole,
+    actorId?: string,
   ): Promise<BatchMember> {
     const member = this.memberRepo.create({
       batchId,
@@ -254,6 +265,8 @@ export class BatchRepository {
       memberRole,
       isActive: true,
       joinedAt: new Date(),
+      createdBy: actorId ?? null,
+      updatedBy: actorId ?? null,
     });
     return this.memberRepo.save(member);
   }
@@ -261,11 +274,13 @@ export class BatchRepository {
   public async removeMember(
     membershipId: string,
     reason: BatchReasonToLeave = BatchReasonToLeave.REMOVED,
+    actorId?: string,
   ): Promise<void> {
     await this.memberRepo.update(membershipId, {
       isActive: false,
       leftAt: new Date(),
       reasonToLeave: reason,
+      updatedBy: actorId ?? null,
     });
   }
 
@@ -279,7 +294,7 @@ export class BatchRepository {
     });
   }
 
-  public async closeoutActiveMentees(batchId: string): Promise<void> {
+  public async closeoutActiveMentees(batchId: string, actorId?: string): Promise<void> {
     const activeMentees = await this.memberRepo.find({
       where: {
         batchId,
@@ -296,6 +311,7 @@ export class BatchRepository {
           isActive: false,
           leftAt: now,
           reasonToLeave: BatchReasonToLeave.BATCH_COMPLETED,
+          updatedBy: actorId ?? null,
         },
       );
     }

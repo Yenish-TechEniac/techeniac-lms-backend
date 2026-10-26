@@ -1,7 +1,6 @@
 import type { ErrorRequestHandler } from 'express';
 import { StatusCodes } from 'http-status-codes';
 
-import { env } from '../config';
 import { AppError } from '../errors';
 import { logger } from '../logging';
 
@@ -32,13 +31,8 @@ export const errorMiddleware: ErrorRequestHandler = (err, req, res, next) => {
     logger.error({ err, path: req.path, method: req.method }, 'Unhandled server error');
   }
 
-  const isDev = env.NODE_ENV !== 'production';
   const message =
-    status >= 500
-      ? isDev
-        ? (err as Error).message || 'Something went wrong'
-        : 'Something went wrong'
-      : (err as Error).message || 'An error occurred';
+    status >= 500 ? 'Something went wrong' : (err as Error).message || 'An error occurred';
 
   res.status(status).json({
     error: {
