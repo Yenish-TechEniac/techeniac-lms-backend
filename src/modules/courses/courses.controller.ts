@@ -1,5 +1,4 @@
 import type { Request, Response } from 'express';
-import { StatusCodes } from 'http-status-codes';
 
 import type { AuthenticatedUser } from '../../core/auth';
 import { UnauthorizedError } from '../../core/errors';
@@ -47,65 +46,26 @@ export class CoursesController extends BaseController {
     const user = getAuthUser(req);
     const body = req.body as CreateCourseInput;
     const course = await this.service.createCourse(body, user);
-    const safe = toSafeCourse(course);
-    res.status(StatusCodes.CREATED).json({
-      success: true,
-      status: 'success',
-      data: {
-        ...safe,
-        course: safe,
-      },
-    });
+    this.sendCreated(res, toSafeCourse(course));
   };
 
   public getCourseById = async (req: Request, res: Response): Promise<void> => {
     const includeOutline = req.query.outline === 'true';
     const course = await this.service.getCourseById(String(req.params.id), includeOutline);
-    const safe = toSafeCourse(course);
-    res.status(StatusCodes.OK).json({
-      success: true,
-      status: 'success',
-      data: {
-        ...safe,
-        course: safe,
-      },
-    });
+    this.sendSuccess(res, toSafeCourse(course));
   };
 
   public listCourses = async (req: Request, res: Response): Promise<void> => {
     const query = listCoursesQuerySchema.shape.query.parse(req.query);
     const { items, total } = await this.service.listCourses(query);
-    const safeItems = items.map(toSafeCourse);
-    const pagination = {
-      page: query.page,
-      limit: query.limit,
-      total,
-      totalPages: Math.ceil(total / query.limit),
-    };
-    res.status(StatusCodes.OK).json({
-      success: true,
-      status: 'success',
-      data: {
-        courses: safeItems,
-        pagination,
-      },
-      meta: pagination,
-    });
+    this.sendPaginated(res, items.map(toSafeCourse), query.page, query.limit, total);
   };
 
   public updateCourse = async (req: Request, res: Response): Promise<void> => {
     const user = getAuthUser(req);
     const body = req.body as UpdateCourseInput;
     const course = await this.service.updateCourse(String(req.params.id), body, user);
-    const safe = toSafeCourse(course);
-    res.status(StatusCodes.OK).json({
-      success: true,
-      status: 'success',
-      data: {
-        ...safe,
-        course: safe,
-      },
-    });
+    this.sendSuccess(res, toSafeCourse(course));
   };
 
   public toggleCourseStatus = async (req: Request, res: Response): Promise<void> => {
@@ -117,51 +77,24 @@ export class CoursesController extends BaseController {
       user,
       body.expectedUpdatedAt,
     );
-    const safe = toSafeCourse(course);
-    res.status(StatusCodes.OK).json({
-      success: true,
-      status: 'success',
-      data: {
-        ...safe,
-        course: safe,
-      },
-    });
+    this.sendSuccess(res, toSafeCourse(course));
   };
 
   public deleteCourse = async (req: Request, res: Response): Promise<void> => {
     const user = getAuthUser(req);
     await this.service.deleteCourse(String(req.params.id), user);
-    res.status(StatusCodes.OK).json({
-      success: true,
-      status: 'success',
-      message: 'Course deleted successfully',
-    });
+    this.sendMessage(res, 'Course deleted successfully');
   };
 
   public cloneCourse = async (req: Request, res: Response): Promise<void> => {
     const user = getAuthUser(req);
     const cloned = await this.service.cloneCourse(String(req.params.id), user);
-    const safe = toSafeCourse(cloned);
-    res.status(StatusCodes.CREATED).json({
-      success: true,
-      status: 'success',
-      data: {
-        ...safe,
-        course: safe,
-      },
-    });
+    this.sendCreated(res, toSafeCourse(cloned));
   };
 
   public getCourseImpact = async (req: Request, res: Response): Promise<void> => {
     const impact = await this.service.getCourseImpact(String(req.params.id));
-    res.status(StatusCodes.OK).json({
-      success: true,
-      status: 'success',
-      data: {
-        ...impact,
-        impact,
-      },
-    });
+    this.sendSuccess(res, impact);
   };
 
   // Topic Endpoints
@@ -169,28 +102,14 @@ export class CoursesController extends BaseController {
     const user = getAuthUser(req);
     const body = req.body as CreateTopicInput;
     const topic = await this.service.createTopic(String(req.params.id), body, user);
-    res.status(StatusCodes.CREATED).json({
-      success: true,
-      status: 'success',
-      data: {
-        ...topic,
-        topic,
-      },
-    });
+    this.sendCreated(res, topic);
   };
 
   public updateTopic = async (req: Request, res: Response): Promise<void> => {
     const user = getAuthUser(req);
     const body = req.body as UpdateTopicInput;
     const topic = await this.service.updateTopic(String(req.params.id), body, user);
-    res.status(StatusCodes.OK).json({
-      success: true,
-      status: 'success',
-      data: {
-        ...topic,
-        topic,
-      },
-    });
+    this.sendSuccess(res, topic);
   };
 
   public toggleTopicStatus = async (req: Request, res: Response): Promise<void> => {
@@ -202,35 +121,20 @@ export class CoursesController extends BaseController {
       user,
       body.expectedUpdatedAt,
     );
-    res.status(StatusCodes.OK).json({
-      success: true,
-      status: 'success',
-      data: {
-        ...topic,
-        topic,
-      },
-    });
+    this.sendSuccess(res, topic);
   };
 
   public deleteTopic = async (req: Request, res: Response): Promise<void> => {
     const user = getAuthUser(req);
     await this.service.deleteTopic(String(req.params.id), user);
-    res.status(StatusCodes.OK).json({
-      success: true,
-      status: 'success',
-      message: 'Topic deleted successfully',
-    });
+    this.sendMessage(res, 'Topic deleted successfully');
   };
 
   public reorderTopics = async (req: Request, res: Response): Promise<void> => {
     const user = getAuthUser(req);
     const body = req.body as ReorderItemsInput;
     await this.service.reorderTopics(String(req.params.id), body.items, user);
-    res.status(StatusCodes.OK).json({
-      success: true,
-      status: 'success',
-      message: 'Topics reordered successfully',
-    });
+    this.sendMessage(res, 'Topics reordered successfully');
   };
 
   // Subtopic Endpoints
@@ -238,28 +142,14 @@ export class CoursesController extends BaseController {
     const user = getAuthUser(req);
     const body = req.body as CreateSubtopicInput;
     const subtopic = await this.service.createSubtopic(String(req.params.id), body, user);
-    res.status(StatusCodes.CREATED).json({
-      success: true,
-      status: 'success',
-      data: {
-        ...subtopic,
-        subtopic,
-      },
-    });
+    this.sendCreated(res, subtopic);
   };
 
   public updateSubtopic = async (req: Request, res: Response): Promise<void> => {
     const user = getAuthUser(req);
     const body = req.body as UpdateSubtopicInput;
     const subtopic = await this.service.updateSubtopic(String(req.params.id), body, user);
-    res.status(StatusCodes.OK).json({
-      success: true,
-      status: 'success',
-      data: {
-        ...subtopic,
-        subtopic,
-      },
-    });
+    this.sendSuccess(res, subtopic);
   };
 
   public toggleSubtopicStatus = async (req: Request, res: Response): Promise<void> => {
@@ -271,35 +161,20 @@ export class CoursesController extends BaseController {
       user,
       body.expectedUpdatedAt,
     );
-    res.status(StatusCodes.OK).json({
-      success: true,
-      status: 'success',
-      data: {
-        ...subtopic,
-        subtopic,
-      },
-    });
+    this.sendSuccess(res, subtopic);
   };
 
   public deleteSubtopic = async (req: Request, res: Response): Promise<void> => {
     const user = getAuthUser(req);
     await this.service.deleteSubtopic(String(req.params.id), user);
-    res.status(StatusCodes.OK).json({
-      success: true,
-      status: 'success',
-      message: 'Subtopic deleted successfully',
-    });
+    this.sendMessage(res, 'Subtopic deleted successfully');
   };
 
   public reorderSubtopics = async (req: Request, res: Response): Promise<void> => {
     const user = getAuthUser(req);
     const body = req.body as ReorderItemsInput;
     await this.service.reorderSubtopics(String(req.params.id), body.items, user);
-    res.status(StatusCodes.OK).json({
-      success: true,
-      status: 'success',
-      message: 'Subtopics reordered successfully',
-    });
+    this.sendMessage(res, 'Subtopics reordered successfully');
   };
 
   // Assignment Endpoints
@@ -307,49 +182,27 @@ export class CoursesController extends BaseController {
     const user = getAuthUser(req);
     const body = req.body as CreateAssignmentInput;
     const assignment = await this.service.createAssignment(String(req.params.id), body, user);
-    res.status(StatusCodes.CREATED).json({
-      success: true,
-      status: 'success',
-      data: {
-        ...assignment,
-        assignment,
-      },
-    });
+    this.sendCreated(res, assignment);
   };
 
   public updateAssignment = async (req: Request, res: Response): Promise<void> => {
     const user = getAuthUser(req);
     const body = req.body as UpdateAssignmentInput;
     const assignment = await this.service.updateAssignment(String(req.params.id), body, user);
-    res.status(StatusCodes.OK).json({
-      success: true,
-      status: 'success',
-      data: {
-        ...assignment,
-        assignment,
-      },
-    });
+    this.sendSuccess(res, assignment);
   };
 
   public deleteAssignment = async (req: Request, res: Response): Promise<void> => {
     const user = getAuthUser(req);
     await this.service.deleteAssignment(String(req.params.id), user);
-    res.status(StatusCodes.OK).json({
-      success: true,
-      status: 'success',
-      message: 'Assignment deleted successfully',
-    });
+    this.sendMessage(res, 'Assignment deleted successfully');
   };
 
   public reorderAssignments = async (req: Request, res: Response): Promise<void> => {
     const user = getAuthUser(req);
     const body = req.body as ReorderItemsInput;
     await this.service.reorderAssignments(String(req.params.id), body.items, user);
-    res.status(StatusCodes.OK).json({
-      success: true,
-      status: 'success',
-      message: 'Assignments reordered successfully',
-    });
+    this.sendMessage(res, 'Assignments reordered successfully');
   };
 }
 

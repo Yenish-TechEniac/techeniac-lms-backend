@@ -243,17 +243,12 @@ export class CoursesService {
       });
     }
 
-    const displayOrder =
-      data.displayOrder !== undefined
-        ? data.displayOrder
-        : await coursesRepository.getNextTopicOrder(courseId);
-
     const topic = await coursesRepository.createTopic({
       courseId,
       title: data.title,
       description: data.description,
       resources: data.resources,
-      displayOrder,
+      displayOrder: data.displayOrder,
       isActive: data.isActive ?? true,
       estimatedMinutes: data.estimatedMinutes,
       createdBy: user.id,
@@ -429,11 +424,6 @@ export class CoursesService {
       });
     }
 
-    const displayOrder =
-      data.displayOrder !== undefined
-        ? data.displayOrder
-        : await coursesRepository.getNextSubtopicOrder(topicId);
-
     // Sanitize rich-text content (CRS-23)
     const sanitizedContent = data.content ? sanitizeHtml(data.content) : null;
 
@@ -442,7 +432,7 @@ export class CoursesService {
       title: data.title,
       content: sanitizedContent,
       resources: data.resources ?? null,
-      displayOrder,
+      displayOrder: data.displayOrder,
       isActive: data.isActive ?? true,
       estimatedMinutes: data.estimatedMinutes,
       createdBy: user.id,
@@ -605,11 +595,6 @@ export class CoursesService {
       }
     }
 
-    const displayOrder =
-      data.displayOrder !== undefined
-        ? data.displayOrder
-        : await coursesRepository.getNextAssignmentOrder(courseId, data.scope, data.topicId);
-
     // Sanitize instructions
     const sanitizedInstructions = data.instructions ? sanitizeHtml(data.instructions) : null;
 
@@ -617,7 +602,7 @@ export class CoursesService {
       courseId,
       topicId: data.scope === AssignmentScope.TOPIC ? data.topicId : null,
       scope: data.scope,
-      displayOrder,
+      displayOrder: data.displayOrder,
       title: data.title,
       instructions: sanitizedInstructions,
       estimatedMinutes: data.estimatedMinutes,

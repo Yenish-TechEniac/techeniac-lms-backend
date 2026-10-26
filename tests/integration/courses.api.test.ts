@@ -209,10 +209,7 @@ void describe('Courses API Integration Tests', () => {
       assert.equal(res.status, 200);
       const data = (await res.json()) as {
         success: boolean;
-        data?: {
-          courses: Course[];
-          pagination: { page: number; limit: number; total: number; totalPages: number };
-        };
+        data?: Course[];
         meta?: { page: number; limit: number; total: number; totalPages: number };
       };
 
@@ -220,8 +217,8 @@ void describe('Courses API Integration Tests', () => {
       assert.equal(data.meta?.page, 1);
       assert.equal(data.meta?.limit, 20);
       assert.equal(data.meta?.total, 1);
-      assert.equal(data.data?.courses.length, 1);
-      assert.equal(data.data?.pagination.total, 1);
+      assert.equal(Array.isArray(data.data), true);
+      assert.equal(data.data?.length, 1);
     });
 
     void it('properly handles search query with wildcard escaping', async () => {
