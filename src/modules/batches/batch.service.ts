@@ -209,12 +209,7 @@ export class BatchService {
       // Auto-closeout if ARCHIVED
       if (targetStatus === BatchStatus.ARCHIVED) {
         await this.batchRepo.closeoutActiveMentees(id, actorId, manager);
-        await this.mentorMenteeRepo.closeAllMappingsForBatch(
-          id,
-          BatchReasonToLeave.BATCH_ARCHIVED,
-          manager,
-          actorId,
-        );
+        await this.mentorMenteeRepo.closeAllMappingsForBatch(id, 'BATCH_ARCHIVED', manager);
       }
 
       if (targetStatus === BatchStatus.COMPLETED) {
@@ -363,7 +358,6 @@ export class BatchService {
         userId,
         BatchReasonToLeave.REMOVED,
         manager,
-        actorId,
       );
     });
   }
@@ -417,7 +411,6 @@ export class BatchService {
           input.menteeId,
           BatchReasonToLeave.BATCH_TRANSFER,
           manager,
-          actorId,
         );
 
         // 3. Add to target batch
@@ -455,7 +448,7 @@ export class BatchService {
     return membership;
   }
 
-  public async mapMentees(batchId: string, input: MapMenteesInput, actorId?: string) {
+  public async mapMentees(batchId: string, input: MapMenteesInput) {
     const batch = await this.batchRepo.findById(batchId);
     if (!batch) {
       throw new NotFoundError('Batch not found');
@@ -509,7 +502,6 @@ export class BatchService {
               menteeId,
             },
             manager,
-            actorId,
           );
           created.push(mapping);
         }
@@ -524,7 +516,7 @@ export class BatchService {
     }
   }
 
-  public async reassignMentee(batchId: string, input: ReassignMenteeInput, actorId?: string) {
+  public async reassignMentee(batchId: string, input: ReassignMenteeInput) {
     const batch = await this.batchRepo.findById(batchId);
     if (!batch) {
       throw new NotFoundError('Batch not found');
@@ -565,10 +557,8 @@ export class BatchService {
         if (existingMapping) {
           await this.mentorMenteeRepo.closeMapping(
             existingMapping.id,
-            BatchReasonToLeave.REASSIGNED,
+            input.reason ?? 'REASSIGNED',
             manager,
-            actorId,
-            input.reason ?? null,
           );
         }
 
@@ -579,7 +569,6 @@ export class BatchService {
             menteeId: input.menteeId,
           },
           manager,
-          actorId,
         );
       });
     } catch (err) {
