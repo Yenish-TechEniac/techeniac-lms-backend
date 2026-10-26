@@ -10,4 +10,5 @@ export * from './entities/mentor-mentee.entity';
 export * from './mentee.routes';
 export * from './mentor.routes';
 export * from './mentor-mentee.repository';
+export * from './mentor-scope.helper';
 export * from './schemas';

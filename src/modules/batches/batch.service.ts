@@ -1,11 +1,13 @@
 import type { EntityManager } from 'typeorm';
 
 import { AppDataSource, isUniqueViolation } from '../../core/db';
-import { BadRequestError, ConflictError, ForbiddenError, NotFoundError } from '../../core/errors';
-import { UserRepository, userRepository, UserRole } from '../users';
+import { EmailService, emailService } from '../../core/email';
+import { BadRequestError, ConflictError, NotFoundError } from '../../core/errors';
+import { User, UserRepository, userRepository, UserRole } from '../users';
 import { BatchRepository, batchRepository } from './batch.repository';
 import { BatchMember, BatchMemberRole, BatchReasonToLeave, BatchStatus } from './entities';
 import { MentorMenteeRepository, mentorMenteeRepository } from './mentor-mentee.repository';
+import { MentorScopeAction, MentorScopeHelper, mentorScopeHelper } from './mentor-scope.helper';
 import {
   AddBatchMembersInput,
   BatchQueryParams,
@@ -30,6 +32,8 @@ export class BatchService {
     private readonly batchRepo: BatchRepository = batchRepository,
     private readonly userRepo: UserRepository = userRepository,
     private readonly mentorMenteeRepo: MentorMenteeRepository = mentorMenteeRepository,
+    private readonly emailSvc: EmailService = emailService,
+    private readonly mentorScope: MentorScopeHelper = mentorScopeHelper,
   ) {}
 
   public async createBatch(input: CreateBatchInput, actorId: string) {
@@ -450,7 +454,7 @@ export class BatchService {
   ): Promise<BatchMember> {
     const membership = await this.batchRepo.findActiveMemberInBatch(batchId, userId, manager);
     if (!membership || membership.memberRole !== role) {
-      throw new NotFoundError(errorMessage);
+      throw new BadRequestError(errorMessage);
     }
     return membership;
   }
@@ -465,32 +469,51 @@ export class BatchService {
       throw new BadRequestError(`Cannot map mentees in a batch with status ${batch.status}`);
     }
 
-    await this.requireActiveMember(
-      batchId,
-      input.mentorId,
-      BatchMemberRole.MENTOR,
-      'Specified mentor is not an active mentor member in this batch',
+    const [mentorUser] = await Promise.all([
+      this.userRepo.findById(input.mentorId),
+      this.requireActiveMember(
+        batchId,
+        input.mentorId,
+        BatchMemberRole.MENTOR,
+        'Specified mentor is not an active mentor member in this batch',
+      ),
+    ]);
+    if (!mentorUser || mentorUser.role !== UserRole.MENTOR) {
+      throw new BadRequestError('User does not have the MENTOR role');
+    }
+
+    const uniqueMenteeIds = [...new Set(input.menteeIds)];
+    const menteeUsers = await Promise.all(
+      uniqueMenteeIds.map(async (menteeId) => {
+        if (menteeId === input.mentorId) {
+          throw new BadRequestError('A mentor cannot be mapped to themselves as a mentee');
+        }
+
+        const menteeUser = await this.userRepo.findById(menteeId);
+        if (!menteeUser || menteeUser.role !== UserRole.MENTEE) {
+          throw new BadRequestError(`User ${menteeId} does not have the MENTEE role`);
+        }
+        return menteeUser;
+      }),
     );
 
     try {
-      return await AppDataSource.transaction(async (manager) => {
-        const created = [];
-        for (const menteeId of input.menteeIds) {
-          if (menteeId === input.mentorId) {
-            throw new BadRequestError('A mentor cannot be mapped to themselves as a mentee');
-          }
+      const { created, mappedMenteeUsers } = await AppDataSource.transaction(async (manager) => {
+        const createdRecords = [];
+        const mappedUsers: User[] = [];
 
+        for (const menteeUser of menteeUsers) {
           await this.requireActiveMember(
             batchId,
-            menteeId,
+            menteeUser.id,
             BatchMemberRole.MENTEE,
-            `User ${menteeId} is not an active mentee member in this batch`,
+            `User ${menteeUser.id} is not an active mentee member in this batch`,
             manager,
           );
 
           const existingMapping = await this.mentorMenteeRepo.findActiveByMenteeAndBatch(
             batchId,
-            menteeId,
+            menteeUser.id,
             manager,
           );
           if (existingMapping) {
@@ -506,16 +529,38 @@ export class BatchService {
             {
               batchId,
               mentorId: input.mentorId,
-              menteeId,
+              menteeId: menteeUser.id,
             },
             manager,
             actorId,
           );
-          created.push(mapping);
+          createdRecords.push(mapping);
+          mappedUsers.push(menteeUser);
         }
 
-        return created;
+        return { created: createdRecords, mappedMenteeUsers: mappedUsers };
       });
+
+      // Post-commit notifications (PRD Section 7.2)
+      for (const menteeUser of mappedMenteeUsers) {
+        void this.emailSvc.sendMentorMappedEmail({
+          to: mentorUser.email,
+          recipientName: mentorUser.name,
+          isMentor: true,
+          otherPartyName: menteeUser.name,
+          batchName: batch.name,
+        });
+
+        void this.emailSvc.sendMentorMappedEmail({
+          to: menteeUser.email,
+          recipientName: menteeUser.name,
+          isMentor: false,
+          otherPartyName: mentorUser.name,
+          batchName: batch.name,
+        });
+      }
+
+      return created;
     } catch (err) {
       if (isUniqueViolation(err)) {
         throw new ConflictError('Mentee is already actively mapped in this batch');
@@ -538,19 +583,30 @@ export class BatchService {
       throw new BadRequestError('A mentor cannot be mapped to themselves as a mentee');
     }
 
-    await this.requireActiveMember(
-      batchId,
-      input.newMentorId,
-      BatchMemberRole.MENTOR,
-      'Target mentor is not an active mentor member in this batch',
-    );
+    const [newMentorUser, menteeUser] = await Promise.all([
+      this.userRepo.findById(input.newMentorId),
+      this.userRepo.findById(input.menteeId),
+      this.requireActiveMember(
+        batchId,
+        input.newMentorId,
+        BatchMemberRole.MENTOR,
+        'Target mentor is not an active mentor member in this batch',
+      ),
+      this.requireActiveMember(
+        batchId,
+        input.menteeId,
+        BatchMemberRole.MENTEE,
+        'Mentee is not an active member in this batch',
+      ),
+    ]);
 
-    await this.requireActiveMember(
-      batchId,
-      input.menteeId,
-      BatchMemberRole.MENTEE,
-      'Mentee is not an active member in this batch',
-    );
+    if (!newMentorUser || newMentorUser.role !== UserRole.MENTOR) {
+      throw new BadRequestError('Target mentor does not have the MENTOR role');
+    }
+
+    if (!menteeUser || menteeUser.role !== UserRole.MENTEE) {
+      throw new BadRequestError('Target user does not have the MENTEE role');
+    }
 
     const existingMapping = await this.mentorMenteeRepo.findActiveByMenteeAndBatch(
       batchId,
@@ -561,7 +617,11 @@ export class BatchService {
     }
 
     try {
-      return await AppDataSource.transaction(async (manager) => {
+      const oldMentorUser = existingMapping?.mentorId
+        ? await this.userRepo.findById(existingMapping.mentorId)
+        : null;
+
+      const result = await AppDataSource.transaction(async (manager) => {
         if (existingMapping) {
           await this.mentorMenteeRepo.closeMapping(
             existingMapping.id,
@@ -581,6 +641,41 @@ export class BatchService {
           actorId,
         );
       });
+
+      // Post-commit reassignment notifications (PRD Section 7.2)
+      void this.emailSvc.sendMenteeReassignedEmail({
+        to: menteeUser.email,
+        recipientName: menteeUser.name,
+        recipientRole: 'MENTEE',
+        menteeName: menteeUser.name,
+        mentorName: newMentorUser.name,
+        batchName: batch.name,
+        reason: input.reason ?? undefined,
+      });
+
+      void this.emailSvc.sendMenteeReassignedEmail({
+        to: newMentorUser.email,
+        recipientName: newMentorUser.name,
+        recipientRole: 'NEW_MENTOR',
+        menteeName: menteeUser.name,
+        mentorName: newMentorUser.name,
+        batchName: batch.name,
+        reason: input.reason ?? undefined,
+      });
+
+      if (oldMentorUser) {
+        void this.emailSvc.sendMenteeReassignedEmail({
+          to: oldMentorUser.email,
+          recipientName: oldMentorUser.name,
+          recipientRole: 'PREVIOUS_MENTOR',
+          menteeName: menteeUser.name,
+          mentorName: newMentorUser.name,
+          batchName: batch.name,
+          reason: input.reason ?? undefined,
+        });
+      }
+
+      return result;
     } catch (err) {
       if (isUniqueViolation(err)) {
         throw new ConflictError('Mentee is already actively mapped in this batch');
@@ -617,15 +712,22 @@ export class BatchService {
   }
 
   public async getBatchByIdForMentor(batchId: string, mentorId: string) {
-    const membership = await this.batchRepo.findActiveMemberInBatch(batchId, mentorId);
-    if (!membership || membership.memberRole !== BatchMemberRole.MENTOR) {
-      throw new ForbiddenError('You are not an active mentor assigned to this batch');
-    }
+    await this.mentorScope.requireMentorScope(MentorScopeAction.MANAGE_ALLOCATION, {
+      mentorId,
+      batchId,
+    });
 
     return await this.getBatchById(batchId);
   }
 
   public async getMenteesForMentor(mentorId: string, batchId?: string) {
+    if (batchId) {
+      await this.mentorScope.requireMentorScope(MentorScopeAction.MANAGE_ALLOCATION, {
+        mentorId,
+        batchId,
+      });
+    }
+
     const mappings = await this.mentorMenteeRepo.findActiveMappingsForMentor(mentorId, batchId);
     return mappings.map((m) => ({
       id: m.id,
