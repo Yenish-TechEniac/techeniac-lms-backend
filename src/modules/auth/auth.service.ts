@@ -14,7 +14,12 @@ import {
 } from '../../core/auth';
 import { AppDataSource } from '../../core/db';
 import { emailService } from '../../core/email';
-import { ForbiddenError, NotFoundError, UnauthorizedError, BadRequestError } from '../../core/errors';
+import {
+  BadRequestError,
+  ForbiddenError,
+  NotFoundError,
+  UnauthorizedError,
+} from '../../core/errors';
 import { logger } from '../../core/logging';
 import { User, UserRepository, userRepository, UserRole } from '../users';
 import { Token, TokenRevokeReason, TokenType } from './entities/token.entity';
@@ -56,7 +61,7 @@ export interface IAuthService {
   forgotPassword(input: ForgotPasswordInput): Promise<void>;
   resetPassword(input: ResetPasswordInput): Promise<void>;
   verifyResetToken(token: string): Promise<VerifyResetTokenResult>;
-  changePassword(userId: string, input: ChangePasswordInput): Promise<void>;
+  changePassword(userId: string, input: ChangePasswordInput): Promise<AuthResult>;
 }
 
 export class AuthService implements IAuthService {
@@ -391,7 +396,7 @@ export class AuthService implements IAuthService {
     return { valid: usable !== null };
   }
 
-  public async changePassword(userId: string, input: ChangePasswordInput): Promise<void> {
+  public async changePassword(userId: string, input: ChangePasswordInput): Promise<AuthResult> {
     const user = await this.userRepo.findByIdWithPassword(userId);
     if (!user) {
       throw new NotFoundError('User not found');
