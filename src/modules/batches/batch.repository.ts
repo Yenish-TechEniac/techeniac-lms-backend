@@ -145,8 +145,8 @@ export class BatchRepository {
       );
     }
 
-    if (params.status) {
-      qb.andWhere('batch.status = :status', { status: params.status });
+    if (params.status && params.status.length > 0) {
+      qb.andWhere('batch.status IN (:...statuses)', { statuses: params.status });
     }
 
     if (params.search) {

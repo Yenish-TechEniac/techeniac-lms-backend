@@ -124,7 +124,24 @@ export const batchQuerySchema = z.object({
     page: z.coerce.number().int().min(1).default(1),
     limit: z.coerce.number().int().min(1).max(100).default(20),
     search: z.string().max(100).optional(),
-    status: z.nativeEnum(BatchStatus).optional(),
+    status: z
+      .union([z.nativeEnum(BatchStatus), z.array(z.nativeEnum(BatchStatus)), z.string()])
+      .optional()
+      .transform((val): BatchStatus[] | undefined => {
+        if (!val) return undefined;
+        if (Array.isArray(val)) {
+          const valid = val.filter((s): s is BatchStatus => Object.values(BatchStatus).includes(s));
+          return valid.length > 0 ? valid : undefined;
+        }
+        if (typeof val === 'string') {
+          const parts = val.split(',').map((s) => s.trim());
+          const valid = parts.filter((s): s is BatchStatus =>
+            Object.values(BatchStatus).includes(s as BatchStatus),
+          );
+          return valid.length > 0 ? valid : undefined;
+        }
+        return undefined;
+      }),
   }),
 });
 
