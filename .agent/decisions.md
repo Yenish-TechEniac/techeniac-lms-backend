@@ -322,3 +322,26 @@
 - **Consequences**:
   - In M2, directory search will perform sequential scans on the `users` table.
   - A follow-up migration enabling `pg_trgm` and creating GIN trigram indexes on `name` and `email` is tracked for future scale milestones.
+
+---
+
+## ADR-017: Lifecycle Event Bus Guarantees and In-Process Event Routing
+
+- **Date**: 2026-10-26
+- **Status**: Accepted
+- **Context**: Module 6 Course Builder requires notifying downstream listeners (e.g., Module 8 progress recalculation per FR-6.15) when course topics are added, deactivated, reactivated, or deleted (`course.topicsChanged`). We must establish the architectural guarantees, type safety, and boundaries of the event mechanism.
+- **Options**:
+  1. Direct cross-module method invocation (e.g., `CoursesService` calling `ProgressService`).
+  2. Durable queue via BullMQ for every lifecycle notification immediately.
+  3. Strongly typed, in-process Node.js EventEmitter (`LifecycleEventBus` in `src/core/lifecycle/`) with explicit best-effort guarantees, deferring distributed BullMQ jobs to dedicated workers.
+- **Choice**: Option 3.
+- **Reasons**:
+  - Prevents tight coupling between domain modules and preserves modular encapsulation.
+  - Strict type safety: Removing the `[key: string]: unknown` index signature guarantees that only explicitly declared events in `LifecycleEvents` can be emitted or listened to.
+  - Async isolation: Asynchronous listener errors are caught and logged with Pino without crashing the server or aborting HTTP request handlers.
+  - Explicit Guarantees: The event bus is in-process and best-effort. It is non-transactional and events are not replayed on process restart. Durable asynchronous workflows must be routed via BullMQ per ADR-007.
+- **Consequences**:
+  - `eventBus` is centralized in `src/core/lifecycle`.
+  - Events must be typed in `LifecycleEvents`.
+  - Downstream modules can subscribe via `eventBus.onEvent`.
+  - Critical tasks requiring delivery guarantees must enqueue to BullMQ rather than rely solely on in-process memory.

@@ -19,6 +19,10 @@
     "migration:revert": "typeorm-ts-node-commonjs migration:revert -d src/core/db/migration-source.ts",
     "migration:generate": "typeorm-ts-node-commonjs migration:generate -d src/core/db/migration-source.ts",
     "migration:create": "typeorm-ts-node-commonjs migration:create",
+    "test": "tsx --test 'tests/**/*.test.ts'",
+    "test:unit": "tsx --test 'tests/unit/**/*.test.ts'",
+    "test:auth": "tsx scripts/test-auth-endpoints.ts",
+    "test:courses": "tsx scripts/test-course-endpoints.ts",
     "seed:admin": "tsx --env-file=.env scripts/seed-admin.ts",
     "prepare": "husky"
   },
@@ -36,6 +40,7 @@
     "pg": "^8.13.3",
     "pino": "^10.4.0",
     "reflect-metadata": "^0.2.2",
+    "sanitize-html": "^2.18.1",
     "typeorm": "^0.3.20",
     "zod": "^3.24.2"
   },
@@ -47,6 +52,7 @@
     "@types/jsonwebtoken": "^9.0.10",
     "@types/node": "^24.0.0",
     "@types/pg": "^8.11.11",
+    "@types/sanitize-html": "^2.16.2",
     "eslint": "^9.21.0",
     "eslint-config-prettier": "^10.1.1",
     "eslint-plugin-simple-import-sort": "^12.1.1",

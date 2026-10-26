@@ -8,6 +8,7 @@ import { healthRouter } from './core/health';
 import { corsMiddleware, errorMiddleware, notFoundMiddleware } from './core/http';
 import { authRouter } from './modules/auth';
 import { batchRouter, menteeRouter, mentorRouter } from './modules/batches';
+import { coursesRouter } from './modules/courses';
 // eslint-disable-next-line architecture/cross-module-index-imports -- router mount isolated from barrel to eliminate circular dependency
 import { usersRouter } from './modules/users/users.routes';
 
@@ -35,6 +36,7 @@ export function createApp(): Express {
 
   app.use('/api/v1/auth', authRouter);
   app.use('/api/v1/users', usersRouter);
+  app.use('/api/v1/courses', coursesRouter);
   app.use('/api/v1/batches', batchRouter);
   app.use('/api/v1/mentor', mentorRouter);
   app.use('/api/v1/mentee', menteeRouter);
