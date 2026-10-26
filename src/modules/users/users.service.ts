@@ -22,6 +22,8 @@ import type {
   UserQueryParams,
 } from './users.schemas';
 
+export type RoleChangeBlockReason = 'SAME_ROLE' | 'LAST_SUPER_ADMIN' | 'ACTIVE_MENTEES';
+
 function pickRandomChar(source: string): string {
   const index = crypto.randomInt(0, source.length);
   const char = source[index];
@@ -190,16 +192,6 @@ export class UsersService {
       throw new ForbiddenError('Super Admin cannot change own role', 'CANNOT_CHANGE_OWN_ROLE');
     }
 
-    if (user.role === UserRole.SUPER_ADMIN && input.newRole !== UserRole.SUPER_ADMIN) {
-      const activeAdmins = await this.repo.countActiveSuperAdmins();
-      if (activeAdmins <= 1) {
-        throw new BadRequestError(
-          'Cannot demote the last active Super Admin',
-          'CANNOT_DEMOTE_LAST_SUPER_ADMIN',
-        );
-      }
-    }
-
     if (
       user.role === UserRole.MENTOR &&
       (input.newRole === UserRole.MENTEE || input.newRole === UserRole.SUPER_ADMIN)
@@ -218,6 +210,16 @@ export class UsersService {
 
     try {
       return await this.repo.transaction(async (manager) => {
+        if (previousRole === UserRole.SUPER_ADMIN && input.newRole !== UserRole.SUPER_ADMIN) {
+          const activeAdmins = await this.repo.lockAndCountActiveSuperAdmins(manager);
+          if (activeAdmins <= 1) {
+            throw new BadRequestError(
+              'Cannot demote the last active Super Admin',
+              'CANNOT_DEMOTE_LAST_SUPER_ADMIN',
+            );
+          }
+        }
+
         const savedUser = await this.repo.save(user, manager);
 
         await this.repo.incrementTokenVersion(user.id, manager);
@@ -236,18 +238,7 @@ export class UsersService {
         );
 
         // PRD Section 4: Role Change Impact Matrix closures
-        if (previousRole === UserRole.MENTEE) {
-          await batchRepository.closeActiveMembershipsForUser(
-            user.id,
-            BatchReasonToLeave.ROLE_CHANGE,
-            manager,
-          );
-          await mentorMenteeRepository.closeAllActiveMappingsForUser(
-            user.id,
-            BatchReasonToLeave.ROLE_CHANGE,
-            manager,
-          );
-        } else if (previousRole === UserRole.MENTOR) {
+        if (previousRole === UserRole.MENTEE || previousRole === UserRole.MENTOR) {
           await batchRepository.closeActiveMembershipsForUser(
             user.id,
             BatchReasonToLeave.ROLE_CHANGE,
@@ -322,7 +313,7 @@ export class UsersService {
     isSameRole: boolean;
     willRevokeSessions: boolean;
     isBlocked: boolean;
-    blockReason: string | null;
+    blockReason: RoleChangeBlockReason | null;
     activeMenteesCount: number;
     activeMentees: Array<{
       id: string;
@@ -338,7 +329,7 @@ export class UsersService {
     const isSameRole = user.role === newRole;
 
     let isBlocked = false;
-    let blockReason: string | null = null;
+    let blockReason: RoleChangeBlockReason | null = null;
     let activeMentees: Array<{
       id: string;
       name: string;
