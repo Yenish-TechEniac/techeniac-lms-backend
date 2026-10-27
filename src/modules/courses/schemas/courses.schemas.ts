@@ -65,9 +65,13 @@ export const listCoursesQuerySchema = z.object({
     limit: z.coerce.number().int().positive().max(100).default(20),
     search: z.string().trim().max(100).optional(),
     isActive: z
-      .enum(['true', 'false', 'all'])
+      .union([z.boolean(), z.enum(['true', 'false', 'all'])])
       .optional()
-      .transform((val) => (val === undefined || val === 'all' ? undefined : val === 'true')),
+      .transform((val) => {
+        if (typeof val === 'boolean') return val;
+        if (val === undefined || val === 'all') return undefined;
+        return val === 'true';
+      }),
     sortBy: z.enum(['createdAt', 'title', 'updatedAt']).default('createdAt'),
     sortOrder: z.enum(['asc', 'desc']).default('desc'),
   }),
