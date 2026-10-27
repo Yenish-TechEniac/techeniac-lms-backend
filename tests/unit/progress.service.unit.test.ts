@@ -2,10 +2,16 @@ import assert from 'node:assert/strict';
 import { beforeEach, describe, it } from 'node:test';
 
 import type { AuthenticatedUser } from '../../src/core/auth';
+import { emailService } from '../../src/core/email';
 import { ForbiddenError, ValidationError } from '../../src/core/errors';
 import { CourseTopicAction } from '../../src/core/lifecycle';
 import { CourseAllocation, CourseAllocationStatus } from '../../src/modules/allocations';
-import { Batch, BatchStatus, mentorScopeHelper } from '../../src/modules/batches';
+import {
+  Batch,
+  BatchStatus,
+  mentorMenteeRepository,
+  mentorScopeHelper,
+} from '../../src/modules/batches';
 import type { Topic } from '../../src/modules/courses';
 import {
   ProgressPolicy,
@@ -13,6 +19,7 @@ import {
   ProgressService,
   TopicProgress,
   TopicProgressStatus,
+  trackerQuerySchema,
   updateTopicDeadlineSchema,
   updateTopicStatusSchema,
 } from '../../src/modules/progress';
@@ -65,6 +72,8 @@ void describe('ProgressService Unit Tests (PRD M8: PRG-01 to PRG-20)', () => {
     mockRepo = new ProgressRepository();
     mockPolicy = new ProgressPolicy();
     service = new ProgressService(mockRepo, mockPolicy);
+    emailService.sendTopicDeadlineChangedEmail = () => Promise.resolve();
+    emailService.sendAllocationCompletedEmail = () => Promise.resolve();
   });
 
   void describe('handleAllocationCreated (ALC-24, FR-7.1, M8)', () => {
@@ -581,6 +590,70 @@ void describe('ProgressService Unit Tests (PRD M8: PRG-01 to PRG-20)', () => {
     });
   });
 
+  void describe('getProgressTracker (FR-8.7)', () => {
+    void it('aggregates progress counts and active topics in batch without N+1 queries', async () => {
+      const mockAllocations: CourseAllocation[] = [
+        {
+          id: 'alloc-1',
+          userId: 'mentee-1',
+          user: { name: 'Mentee One' },
+          batchId: 'batch-1',
+          batch: { name: 'Batch Alpha' },
+          courseId: 'course-1',
+          course: { title: 'Node.js Core' },
+          dueDate: new Date(Date.now() + 86400000),
+          progressPercent: 66.67,
+          status: CourseAllocationStatus.IN_PROGRESS,
+        } as unknown as CourseAllocation,
+      ];
+
+      mockRepo.listTrackers = (opts) => {
+        assert.equal(opts.limit, 50);
+        return Promise.resolve({ allocations: mockAllocations, total: 1 });
+      };
+
+      mockRepo.findActiveTopicsByCourseIds = (courseIds) => {
+        assert.deepEqual(courseIds, ['course-1']);
+        return Promise.resolve(mockActiveTopics);
+      };
+
+      mockRepo.listByAllocationIds = (allocIds) => {
+        assert.deepEqual(allocIds, ['alloc-1']);
+        return Promise.resolve([
+          {
+            topicId: 'topic-1',
+            courseAllocationId: 'alloc-1',
+            status: TopicProgressStatus.COMPLETED,
+          } as TopicProgress,
+          {
+            topicId: 'topic-2',
+            courseAllocationId: 'alloc-1',
+            status: TopicProgressStatus.COMPLETED,
+          } as TopicProgress,
+        ]);
+      };
+
+      const result = await service.getProgressTracker({ page: 1, limit: 50 }, adminUser);
+
+      assert.equal(result.trackers.length, 1);
+      assert.equal(result.trackers[0].allocationId, 'alloc-1');
+      assert.equal(result.trackers[0].totalActiveTopics, 3);
+      assert.equal(result.trackers[0].completedTopicsCount, 2);
+      assert.equal(result.trackers[0].overdueTopicsCount, 0);
+      assert.equal(result.trackers[0].isOverdue, false);
+      assert.equal(result.pagination.total, 1);
+    });
+
+    void it('returns empty trackers when actor is MENTOR with no active mentor mappings', async () => {
+      mentorMenteeRepository.findActiveMappingsForMentor = () => Promise.resolve([]);
+
+      const result = await service.getProgressTracker({ batchId: 'batch-1' }, mentorUser);
+
+      assert.equal(result.trackers.length, 0);
+      assert.equal(result.pagination.total, 0);
+    });
+  });
+
   void describe('Schema Validation', () => {
     void it('validates correct updateTopicStatus payload', () => {
       const valid = updateTopicStatusSchema.safeParse({
@@ -609,6 +682,15 @@ void describe('ProgressService Unit Tests (PRD M8: PRG-01 to PRG-20)', () => {
         deadline: 'next-friday',
       });
       assert.equal(invalid.success, false);
+    });
+
+    void it('validates trackerQuerySchema with defaults and pagination bounds', () => {
+      const parsed = trackerQuerySchema.parse({});
+      assert.equal(parsed.page, 1);
+      assert.equal(parsed.limit, 20);
+
+      const invalidLimit = trackerQuerySchema.safeParse({ limit: 500 });
+      assert.equal(invalidLimit.success, false);
     });
   });
 });

@@ -2,6 +2,7 @@ import { EntityManager, In, IsNull } from 'typeorm';
 
 import { AppDataSource } from '../../core/db';
 import { CourseAllocation, CourseAllocationStatus } from '../allocations';
+import { MentorMentee } from '../batches';
 import { Topic } from '../courses';
 import { TopicProgress, TopicProgressStatus } from './entities';
 
@@ -143,6 +144,7 @@ export class ProgressRepository {
     courseId?: string;
     batchIds?: string[];
     menteeIds?: string[];
+    mentorId?: string;
     search?: string;
     page?: number;
     limit?: number;
@@ -153,6 +155,15 @@ export class ProgressRepository {
       .leftJoinAndSelect('alloc.course', 'course')
       .leftJoinAndSelect('alloc.batch', 'batch')
       .where('alloc.deletedAt IS NULL');
+
+    if (options.mentorId) {
+      qb.innerJoin(
+        MentorMentee,
+        'mm',
+        'mm.batchId = alloc.batchId AND mm.menteeId = alloc.userId AND mm.mentorId = :mentorId AND mm.isActive = true AND mm.deletedAt IS NULL',
+        { mentorId: options.mentorId },
+      );
+    }
 
     if (options.batchId) {
       qb.andWhere('alloc.batchId = :batchId', { batchId: options.batchId });

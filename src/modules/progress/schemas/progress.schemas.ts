@@ -22,10 +22,6 @@ export const trackerQuerySchema = z.object({
   limit: z.coerce.number().int().min(1).max(100).default(20),
 });
 
-export const topicProgressQuerySchema = z.object({
-  status: topicProgressStatusSchema.optional(),
-});
-
 // HTTP Route Validation Schemas (used with validate() middleware)
 export const getTopicProgressRouteSchema = z.object({
   params: z.object({
@@ -56,4 +52,3 @@ export const getProgressTrackerRouteSchema = z.object({
 export type UpdateTopicStatusInput = z.infer<typeof updateTopicStatusSchema>;
 export type UpdateTopicDeadlineInput = z.infer<typeof updateTopicDeadlineSchema>;
 export type TrackerQueryInput = z.infer<typeof trackerQuerySchema>;
-export type TopicProgressQueryInput = z.infer<typeof topicProgressQuerySchema>;

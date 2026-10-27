@@ -10,7 +10,11 @@ import { userRepository, UserRole } from '../users';
 import { TopicProgress, TopicProgressStatus } from './entities';
 import { ProgressPolicy, progressPolicy } from './progress.policy';
 import { ProgressRepository, progressRepository } from './progress.repository';
-import type { UpdateTopicDeadlineInput, UpdateTopicStatusInput } from './schemas';
+import type {
+  TrackerQueryInput,
+  UpdateTopicDeadlineInput,
+  UpdateTopicStatusInput,
+} from './schemas';
 
 export class ProgressService {
   constructor(
@@ -349,15 +353,8 @@ export class ProgressService {
   /**
    * Progress Tracker query for Super Admin and Mentor within Mentor Scope (FR-8.7).
    */
-  async getMenteeProgressTracker(
-    query: {
-      batchId?: string;
-      menteeId?: string;
-      courseId?: string;
-      search?: string;
-      page?: number;
-      limit?: number;
-    },
+  async getProgressTracker(
+    query: TrackerQueryInput,
     actor: AuthenticatedUser,
   ): Promise<{
     trackers: Array<{
@@ -386,10 +383,11 @@ export class ProgressService {
       await this.policy.assertCanTrackMentee(actor, query.menteeId, query.batchId);
     }
 
+    const isMentor = (actor.role as UserRole) === UserRole.MENTOR;
     let mappedMenteeIds: string[] | undefined = undefined;
     let mappedBatchIds: string[] | undefined = undefined;
 
-    if ((actor.role as UserRole) === UserRole.MENTOR) {
+    if (isMentor) {
       const mappings = await mentorMenteeRepository.findActiveMappingsForMentor(
         actor.id,
         query.batchId,

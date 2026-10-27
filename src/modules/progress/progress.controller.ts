@@ -53,7 +53,7 @@ export class ProgressController extends BaseController {
   public getProgressTracker = async (req: Request, res: Response): Promise<void> => {
     const actor = this.getAuthUser(req);
     const query = req.query as unknown as TrackerQueryInput;
-    const result = await this.service.getMenteeProgressTracker(query, actor);
+    const result = await this.service.getProgressTracker(query, actor);
     this.sendSuccess(res, { trackers: result.trackers, pagination: result.pagination });
   };
 }
