@@ -5,8 +5,8 @@ import { emailService } from '../../core/email';
 import { NotFoundError } from '../../core/errors';
 import { CourseTopicAction } from '../../core/lifecycle';
 import { logger } from '../../core/logging';
-import { CourseAllocationStatus } from '../allocations';
-import { BatchStatus, mentorMenteeRepository } from '../batches';
+import { CourseAllocation, CourseAllocationStatus } from '../allocations';
+import { BatchStatus, mentorMenteeRepository, mentorScopeHelper } from '../batches';
 import { Topic } from '../courses';
 import { userRepository, UserRole } from '../users';
 import { TopicProgress, TopicProgressStatus } from './entities';
@@ -68,15 +68,14 @@ export class ProgressService {
   async recalculateProgress(
     allocationId: string,
     manager?: EntityManager,
+    existingAllocation?: CourseAllocation,
   ): Promise<{
     progressPercent: number;
     status: CourseAllocationStatus;
   }> {
-    const allocation = await this.repository.findAllocationById(
-      allocationId,
-      manager,
-      Boolean(manager),
-    );
+    const allocation =
+      existingAllocation ??
+      (await this.repository.findAllocationById(allocationId, manager, Boolean(manager)));
     if (!allocation) {
       throw new NotFoundError(`Allocation with id ${allocationId} not found`);
     }
@@ -213,7 +212,7 @@ export class ProgressService {
       );
 
       // Recalculate allocation progress % and status in the same transaction with row lock
-      return await this.recalculateProgress(allocationId, manager);
+      return await this.recalculateProgress(allocationId, manager, allocation);
     });
 
     return {
@@ -449,8 +448,39 @@ export class ProgressService {
       limit,
     });
 
-    const courseIds = [...new Set(allocations.map((a) => a.courseId))];
-    const allocationIds = allocations.map((a) => a.id);
+    let filteredAllocations = allocations;
+    if (isMentor) {
+      const allowedAllocations: CourseAllocation[] = [];
+      for (const alloc of allocations) {
+        if (!alloc.batchId) {
+          continue;
+        }
+        const canTrack = await mentorScopeHelper.canMentorReviewAndTrack(
+          actor.id,
+          alloc.userId,
+          alloc.batchId,
+        );
+        if (canTrack) {
+          allowedAllocations.push(alloc);
+        }
+      }
+      filteredAllocations = allowedAllocations;
+    }
+
+    if (filteredAllocations.length === 0) {
+      return {
+        trackers: [],
+        pagination: {
+          page,
+          limit,
+          total: 0,
+          totalPages: 0,
+        },
+      };
+    }
+
+    const courseIds = [...new Set(filteredAllocations.map((a) => a.courseId))];
+    const allocationIds = filteredAllocations.map((a) => a.id);
 
     const [activeTopicsList, progressRowsList] = await Promise.all([
       this.repository.findActiveTopicsByCourseIds(courseIds),
@@ -489,7 +519,7 @@ export class ProgressService {
 
     const now = new Date();
 
-    for (const alloc of allocations) {
+    for (const alloc of filteredAllocations) {
       const activeTopics = topicsByCourse.get(alloc.courseId) ?? [];
       const progressRows = progressByAlloc.get(alloc.id) ?? [];
 
@@ -558,7 +588,14 @@ export class ProgressService {
     }
 
     for (const alloc of openAllocations) {
-      await this.recalculateProgress(alloc.id);
+      try {
+        await this.recalculateProgress(alloc.id, undefined, alloc);
+      } catch (err: unknown) {
+        logger.error(
+          { err, allocationId: alloc.id, courseId: payload.courseId },
+          '[ProgressService] Failed to recalculate progress for allocation during topicsChanged event',
+        );
+      }
     }
   }
 

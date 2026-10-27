@@ -3,12 +3,13 @@ import { beforeEach, describe, it } from 'node:test';
 
 import type { AuthenticatedUser } from '../../src/core/auth';
 import { emailService } from '../../src/core/email';
-import { ForbiddenError, ValidationError } from '../../src/core/errors';
+import { ForbiddenError, NotFoundError, ValidationError } from '../../src/core/errors';
 import { CourseTopicAction } from '../../src/core/lifecycle';
 import { CourseAllocation, CourseAllocationStatus } from '../../src/modules/allocations';
 import {
   Batch,
   BatchStatus,
+  MentorMentee,
   mentorMenteeRepository,
   mentorScopeHelper,
 } from '../../src/modules/batches';
@@ -23,6 +24,7 @@ import {
   updateTopicDeadlineSchema,
   updateTopicStatusSchema,
 } from '../../src/modules/progress';
+import { User, userRepository } from '../../src/modules/users';
 
 const createTestUser = (overrides: Partial<AuthenticatedUser>): AuthenticatedUser => ({
   id: 'test-user-id',
@@ -238,6 +240,150 @@ void describe('ProgressService Unit Tests (PRD M8: PRG-01 to PRG-20)', () => {
         (err: unknown) => err instanceof ForbiddenError,
       );
     });
+
+    void it('serializes concurrent status updates on the same allocation safely (PRG-20)', async () => {
+      const allocation = {
+        id: 'alloc-1',
+        userId: 'mentee-1',
+        courseId: 'course-1',
+        status: CourseAllocationStatus.ASSIGNED,
+        progressPercent: 0,
+        batch: { status: BatchStatus.LIVE } as Batch,
+      } as CourseAllocation;
+
+      const progressRows: Record<string, TopicProgress> = {
+        'topic-1': {
+          id: 'tp-1',
+          courseAllocationId: 'alloc-1',
+          topicId: 'topic-1',
+          status: TopicProgressStatus.NOT_STARTED,
+          completedAt: null,
+          note: null,
+        } as TopicProgress,
+        'topic-2': {
+          id: 'tp-2',
+          courseAllocationId: 'alloc-1',
+          topicId: 'topic-2',
+          status: TopicProgressStatus.NOT_STARTED,
+          completedAt: null,
+          note: null,
+        } as TopicProgress,
+      };
+
+      mockRepo.findAllocationById = () => Promise.resolve(allocation);
+      mockRepo.findByAllocationAndTopic = (_allocId, topicId) =>
+        Promise.resolve(progressRows[topicId]);
+      mockRepo.findActiveTopicsByCourseId = () => Promise.resolve(mockActiveTopics);
+      mockRepo.updateTopicProgressStatus = (id, updates) => {
+        const found = Object.values(progressRows).find((p) => p.id === id);
+        if (found) {
+          found.status = updates.status;
+          found.completedAt = updates.completedAt;
+          found.note = updates.note ?? null;
+        }
+        return Promise.resolve();
+      };
+      mockRepo.listByAllocationId = () => Promise.resolve(Object.values(progressRows));
+      mockRepo.updateAllocationProgress = (_id, updates) => {
+        allocation.progressPercent = updates.progressPercent;
+        if (updates.status) allocation.status = updates.status;
+        return Promise.resolve();
+      };
+
+      // Concurrent updates for topic-1 and topic-2 on the same allocation
+      const [res1, res2] = await Promise.all([
+        service.updateTopicStatus(
+          'alloc-1',
+          'topic-1',
+          { status: TopicProgressStatus.COMPLETED },
+          menteeUser,
+        ),
+        service.updateTopicStatus(
+          'alloc-1',
+          'topic-2',
+          { status: TopicProgressStatus.COMPLETED },
+          menteeUser,
+        ),
+      ]);
+
+      assert.equal(res1.topicProgress.status, TopicProgressStatus.COMPLETED);
+      assert.equal(res2.topicProgress.status, TopicProgressStatus.COMPLETED);
+      assert.equal(allocation.status, CourseAllocationStatus.IN_PROGRESS);
+      assert.equal(allocation.progressPercent, 66.67);
+    });
+
+    void it('self-heals missing topic progress row on updateTopicStatus if topic belongs to course', async () => {
+      const allocation = {
+        id: 'alloc-1',
+        userId: 'mentee-1',
+        courseId: 'course-1',
+        status: CourseAllocationStatus.ASSIGNED,
+        progressPercent: 0,
+        batch: { status: BatchStatus.LIVE } as Batch,
+      } as CourseAllocation;
+
+      let created = false;
+      let progressRow: TopicProgress | null = null;
+
+      mockRepo.findAllocationById = () => Promise.resolve(allocation);
+      mockRepo.findByAllocationAndTopic = () => Promise.resolve(progressRow);
+      mockRepo.findTopicById = (id) =>
+        Promise.resolve({ id, courseId: 'course-1', isActive: true } as Topic);
+      mockRepo.initializeTopicProgressForAllocations = () => {
+        created = true;
+        progressRow = {
+          id: 'tp-lazy-1',
+          courseAllocationId: 'alloc-1',
+          topicId: 'topic-1',
+          status: TopicProgressStatus.NOT_STARTED,
+          completedAt: null,
+          note: null,
+        } as TopicProgress;
+        return Promise.resolve();
+      };
+      mockRepo.updateTopicProgressStatus = () => Promise.resolve();
+      mockRepo.findActiveTopicsByCourseId = () => Promise.resolve(mockActiveTopics);
+      mockRepo.listByAllocationId = () => Promise.resolve(progressRow ? [progressRow] : []);
+      mockRepo.updateAllocationProgress = () => Promise.resolve();
+
+      const result = await service.updateTopicStatus(
+        'alloc-1',
+        'topic-1',
+        { status: TopicProgressStatus.IN_PROGRESS },
+        menteeUser,
+      );
+
+      assert.equal(created, true);
+      assert.equal(result.topicProgress.topicId, 'topic-1');
+      assert.equal(result.topicProgress.status, TopicProgressStatus.IN_PROGRESS);
+    });
+
+    void it('throws NotFoundError if updating status for a topic belonging to another course', async () => {
+      const allocation = {
+        id: 'alloc-1',
+        userId: 'mentee-1',
+        courseId: 'course-1',
+        status: CourseAllocationStatus.ASSIGNED,
+        progressPercent: 0,
+        batch: { status: BatchStatus.LIVE } as Batch,
+      } as CourseAllocation;
+
+      mockRepo.findAllocationById = () => Promise.resolve(allocation);
+      mockRepo.findByAllocationAndTopic = () => Promise.resolve(null);
+      mockRepo.findTopicById = (id) =>
+        Promise.resolve({ id, courseId: 'course-OTHER', isActive: true } as Topic);
+
+      await assert.rejects(
+        () =>
+          service.updateTopicStatus(
+            'alloc-1',
+            'topic-alien',
+            { status: TopicProgressStatus.IN_PROGRESS },
+            menteeUser,
+          ),
+        (err: unknown) => err instanceof NotFoundError,
+      );
+    });
   });
 
   void describe('updateTopicDeadline & Validation (FR-8.6, PRG-17, PRG-18)', () => {
@@ -365,6 +511,74 @@ void describe('ProgressService Unit Tests (PRD M8: PRG-01 to PRG-20)', () => {
             menteeUser,
           ),
         (err: unknown) => err instanceof ForbiddenError,
+      );
+    });
+
+    void it('self-heals missing topic progress row on updateTopicDeadline if topic belongs to course', async () => {
+      const allocation = {
+        id: 'alloc-1',
+        userId: 'mentee-1',
+        courseId: 'course-1',
+        startDate: new Date('2026-11-01T00:00:00.000Z'),
+        dueDate: new Date('2026-11-30T00:00:00.000Z'),
+        user: { email: 'mentee@techeniac.com', name: 'Mentee' },
+        course: { title: 'TypeScript' },
+      } as unknown as CourseAllocation;
+
+      let created = false;
+      let progressRow: TopicProgress | null = null;
+
+      mockRepo.findAllocationById = () => Promise.resolve(allocation);
+      mockRepo.findTopicById = (id) =>
+        Promise.resolve({ id, courseId: 'course-1', title: 'Intro' } as Topic);
+      mockRepo.findByAllocationAndTopic = () => Promise.resolve(progressRow);
+      mockRepo.initializeTopicProgressForAllocations = () => {
+        created = true;
+        progressRow = {
+          id: 'tp-lazy-deadline',
+          courseAllocationId: 'alloc-1',
+          topicId: 'topic-1',
+          deadline: null,
+        } as TopicProgress;
+        return Promise.resolve();
+      };
+      mockRepo.updateTopicProgressDeadline = () => Promise.resolve();
+
+      const result = await service.updateTopicDeadline(
+        'alloc-1',
+        'topic-1',
+        { deadline: '2026-11-15T18:00:00.000Z' },
+        adminUser,
+      );
+
+      assert.equal(created, true);
+      assert.equal(result.topicId, 'topic-1');
+      assert.equal(result.deadline, '2026-11-15T18:00:00.000Z');
+    });
+
+    void it('throws NotFoundError if setting deadline for a topic belonging to another course', async () => {
+      const allocation = {
+        id: 'alloc-1',
+        userId: 'mentee-1',
+        courseId: 'course-1',
+        startDate: new Date('2026-11-01T00:00:00.000Z'),
+        dueDate: new Date('2026-11-30T00:00:00.000Z'),
+      } as CourseAllocation;
+
+      mockRepo.findAllocationById = () => Promise.resolve(allocation);
+      mockRepo.findTopicById = (id) =>
+        Promise.resolve({ id, courseId: 'course-OTHER', title: 'Alien' } as Topic);
+      mockRepo.findByAllocationAndTopic = () => Promise.resolve(null);
+
+      await assert.rejects(
+        () =>
+          service.updateTopicDeadline(
+            'alloc-1',
+            'topic-alien',
+            { deadline: '2026-11-15T18:00:00.000Z' },
+            adminUser,
+          ),
+        (err: unknown) => err instanceof NotFoundError,
       );
     });
   });
@@ -531,6 +745,88 @@ void describe('ProgressService Unit Tests (PRD M8: PRG-01 to PRG-20)', () => {
       assert.ok(capturedUpdate?.completedAt instanceof Date);
     });
 
+    void it('sends allocation completed email to mapped mentor when allocation reaches COMPLETED', async () => {
+      const allocation = {
+        id: 'alloc-1',
+        userId: 'mentee-1',
+        batchId: 'batch-1',
+        courseId: 'course-1',
+        status: CourseAllocationStatus.IN_PROGRESS,
+        progressPercent: 66.67,
+        completedAt: null,
+        user: { name: 'Alice Mentee' },
+        course: { title: 'Node.js Mastery' },
+        batch: { name: 'Batch 2026' },
+      } as unknown as CourseAllocation;
+
+      const progressRows: TopicProgress[] = [
+        { topicId: 'topic-1', status: TopicProgressStatus.COMPLETED } as TopicProgress,
+        { topicId: 'topic-2', status: TopicProgressStatus.COMPLETED } as TopicProgress,
+        { topicId: 'topic-3', status: TopicProgressStatus.COMPLETED } as TopicProgress,
+      ];
+
+      mockRepo.findAllocationById = () => Promise.resolve(allocation);
+      mockRepo.findActiveTopicsByCourseId = () => Promise.resolve(mockActiveTopics);
+      mockRepo.listByAllocationId = () => Promise.resolve(progressRows);
+      mockRepo.updateAllocationProgress = () => Promise.resolve();
+
+      let emailedMentorPayload: Record<string, unknown> | null = null;
+      mentorMenteeRepository.findActiveByMenteeAndBatch = () =>
+        Promise.resolve({
+          id: 'mm-1',
+          mentorId: 'mentor-1',
+          menteeId: 'mentee-1',
+          batchId: 'batch-1',
+          isActive: true,
+        } as unknown as MentorMentee);
+
+      userRepository.findById = () =>
+        Promise.resolve({
+          id: 'mentor-1',
+          email: 'mentor@techeniac.com',
+          name: 'Bob Mentor',
+        } as unknown as User);
+
+      emailService.sendAllocationCompletedEmail = (payload) => {
+        emailedMentorPayload = payload as Record<string, unknown>;
+        return Promise.resolve();
+      };
+
+      const result = await service.recalculateProgress('alloc-1');
+      await new Promise((resolve) => setImmediate(resolve));
+
+      assert.equal(result.status, CourseAllocationStatus.COMPLETED);
+      assert.equal(result.progressPercent, 100);
+      assert.notEqual(emailedMentorPayload, null);
+      assert.equal(emailedMentorPayload?.to, 'mentor@techeniac.com');
+      assert.equal(emailedMentorPayload?.menteeName, 'Alice Mentee');
+      assert.equal(emailedMentorPayload?.courseTitle, 'Node.js Mastery');
+    });
+
+    void it('reuses pre-loaded allocation passed to recalculateProgress without re-querying repo', async () => {
+      const allocation = {
+        id: 'alloc-1',
+        courseId: 'course-1',
+        status: CourseAllocationStatus.IN_PROGRESS,
+        progressPercent: 33.33,
+        completedAt: null,
+      } as CourseAllocation;
+
+      let findAllocationCalled = false;
+      mockRepo.findAllocationById = () => {
+        findAllocationCalled = true;
+        return Promise.resolve(allocation);
+      };
+      mockRepo.findActiveTopicsByCourseId = () => Promise.resolve(mockActiveTopics);
+      mockRepo.listByAllocationId = () => Promise.resolve([]);
+      mockRepo.updateAllocationProgress = () => Promise.resolve();
+
+      const result = await service.recalculateProgress('alloc-1', undefined, allocation);
+
+      assert.equal(findAllocationCalled, false);
+      assert.equal(result.progressPercent, 0);
+    });
+
     void it('freezes COMPLETED allocations and never recalculates or reopens them (FR-8.4)', async () => {
       const allocation = {
         id: 'alloc-1',
@@ -622,6 +918,46 @@ void describe('ProgressService Unit Tests (PRD M8: PRG-01 to PRG-20)', () => {
       assert.deepEqual(initializedTopicIds, ['topic-new']);
       assert.deepEqual(recalculatedIds, ['alloc-1', 'alloc-2']);
     });
+
+    void it('continues recalculating remaining allocations when one allocation throws an error', async () => {
+      const mockOpenAllocations: CourseAllocation[] = [
+        {
+          id: 'alloc-fail',
+          courseId: 'course-1',
+          status: CourseAllocationStatus.IN_PROGRESS,
+          progressPercent: 30,
+        } as CourseAllocation,
+        {
+          id: 'alloc-success',
+          courseId: 'course-1',
+          status: CourseAllocationStatus.IN_PROGRESS,
+          progressPercent: 50,
+        } as CourseAllocation,
+      ];
+
+      mockRepo.findOpenAllocationsByCourseId = () => Promise.resolve(mockOpenAllocations);
+      mockRepo.findActiveTopicsByCourseId = () => Promise.resolve(mockActiveTopics);
+
+      const successfullyRecalculated: string[] = [];
+      mockRepo.listByAllocationId = (allocId) => {
+        if (allocId === 'alloc-fail') {
+          return Promise.reject(new Error('Transient DB blip'));
+        }
+        return Promise.resolve([]);
+      };
+      mockRepo.updateAllocationProgress = (id) => {
+        successfullyRecalculated.push(id);
+        return Promise.resolve();
+      };
+
+      await service.handleCourseTopicsChanged({
+        courseId: 'course-1',
+        topicId: 'topic-1',
+        action: CourseTopicAction.DEACTIVATED,
+      });
+
+      assert.deepEqual(successfullyRecalculated, ['alloc-success']);
+    });
   });
 
   void describe('getProgressTracker (FR-8.7)', () => {
@@ -685,6 +1021,32 @@ void describe('ProgressService Unit Tests (PRD M8: PRG-01 to PRG-20)', () => {
 
       assert.equal(result.trackers.length, 0);
       assert.equal(result.pagination.total, 0);
+    });
+
+    void it('excludes allocation when mentor lacks active batch membership (mentorScopeHelper check)', async () => {
+      const mockAllocations: CourseAllocation[] = [
+        {
+          id: 'alloc-1',
+          userId: 'mentee-1',
+          user: { name: 'Mentee One' },
+          batchId: 'batch-1',
+          batch: { name: 'Batch Alpha' },
+          courseId: 'course-1',
+          course: { title: 'Node.js Core' },
+          dueDate: new Date(Date.now() + 86400000),
+          progressPercent: 50,
+          status: CourseAllocationStatus.IN_PROGRESS,
+        } as unknown as CourseAllocation,
+      ];
+
+      mockRepo.listTrackers = () => Promise.resolve(mockAllocations);
+
+      // Mentor mapping exists but active batch membership check fails
+      mentorScopeHelper.canMentorReviewAndTrack = () => Promise.resolve(false);
+
+      const result = await service.getProgressTracker({ batchId: 'batch-1' }, mentorUser);
+
+      assert.equal(result.trackers.length, 0);
     });
   });
 
