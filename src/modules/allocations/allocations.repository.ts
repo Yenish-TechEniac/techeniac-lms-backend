@@ -93,6 +93,21 @@ export class AllocationsRepository {
     });
   }
 
+  async findActiveBatchMenteesByUserIds(
+    batchId: string,
+    userIds: string[],
+  ): Promise<BatchMember[]> {
+    if (userIds.length === 0) return [];
+    return await this.memberRepo.find({
+      where: {
+        batchId,
+        userId: In(userIds),
+        memberRole: BatchMemberRole.MENTEE,
+        isActive: true,
+      },
+    });
+  }
+
   async findActiveMentorBatchIds(userId: string): Promise<string[]> {
     const memberships = await this.memberRepo.find({
       where: {

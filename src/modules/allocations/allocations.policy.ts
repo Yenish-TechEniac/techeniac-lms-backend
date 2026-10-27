@@ -1,5 +1,6 @@
 import { ForbiddenError, NotFoundError } from '../../core/errors';
 import { Batch, BatchMemberRole, BatchStatus } from '../batches';
+import { UserRole } from '../users';
 import { AllocationsRepository, allocationsRepository } from './allocations.repository';
 import { CourseAllocation } from './entities/course-allocation.entity';
 import type { AllocationTargetType } from './schemas/allocation.schemas';
@@ -13,17 +14,23 @@ export class AllocationsPolicy {
     batchId?: string,
     menteeIds?: string[],
   ): Promise<void> {
-    if (actor.role === 'SUPER_ADMIN') {
+    const actorRole = actor.role as UserRole;
+
+    if (actorRole === UserRole.SUPER_ADMIN) {
       if (batchId) {
         await this.assertBatchAssignable(batchId);
       }
       if (menteeIds && menteeIds.length > 0) {
-        await this.assertUsersAreActiveMentees(menteeIds);
+        if (targetType === 'SELECTED_MENTEES' && batchId) {
+          await this.assertUsersAreActiveMenteesInBatch(batchId, menteeIds);
+        } else {
+          await this.assertUsersAreActiveMentees(menteeIds);
+        }
       }
       return;
     }
 
-    if (actor.role === 'MENTOR') {
+    if (actorRole === UserRole.MENTOR) {
       if (targetType === 'INDIVIDUAL_MENTEES' || !batchId) {
         throw new ForbiddenError(
           'Mentors can only allocate courses to batches where they are an active member',
@@ -58,11 +65,13 @@ export class AllocationsPolicy {
     actor: { id: string; role: string },
     allocation: CourseAllocation,
   ): Promise<void> {
-    if (actor.role === 'SUPER_ADMIN') {
+    const actorRole = actor.role as UserRole;
+
+    if (actorRole === UserRole.SUPER_ADMIN) {
       return;
     }
 
-    if (actor.role === 'MENTOR') {
+    if (actorRole === UserRole.MENTOR) {
       if (!allocation.batchId) {
         throw new ForbiddenError('Mentors cannot manage individual allocations outside batches');
       }
@@ -86,11 +95,13 @@ export class AllocationsPolicy {
   }
 
   async getMentorAccessibleBatchIds(actor: { id: string; role: string }): Promise<string[] | null> {
-    if (actor.role === 'SUPER_ADMIN') {
+    const actorRole = actor.role as UserRole;
+
+    if (actorRole === UserRole.SUPER_ADMIN) {
       return null;
     }
 
-    if (actor.role === 'MENTOR') {
+    if (actorRole === UserRole.MENTOR) {
       return await this.repo.findActiveMentorBatchIds(actor.id);
     }
 
@@ -114,8 +125,15 @@ export class AllocationsPolicy {
 
   private async assertUsersAreActiveMentees(userIds: string[]): Promise<void> {
     const users = await this.repo.findUsersByIds(userIds);
+    const foundIds = new Set(users.map((u) => u.id));
+    const missing = userIds.filter((id) => !foundIds.has(id));
+
+    if (missing.length > 0) {
+      throw new NotFoundError(`Mentee(s) not found: ${missing.join(', ')}`);
+    }
+
     for (const user of users) {
-      if ((user.role as string) !== 'MENTEE') {
+      if (user.role !== UserRole.MENTEE) {
         throw new ForbiddenError('Courses can be assigned to mentees only');
       }
       if (!user.isActive) {
@@ -130,19 +148,14 @@ export class AllocationsPolicy {
     batchId: string,
     menteeIds: string[],
   ): Promise<void> {
-    for (const menteeId of menteeIds) {
-      const member = await this.repo.findBatchMember(
-        batchId,
-        menteeId,
-        BatchMemberRole.MENTEE,
-        true,
-      );
+    const activeMembers = await this.repo.findActiveBatchMenteesByUserIds(batchId, menteeIds);
+    const activeMemberUserIds = new Set(activeMembers.map((m) => m.userId));
+    const missing = menteeIds.filter((id) => !activeMemberUserIds.has(id));
 
-      if (!member) {
-        throw new ForbiddenError(
-          'Selected mentee is not an active mentee member of the specified batch',
-        );
-      }
+    if (missing.length > 0) {
+      throw new ForbiddenError(
+        `Selected mentee(s) are not active mentee members of the specified batch: ${missing.join(', ')}`,
+      );
     }
   }
 }

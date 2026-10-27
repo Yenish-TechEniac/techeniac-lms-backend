@@ -1,5 +1,4 @@
 import type { Request, Response } from 'express';
-import { StatusCodes } from 'http-status-codes';
 
 import type { AuthenticatedUser } from '../../core/auth';
 import { UnauthorizedError } from '../../core/errors';
@@ -30,7 +29,7 @@ export class AllocationsController extends BaseController {
   public createAllocations = async (req: Request, res: Response): Promise<void> => {
     const actor = this.getAuthUser(req);
     const result = await this.service.createAllocations(req.body as CreateAllocationsInput, actor);
-    this.sendCreated(res, result);
+    this.sendCreated(res, { allocations: result.created, skipped: result.skipped });
   };
 
   public listAllocations = async (req: Request, res: Response): Promise<void> => {
@@ -78,7 +77,7 @@ export class AllocationsController extends BaseController {
       req.body as AddMenteesToAllocationInput,
       actor,
     );
-    this.sendSuccess(res, result, StatusCodes.CREATED);
+    this.sendCreated(res, { allocations: result.created, skipped: result.skipped });
   };
 
   public setAssignmentDueOverride = async (req: Request, res: Response): Promise<void> => {

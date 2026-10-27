@@ -3,6 +3,7 @@ import { emailService } from '../../core/email';
 import { ConflictError, ForbiddenError, NotFoundError, ValidationError } from '../../core/errors';
 import { eventBus } from '../../core/lifecycle';
 import { BatchStatus } from '../batches';
+import { UserRole } from '../users';
 import { AllocationsPolicy, allocationsPolicy } from './allocations.policy';
 import { AllocationsRepository, allocationsRepository } from './allocations.repository';
 import { CourseAllocationStatus } from './entities/allocation.enums';
@@ -160,11 +161,13 @@ export class AllocationsService {
   }
 
   async listAllocations(query: ListAllocationsQuery, actor: AuthenticatedUser) {
-    if (actor.role === 'MENTEE') {
+    const actorRole = actor.role as UserRole;
+
+    if (actorRole === UserRole.MENTEE) {
       return await this.repo.listAllocations(query, undefined, actor.id);
     }
 
-    if (actor.role === 'MENTOR') {
+    if (actorRole === UserRole.MENTOR) {
       const allowedBatchIds = await this.policy.getMentorAccessibleBatchIds(actor);
       return await this.repo.listAllocations(query, allowedBatchIds, null);
     }
@@ -179,7 +182,8 @@ export class AllocationsService {
       throw new NotFoundError('Course allocation not found');
     }
 
-    if (actor.role === 'MENTEE') {
+    const actorRole = actor.role as UserRole;
+    if (actorRole === UserRole.MENTEE) {
       if (allocation.userId !== actor.id) {
         throw new ForbiddenError('Access denied');
       }
@@ -395,11 +399,12 @@ export class AllocationsService {
       throw new NotFoundError('Course allocation not found');
     }
 
-    if (actor.role === 'MENTEE' && allocation.userId !== actor.id) {
+    const actorRole = actor.role as UserRole;
+    if (actorRole === UserRole.MENTEE && allocation.userId !== actor.id) {
       throw new ForbiddenError('Access denied');
     }
 
-    if (actor.role === 'MENTOR') {
+    if (actorRole === UserRole.MENTOR) {
       await this.policy.assertCanManageAllocation(actor, allocation);
     }
 
@@ -456,7 +461,7 @@ export class AllocationsService {
     role: string;
     actorId?: string;
   }): Promise<void> {
-    if (payload.role !== 'MENTEE') {
+    if ((payload.role as UserRole) !== UserRole.MENTEE) {
       return;
     }
 
@@ -502,7 +507,7 @@ export class AllocationsService {
   }
 
   async handleUserRoleChanged(payload: { userId: string; newRole: string }): Promise<void> {
-    if (payload.newRole !== 'MENTEE') {
+    if ((payload.newRole as UserRole) !== UserRole.MENTEE) {
       await this.repo.closeAllocationsForRoleChange(payload.userId);
     }
   }

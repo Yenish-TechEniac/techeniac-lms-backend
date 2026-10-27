@@ -9,13 +9,7 @@ export const allocationTargetTypeSchema = z.enum([
 ]);
 export type AllocationTargetType = z.infer<typeof allocationTargetTypeSchema>;
 
-const isoDateTimeOrDateSchema = z.string().refine(
-  (val) => {
-    const d = new Date(val);
-    return !isNaN(d.getTime());
-  },
-  { message: 'Invalid date/time format' },
-);
+const isoDateTimeSchema = z.string().datetime({ offset: true });
 
 export const createAllocationsSchema = z.object({
   body: z
@@ -24,8 +18,8 @@ export const createAllocationsSchema = z.object({
       targetType: allocationTargetTypeSchema,
       batchId: z.string().uuid('Invalid batch ID').optional(),
       menteeIds: z.array(z.string().uuid('Invalid mentee ID')).optional(),
-      startDate: isoDateTimeOrDateSchema,
-      dueDate: isoDateTimeOrDateSchema.optional(),
+      startDate: isoDateTimeSchema,
+      dueDate: isoDateTimeSchema.optional(),
     })
     .refine(
       (data) => {
@@ -104,8 +98,8 @@ export const updateAllocationDatesSchema = z.object({
   }),
   body: z
     .object({
-      startDate: isoDateTimeOrDateSchema.optional(),
-      dueDate: isoDateTimeOrDateSchema.optional(),
+      startDate: isoDateTimeSchema.optional(),
+      dueDate: isoDateTimeSchema.optional(),
     })
     .refine(
       (data) => {
@@ -125,9 +119,12 @@ export const updateAllocationDatesSchema = z.object({
 export const bulkUpdateAllocationDatesSchema = z.object({
   body: z
     .object({
-      allocationIds: z.array(z.string().uuid()).min(1, 'At least one allocation ID is required'),
-      startDate: isoDateTimeOrDateSchema.optional(),
-      dueDate: isoDateTimeOrDateSchema.optional(),
+      allocationIds: z
+        .array(z.string().uuid('Invalid allocation ID'))
+        .min(1, 'At least one allocation ID is required')
+        .max(200, 'Cannot exceed 200 allocations in a single bulk operation'),
+      startDate: isoDateTimeSchema.optional(),
+      dueDate: isoDateTimeSchema.optional(),
     })
     .refine(
       (data) => {
@@ -150,8 +147,8 @@ export const addMenteesToAllocationSchema = z.object({
   }),
   body: z.object({
     menteeIds: z.array(z.string().uuid()).min(1, 'At least one mentee ID is required'),
-    startDate: isoDateTimeOrDateSchema.optional(),
-    dueDate: isoDateTimeOrDateSchema.optional(),
+    startDate: isoDateTimeSchema.optional(),
+    dueDate: isoDateTimeSchema.optional(),
   }),
 });
 
@@ -159,11 +156,6 @@ export const revokeAllocationSchema = z.object({
   params: z.object({
     id: z.string().uuid('Invalid allocation ID'),
   }),
-  body: z
-    .object({
-      reason: z.string().trim().max(500).optional(),
-    })
-    .optional(),
 });
 
 export const assignmentDueOverrideSchema = z.object({
@@ -172,15 +164,18 @@ export const assignmentDueOverrideSchema = z.object({
   }),
   body: z.object({
     assignmentId: z.string().uuid('Invalid assignment ID'),
-    dueDate: isoDateTimeOrDateSchema,
+    dueDate: isoDateTimeSchema,
   }),
 });
 
 export const bulkAssignmentDueOverrideSchema = z.object({
   body: z.object({
-    allocationIds: z.array(z.string().uuid()).min(1, 'At least one allocation ID is required'),
+    allocationIds: z
+      .array(z.string().uuid('Invalid allocation ID'))
+      .min(1, 'At least one allocation ID is required')
+      .max(200, 'Cannot exceed 200 allocations in a single bulk operation'),
     assignmentId: z.string().uuid('Invalid assignment ID'),
-    dueDate: isoDateTimeOrDateSchema,
+    dueDate: isoDateTimeSchema,
   }),
 });
 

@@ -2,7 +2,12 @@ import assert from 'node:assert/strict';
 import { beforeEach, describe, it } from 'node:test';
 
 import type { AuthenticatedUser } from '../../src/core/auth';
-import { ConflictError, ForbiddenError, ValidationError } from '../../src/core/errors';
+import {
+  ConflictError,
+  ForbiddenError,
+  NotFoundError,
+  ValidationError,
+} from '../../src/core/errors';
 import {
   allocationsRepository,
   allocationsService,
@@ -122,6 +127,25 @@ void describe('AllocationsService Unit Tests (PRD M7: ALC-01 to ALC-24)', () => 
         ] as unknown as BatchMember[]);
       }
       return Promise.resolve([]);
+    };
+
+    allocationsRepository.findActiveBatchMenteesByUserIds = (
+      batchId: string,
+      userIds: string[],
+    ) => {
+      const members = userIds
+        .filter((id) => batchId === 'batch-1' && id !== 'mentee-alien-to-batch')
+        .map(
+          (id) =>
+            ({
+              id: `bm-${id}`,
+              batchId,
+              userId: id,
+              memberRole: BatchMemberRole.MENTEE,
+              isActive: true,
+            }) as unknown as BatchMember,
+        );
+      return Promise.resolve(members);
     };
 
     allocationsRepository.findOpenAllocationsForMentees = () => Promise.resolve([]);
@@ -359,7 +383,51 @@ void describe('AllocationsService Unit Tests (PRD M7: ALC-01 to ALC-24)', () => 
         },
         (err: unknown) => {
           assert(err instanceof ForbiddenError);
-          assert.match(err.message, /Selected mentee is not an active mentee member/);
+          assert.match(err.message, /Selected mentee.*not active mentee member/);
+          return true;
+        },
+      );
+    });
+
+    void it('rejects Super Admin trying to select a mentee outside the specified batch in SELECTED_MENTEES', async () => {
+      await assert.rejects(
+        async () => {
+          await allocationsService.createAllocations(
+            {
+              courseId: activeCourse.id,
+              targetType: 'SELECTED_MENTEES',
+              batchId: liveBatch.id,
+              menteeIds: ['mentee-alien-to-batch'],
+              startDate: '2026-11-01T00:00:00.000Z',
+            },
+            adminUser,
+          );
+        },
+        (err: unknown) => {
+          assert(err instanceof ForbiddenError);
+          assert.match(err.message, /Selected mentee.*not active mentee member/);
+          return true;
+        },
+      );
+    });
+
+    void it('rejects when requested mentee ID is not found in database', async () => {
+      allocationsRepository.findUsersByIds = () => Promise.resolve([]);
+      await assert.rejects(
+        async () => {
+          await allocationsService.createAllocations(
+            {
+              courseId: activeCourse.id,
+              targetType: 'INDIVIDUAL_MENTEES',
+              menteeIds: ['00000000-0000-0000-0000-000000000000'],
+              startDate: '2026-11-01T00:00:00.000Z',
+            },
+            adminUser,
+          );
+        },
+        (err: unknown) => {
+          assert(err instanceof NotFoundError);
+          assert.match(err.message, /Mentee\(s\) not found/);
           return true;
         },
       );
