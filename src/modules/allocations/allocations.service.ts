@@ -143,6 +143,7 @@ export class AllocationsService {
       if (user?.email) {
         void emailService.sendCourseAllocatedEmail({
           to: user.email,
+          userId: alloc.userId,
           recipientName: user.name,
           courseTitle: course.title,
           startDate: alloc.startDate.toISOString().slice(0, 10),
@@ -223,6 +224,7 @@ export class AllocationsService {
     if (input.dueDate && saved.user?.email) {
       void emailService.sendCourseDeadlineChangedEmail({
         to: saved.user.email,
+        userId: saved.userId,
         recipientName: saved.user.name,
         courseTitle: saved.course?.title ?? 'Allocated Course',
         newDueDate: saved.dueDate.toISOString().slice(0, 10),
