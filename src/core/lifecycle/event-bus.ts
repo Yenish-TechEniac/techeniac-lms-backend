@@ -8,8 +8,20 @@ export interface CourseTopicsChangedEvent {
   action: 'ADDED' | 'DEACTIVATED' | 'REACTIVATED' | 'DELETED';
 }
 
+export interface AllocationCreatedEvent {
+  allocationIds: string[];
+  courseId: string;
+}
+
+export interface AllocationDeadlineChangedEvent {
+  allocationId: string;
+  dueDate: string;
+}
+
 export type LifecycleEvents = {
   'course.topicsChanged': CourseTopicsChangedEvent;
+  'allocation.created': AllocationCreatedEvent;
+  'allocation.deadlineChanged': AllocationDeadlineChangedEvent;
 };
 
 class LifecycleEventBus extends EventEmitter {
