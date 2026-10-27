@@ -2,10 +2,17 @@ import { EventEmitter } from 'node:events';
 
 import { logger } from '../logging';
 
+export enum CourseTopicAction {
+  ADDED = 'ADDED',
+  DEACTIVATED = 'DEACTIVATED',
+  REACTIVATED = 'REACTIVATED',
+  DELETED = 'DELETED',
+}
+
 export interface CourseTopicsChangedEvent {
   courseId: string;
   topicId: string;
-  action: 'ADDED' | 'DEACTIVATED' | 'REACTIVATED' | 'DELETED';
+  action: CourseTopicAction;
 }
 
 export interface AllocationCreatedEvent {

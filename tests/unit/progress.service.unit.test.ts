@@ -3,6 +3,7 @@ import { beforeEach, describe, it } from 'node:test';
 
 import type { AuthenticatedUser } from '../../src/core/auth';
 import { ForbiddenError, ValidationError } from '../../src/core/errors';
+import { CourseTopicAction } from '../../src/core/lifecycle';
 import { CourseAllocation, CourseAllocationStatus } from '../../src/modules/allocations';
 import { Batch, BatchStatus, mentorScopeHelper } from '../../src/modules/batches';
 import type { Topic } from '../../src/modules/courses';
@@ -571,7 +572,7 @@ void describe('ProgressService Unit Tests (PRD M8: PRG-01 to PRG-20)', () => {
       await service.handleCourseTopicsChanged({
         courseId: 'course-1',
         topicId: 'topic-new',
-        action: 'ADDED',
+        action: CourseTopicAction.ADDED,
       });
 
       assert.deepEqual(initializedAllocIds, ['alloc-1', 'alloc-2']);

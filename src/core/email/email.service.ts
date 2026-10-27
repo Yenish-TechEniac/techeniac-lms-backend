@@ -3,6 +3,7 @@ import nodemailer, { Transporter } from 'nodemailer';
 import { env } from '../config';
 import { logger } from '../logging';
 import {
+  MenteeReassignRecipientRole,
   renderAllocationCompletedEmail,
   renderCourseAllocatedEmail,
   renderCourseDeadlineChangedEmail,
@@ -53,7 +54,7 @@ export interface SendMentorMappedOptions {
 export interface SendMenteeReassignedOptions {
   to: string;
   recipientName: string;
-  recipientRole: 'MENTEE' | 'NEW_MENTOR' | 'PREVIOUS_MENTOR';
+  recipientRole: MenteeReassignRecipientRole;
   menteeName: string;
   mentorName: string;
   batchName: string;
@@ -213,7 +214,7 @@ export class EmailService {
 
   public async sendMenteeReassignedEmail(options: SendMenteeReassignedOptions): Promise<void> {
     const portalUrl =
-      options.recipientRole === 'MENTEE'
+      options.recipientRole === MenteeReassignRecipientRole.MENTEE
         ? `${env.FRONTEND_URL}/mentee`
         : `${env.FRONTEND_URL}/mentor`;
 
