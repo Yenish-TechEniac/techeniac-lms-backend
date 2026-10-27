@@ -1,5 +1,5 @@
 import { eventBus } from '../../core/lifecycle';
-import { allocationsService, SYSTEM_ACTOR_ID } from './allocations.service';
+import { allocationsService } from './allocations.service';
 
 let listenersRegistered = false;
 
@@ -22,7 +22,7 @@ export function registerAllocationLifecycleListeners(): void {
       batchId: payload.sourceBatchId,
       newBatchId: payload.targetBatchId,
       menteeId: payload.menteeId,
-      actorId: payload.actorId ?? SYSTEM_ACTOR_ID,
+      actorId: payload.actorId,
     });
   });
 }

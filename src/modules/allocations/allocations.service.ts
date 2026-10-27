@@ -1,13 +1,7 @@
 import type { AuthenticatedUser } from '../../core/auth';
 import { isUniqueViolation } from '../../core/db';
 import { emailService } from '../../core/email';
-import {
-  BadRequestError,
-  ConflictError,
-  ForbiddenError,
-  NotFoundError,
-  ValidationError,
-} from '../../core/errors';
+import { ConflictError, ForbiddenError, NotFoundError, ValidationError } from '../../core/errors';
 import { eventBus } from '../../core/lifecycle';
 import { logger } from '../../core/logging';
 import { BatchStatus } from '../batches';
@@ -26,8 +20,6 @@ import type {
   ListAllocationsQuery,
   UpdateAllocationDatesInput,
 } from './schemas/allocation.schemas';
-
-export const SYSTEM_ACTOR_ID = '00000000-0000-0000-0000-000000000000';
 
 export const TERMINAL_ALLOCATION_STATUSES: readonly CourseAllocationStatus[] = [
   CourseAllocationStatus.COMPLETED,
@@ -138,6 +130,78 @@ export class AllocationsService {
       created: savedAllocations,
       skipped,
     };
+  }
+
+  /**
+   * Internal service path for batch lifecycle auto-reallocation.
+   * Directly creates allocation records without fabricating an AuthenticatedUser.
+   */
+  async createBatchMemberAllocationInternal(params: {
+    courseId: string;
+    batchId: string;
+    menteeId: string;
+    startDate: Date;
+    dueDate: Date;
+    actorId?: string | null;
+  }): Promise<CourseAllocation | null> {
+    const course = await this.repo.findCourseById(params.courseId);
+    if (!course || !course.isActive) {
+      return null;
+    }
+
+    const openAllocations = await this.repo.findOpenAllocationsForMentees(course.id, [
+      params.menteeId,
+    ]);
+    if (openAllocations.length > 0) {
+      throw new ConflictError('Mentee already has an open allocation of this course');
+    }
+
+    const allocation = new CourseAllocation();
+    allocation.courseId = course.id;
+    allocation.batchId = params.batchId;
+    allocation.userId = params.menteeId;
+    allocation.startDate = params.startDate;
+    allocation.estimatedMinutes = course.estimatedMinutes;
+    allocation.dueDate = params.dueDate;
+    allocation.status = CourseAllocationStatus.ASSIGNED;
+    allocation.progressPercent = 0;
+    allocation.createdBy = params.actorId ?? null;
+
+    let savedAllocations: CourseAllocation[];
+    try {
+      savedAllocations = await this.repo.transaction(async (manager) => {
+        return await this.repo.saveAllocations([allocation], manager);
+      });
+    } catch (err: unknown) {
+      if (isUniqueViolation(err)) {
+        throw new ConflictError('Mentee already has an open allocation of this course');
+      }
+      throw err;
+    }
+
+    const saved = savedAllocations[0];
+    if (!saved) {
+      return null;
+    }
+
+    eventBus.emitEvent('allocation.created', {
+      allocationIds: [saved.id],
+      courseId: course.id,
+    });
+
+    void this.dispatchAllocationEmails([saved], course.title, params.batchId);
+    return saved;
+  }
+
+  /**
+   * Reusable guard ensuring that mutations only occur on non-terminal allocations.
+   * Throws ConflictError (HTTP 409) if the allocation is already COMPLETED, REVOKED,
+   * CLOSED_ROLE_CHANGE, or CLOSED_BATCH_CHANGE.
+   */
+  assertAllocationIsMutable(allocation: CourseAllocation): void {
+    if (TERMINAL_ALLOCATION_STATUSES.includes(allocation.status)) {
+      throw new ConflictError(`Cannot modify allocation in terminal status '${allocation.status}'`);
+    }
   }
 
   private computeDueDate(
@@ -293,11 +357,8 @@ export class AllocationsService {
       throw new NotFoundError('Course allocation not found');
     }
 
-    if (TERMINAL_ALLOCATION_STATUSES.includes(allocation.status)) {
-      throw new BadRequestError('Cannot update dates for a closed or completed allocation');
-    }
-
     await this.policy.assertCanManageAllocation(actor, allocation);
+    this.assertAllocationIsMutable(allocation);
 
     if (input.startDate) {
       allocation.startDate = new Date(input.startDate);
@@ -348,11 +409,14 @@ export class AllocationsService {
 
     const validAllocations: CourseAllocation[] = [];
     for (const alloc of allocations) {
+      await this.policy.assertCanManageAllocation(actor, alloc);
       if (TERMINAL_ALLOCATION_STATUSES.includes(alloc.status)) {
-        skipped.push({ allocationId: alloc.id, reason: 'Allocation is closed or completed' });
+        skipped.push({
+          allocationId: alloc.id,
+          reason: 'Allocation is closed or completed',
+        });
         continue;
       }
-      await this.policy.assertCanManageAllocation(actor, alloc);
       validAllocations.push(alloc);
     }
 
@@ -394,11 +458,8 @@ export class AllocationsService {
       throw new NotFoundError('Course allocation not found');
     }
 
-    if (TERMINAL_ALLOCATION_STATUSES.includes(allocation.status)) {
-      throw new BadRequestError('Allocation is already closed or completed');
-    }
-
     await this.policy.assertCanManageAllocation(actor, allocation);
+    this.assertAllocationIsMutable(allocation);
 
     allocation.status = CourseAllocationStatus.REVOKED;
     allocation.updatedBy = actor.id;
@@ -445,13 +506,8 @@ export class AllocationsService {
       throw new NotFoundError('Course allocation not found');
     }
 
-    if (TERMINAL_ALLOCATION_STATUSES.includes(allocation.status)) {
-      throw new BadRequestError(
-        'Cannot override assignment due date on closed or completed allocation',
-      );
-    }
-
     await this.policy.assertCanManageAllocation(actor, allocation);
+    this.assertAllocationIsMutable(allocation);
 
     let override = await this.repo.findAssignmentOverride(allocationId, input.assignmentId);
     if (!override) {
@@ -485,11 +541,14 @@ export class AllocationsService {
 
     const validAllocations: CourseAllocation[] = [];
     for (const alloc of allocations) {
+      await this.policy.assertCanManageAllocation(actor, alloc);
       if (TERMINAL_ALLOCATION_STATUSES.includes(alloc.status)) {
-        skipped.push({ allocationId: alloc.id, reason: 'Allocation is closed or completed' });
+        skipped.push({
+          allocationId: alloc.id,
+          reason: 'Allocation is closed or completed',
+        });
         continue;
       }
-      await this.policy.assertCanManageAllocation(actor, alloc);
       validAllocations.push(alloc);
     }
 
@@ -546,6 +605,16 @@ export class AllocationsService {
     return await this.repo.findOverridesByAllocationId(allocationId);
   }
 
+  /**
+   * BAT-10: On batch member transfer, close open allocations in old batch as CLOSED_BATCH_CHANGE
+   * and auto-reallocate active courses of the new batch.
+   *
+   * Due Date Rule:
+   * 1. Inspect latest due date of active allocations for each course in new batch.
+   * 2. If latest due date <= Date.now(), the batch course deadline has already elapsed; skip reallocation.
+   * 3. Late joiner guarantee: provide at least course estimated minutes from now (now + estimatedMinutes),
+   *    or the latest batch due date, whichever is greater.
+   */
   async handleBatchMemberTransferred(payload: {
     batchId: string;
     menteeId: string;
@@ -567,40 +636,48 @@ export class AllocationsService {
         return curr.dueDate.getTime() > max.getTime() ? curr.dueDate : max;
       }, new Date(0));
 
+      if (latestDueDate.getTime() <= Date.now()) {
+        continue;
+      }
+
       const course = courseAllocations[0]?.course;
       const minDueDate = new Date(Date.now() + (course?.estimatedMinutes || 0) * 60 * 1000);
       const effectiveDueDate = new Date(Math.max(latestDueDate.getTime(), minDueDate.getTime()));
 
-      if (effectiveDueDate.getTime() > Date.now()) {
-        try {
-          await this.createAllocations(
-            {
-              courseId,
-              targetType: 'SELECTED_MENTEES',
-              batchId: payload.newBatchId,
-              menteeIds: [payload.menteeId],
-              startDate: new Date().toISOString(),
-              dueDate: effectiveDueDate.toISOString(),
-            },
-            {
-              id: payload.actorId ?? SYSTEM_ACTOR_ID,
-              role: 'SUPER_ADMIN',
-              email: 'system@internal.lms',
-              name: 'System',
-              mustChangePassword: false,
-              tokenVersion: 1,
-            },
+      try {
+        await this.createBatchMemberAllocationInternal({
+          courseId,
+          batchId: payload.newBatchId,
+          menteeId: payload.menteeId,
+          startDate: new Date(),
+          dueDate: effectiveDueDate,
+          actorId: payload.actorId ?? null,
+        });
+      } catch (err: unknown) {
+        if (err instanceof ConflictError) {
+          logger.info(
+            { courseId, menteeId: payload.menteeId },
+            'Auto-reallocation skipped on batch transfer: mentee already has an open allocation',
           );
-        } catch (err: unknown) {
-          logger.warn(
-            { err, courseId, menteeId: payload.menteeId },
-            'Failed auto-reallocation on batch member transferred event',
+        } else {
+          logger.error(
+            { err, courseId, menteeId: payload.menteeId, newBatchId: payload.newBatchId },
+            'Failed auto-reallocation on batch member transfer',
           );
         }
       }
     }
   }
 
+  /**
+   * BAT-12: When a mentee joins a LIVE batch, auto-allocate open courses with future deadlines.
+   *
+   * Due Date Rule:
+   * 1. Inspect latest due date of active allocations for each course in the batch.
+   * 2. If latest due date <= Date.now(), the batch course deadline has already elapsed; skip reallocation.
+   * 3. Late joiner guarantee: provide at least course estimated minutes from now (now + estimatedMinutes),
+   *    or the latest batch due date, whichever is greater.
+   */
   async handleBatchMemberJoined(payload: {
     batchId: string;
     userId: string;
@@ -625,33 +702,32 @@ export class AllocationsService {
         return curr.dueDate.getTime() > max.getTime() ? curr.dueDate : max;
       }, new Date(0));
 
+      if (latestDueDate.getTime() <= Date.now()) {
+        continue;
+      }
+
       const course = courseAllocations[0]?.course;
       const minDueDate = new Date(Date.now() + (course?.estimatedMinutes || 0) * 60 * 1000);
       const effectiveDueDate = new Date(Math.max(latestDueDate.getTime(), minDueDate.getTime()));
 
-      if (effectiveDueDate.getTime() > Date.now()) {
-        try {
-          await this.createAllocations(
-            {
-              courseId,
-              targetType: 'SELECTED_MENTEES',
-              batchId: payload.batchId,
-              menteeIds: [payload.userId],
-              startDate: new Date().toISOString(),
-              dueDate: effectiveDueDate.toISOString(),
-            },
-            {
-              id: payload.actorId ?? SYSTEM_ACTOR_ID,
-              role: 'SUPER_ADMIN',
-              email: 'system@internal.lms',
-              name: 'System',
-              mustChangePassword: false,
-              tokenVersion: 1,
-            },
+      try {
+        await this.createBatchMemberAllocationInternal({
+          courseId,
+          batchId: payload.batchId,
+          menteeId: payload.userId,
+          startDate: new Date(),
+          dueDate: effectiveDueDate,
+          actorId: payload.actorId ?? null,
+        });
+      } catch (err: unknown) {
+        if (err instanceof ConflictError) {
+          logger.info(
+            { courseId, menteeId: payload.userId },
+            'Auto-reallocation skipped on batch join: mentee already has an open allocation',
           );
-        } catch (err: unknown) {
-          logger.warn(
-            { err, courseId, menteeId: payload.userId },
+        } else {
+          logger.error(
+            { err, courseId, menteeId: payload.userId, batchId: payload.batchId },
             'Failed auto-reallocation on batch member joined event',
           );
         }
