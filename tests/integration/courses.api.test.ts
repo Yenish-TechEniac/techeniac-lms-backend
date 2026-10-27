@@ -239,6 +239,49 @@ void describe('Courses API Integration Tests', () => {
       assert.equal(data.success, true);
       assert.equal(data.meta?.total, 0);
     });
+
+    void it('properly handles isActive=true, isActive=false, and isActive=all query filters', async () => {
+      const capturedOpts: Array<unknown> = [];
+      coursesRepository.listCourses = (opts) => {
+        capturedOpts.push(opts?.isActive);
+        return Promise.resolve({ items: [], total: 0 });
+      };
+
+      const resTrue = await fetch(
+        `${baseUrl}/courses?page=1&limit=50&isActive=true&sortBy=createdAt&sortOrder=desc`,
+        {
+          method: 'GET',
+          headers: {
+            Authorization: `Bearer ${tokenAdmin}`,
+          },
+        },
+      );
+      assert.equal(resTrue.status, 200);
+
+      const resFalse = await fetch(
+        `${baseUrl}/courses?page=1&limit=50&isActive=false&sortBy=createdAt&sortOrder=desc`,
+        {
+          method: 'GET',
+          headers: {
+            Authorization: `Bearer ${tokenAdmin}`,
+          },
+        },
+      );
+      assert.equal(resFalse.status, 200);
+
+      const resAll = await fetch(
+        `${baseUrl}/courses?page=1&limit=50&isActive=all&sortBy=createdAt&sortOrder=desc`,
+        {
+          method: 'GET',
+          headers: {
+            Authorization: `Bearer ${tokenAdmin}`,
+          },
+        },
+      );
+      assert.equal(resAll.status, 200);
+
+      assert.deepEqual(capturedOpts, [true, false, undefined]);
+    });
   });
 
   void describe('Creator PII Stripping (M6-PII-1)', () => {
