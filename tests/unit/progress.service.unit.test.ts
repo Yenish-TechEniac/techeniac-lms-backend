@@ -458,6 +458,40 @@ void describe('ProgressService Unit Tests (PRD M8: PRG-01 to PRG-20)', () => {
       assert.equal(capturedUpdate?.status, CourseAllocationStatus.IN_PROGRESS);
     });
 
+    void it('reverts IN_PROGRESS allocation back to ASSIGNED when topics are reverted to NOT_STARTED', async () => {
+      const allocation = {
+        id: 'alloc-1',
+        courseId: 'course-1',
+        status: CourseAllocationStatus.IN_PROGRESS,
+        progressPercent: 33.33,
+        completedAt: null,
+      } as CourseAllocation;
+
+      const progressRows: TopicProgress[] = [
+        { topicId: 'topic-1', status: TopicProgressStatus.NOT_STARTED } as TopicProgress,
+        { topicId: 'topic-2', status: TopicProgressStatus.NOT_STARTED } as TopicProgress,
+        { topicId: 'topic-3', status: TopicProgressStatus.NOT_STARTED } as TopicProgress,
+      ];
+
+      mockRepo.findAllocationById = () => Promise.resolve(allocation);
+      mockRepo.findActiveTopicsByCourseId = () => Promise.resolve(mockActiveTopics);
+      mockRepo.listByAllocationId = () => Promise.resolve(progressRows);
+
+      let capturedUpdate: { progressPercent: number; status?: CourseAllocationStatus } | null =
+        null;
+      mockRepo.updateAllocationProgress = (_id, updates) => {
+        capturedUpdate = updates;
+        return Promise.resolve();
+      };
+
+      const result = await service.recalculateProgress('alloc-1');
+
+      assert.equal(result.progressPercent, 0);
+      assert.equal(result.status, CourseAllocationStatus.ASSIGNED);
+      assert.equal(capturedUpdate?.progressPercent, 0);
+      assert.equal(capturedUpdate?.status, CourseAllocationStatus.ASSIGNED);
+    });
+
     void it('transitions to COMPLETED with 100% when all active topics are completed', async () => {
       const allocation = {
         id: 'alloc-1',

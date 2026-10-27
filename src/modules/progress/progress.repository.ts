@@ -72,11 +72,22 @@ export class ProgressRepository {
       .execute();
   }
 
+  async transaction<T>(runInTransaction: (manager?: EntityManager) => Promise<T>): Promise<T> {
+    if (AppDataSource.isInitialized) {
+      return await AppDataSource.transaction(
+        runInTransaction as (manager: EntityManager) => Promise<T>,
+      );
+    }
+    return await runInTransaction(undefined);
+  }
+
   async findByAllocationAndTopic(
     courseAllocationId: string,
     topicId: string,
+    manager?: EntityManager,
   ): Promise<TopicProgress | null> {
-    return await this.repo.findOne({
+    const repo = manager ? manager.getRepository(TopicProgress) : this.repo;
+    return await repo.findOne({
       where: {
         courseAllocationId,
         topicId,
@@ -86,8 +97,12 @@ export class ProgressRepository {
     });
   }
 
-  async listByAllocationId(courseAllocationId: string): Promise<TopicProgress[]> {
-    return await this.repo
+  async listByAllocationId(
+    courseAllocationId: string,
+    manager?: EntityManager,
+  ): Promise<TopicProgress[]> {
+    const repo = manager ? manager.getRepository(TopicProgress) : this.repo;
+    return await repo
       .createQueryBuilder('tp')
       .leftJoinAndSelect('tp.topic', 'topic')
       .where('tp.courseAllocationId = :courseAllocationId', { courseAllocationId })
@@ -96,8 +111,20 @@ export class ProgressRepository {
       .getMany();
   }
 
-  async findAllocationById(allocationId: string): Promise<CourseAllocation | null> {
-    return await this.allocationRepo.findOne({
+  async findAllocationById(
+    allocationId: string,
+    manager?: EntityManager,
+    lock: boolean = false,
+  ): Promise<CourseAllocation | null> {
+    const repo = manager ? manager.getRepository(CourseAllocation) : this.allocationRepo;
+    if (lock && manager) {
+      return await repo.findOne({
+        where: { id: allocationId, deletedAt: IsNull() },
+        relations: ['batch', 'course', 'user'],
+        lock: { mode: 'pessimistic_write' },
+      });
+    }
+    return await repo.findOne({
       where: { id: allocationId, deletedAt: IsNull() },
       relations: ['batch', 'course', 'user'],
     });
@@ -204,6 +231,34 @@ export class ProgressRepository {
     return { allocations, total };
   }
 
+  async updateTopicProgressStatus(
+    id: string,
+    updates: {
+      status: TopicProgressStatus;
+      completedAt: Date | null;
+      note?: string | null;
+    },
+    manager?: EntityManager,
+  ): Promise<void> {
+    if (!AppDataSource.isInitialized && !manager) {
+      return;
+    }
+    const repo = manager ? manager.getRepository(TopicProgress) : this.repo;
+    await repo.update({ id, deletedAt: IsNull() }, updates);
+  }
+
+  async updateTopicProgressDeadline(
+    id: string,
+    deadline: Date,
+    manager?: EntityManager,
+  ): Promise<void> {
+    if (!AppDataSource.isInitialized && !manager) {
+      return;
+    }
+    const repo = manager ? manager.getRepository(TopicProgress) : this.repo;
+    await repo.update({ id, deletedAt: IsNull() }, { deadline });
+  }
+
   async updateAllocationProgress(
     allocationId: string,
     updates: {
@@ -213,6 +268,9 @@ export class ProgressRepository {
     },
     manager?: EntityManager,
   ): Promise<void> {
+    if (!AppDataSource.isInitialized && !manager) {
+      return;
+    }
     const repo = manager ? manager.getRepository(CourseAllocation) : this.allocationRepo;
     await repo.update({ id: allocationId, deletedAt: IsNull() }, updates);
   }
