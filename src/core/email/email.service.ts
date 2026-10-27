@@ -3,12 +3,14 @@ import nodemailer, { Transporter } from 'nodemailer';
 import { env } from '../config';
 import { logger } from '../logging';
 import {
+  renderAllocationCompletedEmail,
   renderCourseAllocatedEmail,
   renderCourseDeadlineChangedEmail,
   renderInviteEmail,
   renderMenteeReassignedEmail,
   renderMentorMappedEmail,
   renderPasswordResetEmail,
+  renderTopicDeadlineChangedEmail,
 } from './templates';
 
 export interface SendPasswordResetOptions {
@@ -56,6 +58,22 @@ export interface SendMenteeReassignedOptions {
   mentorName: string;
   batchName: string;
   reason?: string;
+}
+
+export interface SendAllocationCompletedOptions {
+  to: string;
+  recipientName: string;
+  menteeName: string;
+  courseTitle: string;
+  batchName?: string;
+}
+
+export interface SendTopicDeadlineChangedOptions {
+  to: string;
+  recipientName: string;
+  topicTitle: string;
+  courseTitle: string;
+  deadline: string;
 }
 
 export class EmailService {
@@ -308,6 +326,82 @@ export class EmailService {
       logger.error(
         { err: error, event: 'EMAIL_DISPATCH_FAILURE', service: 'smtp' },
         'Failed to dispatch course deadline change email',
+      );
+    }
+  }
+
+  public async sendAllocationCompletedEmail(
+    options: SendAllocationCompletedOptions,
+  ): Promise<void> {
+    const portalUrl = `${env.FRONTEND_URL}/mentor/mentees`;
+    const { subject, text, html } = renderAllocationCompletedEmail({
+      ...options,
+      portalUrl,
+    });
+
+    if (!this.transporter) {
+      logger.info(
+        { courseTitle: options.courseTitle, recipientName: options.recipientName },
+        'SMTP not configured in environment. Course completion notification skipped in development.',
+      );
+      return;
+    }
+
+    try {
+      await this.transporter.sendMail({
+        from: env.SMTP_FROM,
+        to: options.to,
+        subject,
+        text,
+        html,
+      });
+
+      logger.info(
+        { courseTitle: options.courseTitle, recipientName: options.recipientName },
+        'Course completion email dispatched successfully via SMTP',
+      );
+    } catch (error) {
+      logger.error(
+        { err: error, event: 'EMAIL_DISPATCH_FAILURE', service: 'smtp' },
+        'Failed to dispatch course completion email',
+      );
+    }
+  }
+
+  public async sendTopicDeadlineChangedEmail(
+    options: SendTopicDeadlineChangedOptions,
+  ): Promise<void> {
+    const portalUrl = `${env.FRONTEND_URL}/mentee/courses`;
+    const { subject, text, html } = renderTopicDeadlineChangedEmail({
+      ...options,
+      portalUrl,
+    });
+
+    if (!this.transporter) {
+      logger.info(
+        { courseTitle: options.courseTitle, topicTitle: options.topicTitle },
+        'SMTP not configured in environment. Topic deadline change notification skipped in development.',
+      );
+      return;
+    }
+
+    try {
+      await this.transporter.sendMail({
+        from: env.SMTP_FROM,
+        to: options.to,
+        subject,
+        text,
+        html,
+      });
+
+      logger.info(
+        { courseTitle: options.courseTitle, topicTitle: options.topicTitle },
+        'Topic deadline change email dispatched successfully via SMTP',
+      );
+    } catch (error) {
+      logger.error(
+        { err: error, event: 'EMAIL_DISPATCH_FAILURE', service: 'smtp' },
+        'Failed to dispatch topic deadline change email',
       );
     }
   }
