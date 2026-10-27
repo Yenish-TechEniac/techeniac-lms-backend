@@ -178,26 +178,26 @@ export class AllocationsRepository {
       .leftJoinAndSelect('allocation.user', 'user');
 
     if (enforcedUserId) {
-      qb.andWhere('allocation.user_id = :enforcedUserId', { enforcedUserId });
+      qb.andWhere('allocation.userId = :enforcedUserId', { enforcedUserId });
     }
 
     if (allowedBatchIds !== undefined && allowedBatchIds !== null) {
       if (allowedBatchIds.length === 0) {
         return { allocations: [], total: 0, page: query.page, limit: query.limit };
       }
-      qb.andWhere('allocation.batch_id IN (:...allowedBatchIds)', { allowedBatchIds });
+      qb.andWhere('allocation.batchId IN (:...allowedBatchIds)', { allowedBatchIds });
     }
 
     if (query.courseId) {
-      qb.andWhere('allocation.course_id = :courseId', { courseId: query.courseId });
+      qb.andWhere('allocation.courseId = :courseId', { courseId: query.courseId });
     }
 
     if (query.batchId) {
-      qb.andWhere('allocation.batch_id = :batchId', { batchId: query.batchId });
+      qb.andWhere('allocation.batchId = :batchId', { batchId: query.batchId });
     }
 
     if (query.menteeId) {
-      qb.andWhere('allocation.user_id = :menteeId', { menteeId: query.menteeId });
+      qb.andWhere('allocation.userId = :menteeId', { menteeId: query.menteeId });
     }
 
     const now = new Date();
@@ -205,7 +205,7 @@ export class AllocationsRepository {
     if (query.status) {
       if (query.status === 'OVERDUE') {
         qb.andWhere(
-          'allocation.due_date < :now AND allocation.status NOT IN (:...terminalStatuses)',
+          'allocation.dueDate < :now AND allocation.status NOT IN (:...terminalStatuses)',
           {
             now,
             terminalStatuses: [
@@ -222,11 +222,11 @@ export class AllocationsRepository {
     }
 
     if (query.dueDateFrom) {
-      qb.andWhere('allocation.due_date >= :dueDateFrom', { dueDateFrom: query.dueDateFrom });
+      qb.andWhere('allocation.dueDate >= :dueDateFrom', { dueDateFrom: query.dueDateFrom });
     }
 
     if (query.dueDateTo) {
-      qb.andWhere('allocation.due_date <= :dueDateTo', { dueDateTo: query.dueDateTo });
+      qb.andWhere('allocation.dueDate <= :dueDateTo', { dueDateTo: query.dueDateTo });
     }
 
     if (query.search) {
@@ -236,7 +236,7 @@ export class AllocationsRepository {
       );
     }
 
-    qb.orderBy('allocation.created_at', 'DESC');
+    qb.orderBy('allocation.createdAt', 'DESC');
     qb.skip((query.page - 1) * query.limit);
     qb.take(query.limit);
 
