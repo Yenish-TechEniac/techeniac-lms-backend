@@ -10,6 +10,7 @@ import {
   ForbiddenError,
   NotFoundError,
 } from '../../core/errors';
+import { eventBus } from '../../core/lifecycle';
 import { logger } from '../../core/logging';
 import { batchService } from '../batches';
 import { type User, UserRole } from './entities/user.entity';
@@ -209,7 +210,7 @@ export class UsersService {
     user.role = input.newRole;
 
     try {
-      return await this.repo.transaction(async (manager) => {
+      const result = await this.repo.transaction(async (manager) => {
         if (previousRole === UserRole.SUPER_ADMIN && input.newRole !== UserRole.SUPER_ADMIN) {
           const activeAdmins = await this.repo.lockAndCountActiveSuperAdmins(manager);
           if (activeAdmins <= 1) {
@@ -244,6 +245,14 @@ export class UsersService {
 
         return { user: savedUser, history };
       });
+
+      eventBus.emitEvent('user.roleChanged', {
+        userId: id,
+        oldRole: previousRole,
+        newRole: input.newRole,
+      });
+
+      return result;
     } catch (err) {
       if (isUniqueViolation(err)) {
         throw new ConflictError(

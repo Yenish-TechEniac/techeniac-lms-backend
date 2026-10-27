@@ -1,6 +1,8 @@
 import type { AuthenticatedUser } from '../../core/auth';
+import { emailService } from '../../core/email';
 import { ConflictError, ForbiddenError, NotFoundError, ValidationError } from '../../core/errors';
 import { eventBus } from '../../core/lifecycle';
+import { BatchStatus } from '../batches';
 import { AllocationsPolicy, allocationsPolicy } from './allocations.policy';
 import { AllocationsRepository, allocationsRepository } from './allocations.repository';
 import { CourseAllocationStatus } from './entities/allocation.enums';
@@ -131,6 +133,25 @@ export class AllocationsService {
       courseId: course.id,
     });
 
+    const [users, batch] = await Promise.all([
+      this.repo.findUsersByIds(savedAllocations.map((a) => a.userId)),
+      input.batchId ? this.repo.findBatchById(input.batchId) : Promise.resolve(null),
+    ]);
+
+    for (const alloc of savedAllocations) {
+      const user = users.find((u) => u.id === alloc.userId);
+      if (user?.email) {
+        void emailService.sendCourseAllocatedEmail({
+          to: user.email,
+          recipientName: user.name,
+          courseTitle: course.title,
+          startDate: alloc.startDate.toISOString().slice(0, 10),
+          dueDate: alloc.dueDate.toISOString().slice(0, 10),
+          batchName: batch?.name,
+        });
+      }
+    }
+
     return {
       created: savedAllocations,
       skipped,
@@ -198,6 +219,15 @@ export class AllocationsService {
       allocationId: saved.id,
       dueDate: saved.dueDate.toISOString(),
     });
+
+    if (input.dueDate && saved.user?.email) {
+      void emailService.sendCourseDeadlineChangedEmail({
+        to: saved.user.email,
+        recipientName: saved.user.name,
+        courseTitle: saved.course?.title ?? 'Allocated Course',
+        newDueDate: saved.dueDate.toISOString().slice(0, 10),
+      });
+    }
 
     return saved;
   }
@@ -404,6 +434,57 @@ export class AllocationsService {
             },
             {
               id: payload.actorId,
+              role: 'SUPER_ADMIN',
+              email: 'system@internal.lms',
+              name: 'System',
+              mustChangePassword: false,
+              tokenVersion: 1,
+            },
+          );
+        } catch {
+          // If already allocated or validation fails, skip gracefully
+        }
+      }
+    }
+  }
+
+  async handleBatchMemberJoined(payload: {
+    batchId: string;
+    userId: string;
+    role: string;
+    actorId?: string;
+  }): Promise<void> {
+    if (payload.role !== 'MENTEE') {
+      return;
+    }
+
+    const batch = await this.repo.findBatchById(payload.batchId);
+    if (!batch || batch.status !== BatchStatus.LIVE) {
+      return;
+    }
+
+    const openBatchAllocations = await this.repo.findOpenBatchAllocations(payload.batchId);
+    const uniqueCourseIds = Array.from(new Set(openBatchAllocations.map((a) => a.courseId)));
+
+    for (const courseId of uniqueCourseIds) {
+      const courseAllocations = openBatchAllocations.filter((a) => a.courseId === courseId);
+      const latestDueDate = courseAllocations.reduce((max, curr) => {
+        return curr.dueDate.getTime() > max.getTime() ? curr.dueDate : max;
+      }, new Date(0));
+
+      if (latestDueDate.getTime() > Date.now()) {
+        try {
+          await this.createAllocations(
+            {
+              courseId,
+              targetType: 'SELECTED_MENTEES',
+              batchId: payload.batchId,
+              menteeIds: [payload.userId],
+              startDate: new Date().toISOString(),
+              dueDate: latestDueDate.toISOString(),
+            },
+            {
+              id: payload.actorId ?? 'system',
               role: 'SUPER_ADMIN',
               email: 'system@internal.lms',
               name: 'System',

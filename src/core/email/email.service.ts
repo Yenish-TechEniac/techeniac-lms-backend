@@ -3,6 +3,8 @@ import nodemailer, { Transporter } from 'nodemailer';
 import { env } from '../config';
 import { logger } from '../logging';
 import {
+  renderCourseAllocatedEmail,
+  renderCourseDeadlineChangedEmail,
   renderInviteEmail,
   renderMenteeReassignedEmail,
   renderMentorMappedEmail,
@@ -13,6 +15,22 @@ export interface SendPasswordResetOptions {
   to: string;
   name?: string;
   resetToken: string;
+}
+
+export interface SendCourseAllocatedOptions {
+  to: string;
+  recipientName: string;
+  courseTitle: string;
+  startDate: string;
+  dueDate: string;
+  batchName?: string;
+}
+
+export interface SendCourseDeadlineChangedOptions {
+  to: string;
+  recipientName: string;
+  courseTitle: string;
+  newDueDate: string;
 }
 
 export interface SendInviteEmailOptions {
@@ -216,6 +234,80 @@ export class EmailService {
       logger.error(
         { err: error, event: 'EMAIL_DISPATCH_FAILURE', service: 'smtp' },
         'Failed to dispatch mentee reassignment email',
+      );
+    }
+  }
+
+  public async sendCourseAllocatedEmail(options: SendCourseAllocatedOptions): Promise<void> {
+    const portalUrl = `${env.FRONTEND_URL}/mentee/courses`;
+    const { subject, text, html } = renderCourseAllocatedEmail({
+      ...options,
+      portalUrl,
+    });
+
+    if (!this.transporter) {
+      logger.info(
+        { to: options.to, courseTitle: options.courseTitle },
+        'SMTP not configured in environment. Course allocation notification skipped in development.',
+      );
+      return;
+    }
+
+    try {
+      await this.transporter.sendMail({
+        from: env.SMTP_FROM,
+        to: options.to,
+        subject,
+        text,
+        html,
+      });
+
+      logger.info(
+        { to: options.to, courseTitle: options.courseTitle },
+        'Course allocation email dispatched successfully via SMTP',
+      );
+    } catch (error) {
+      logger.error(
+        { err: error, event: 'EMAIL_DISPATCH_FAILURE', service: 'smtp' },
+        'Failed to dispatch course allocation email',
+      );
+    }
+  }
+
+  public async sendCourseDeadlineChangedEmail(
+    options: SendCourseDeadlineChangedOptions,
+  ): Promise<void> {
+    const portalUrl = `${env.FRONTEND_URL}/mentee/courses`;
+    const { subject, text, html } = renderCourseDeadlineChangedEmail({
+      ...options,
+      portalUrl,
+    });
+
+    if (!this.transporter) {
+      logger.info(
+        { to: options.to, courseTitle: options.courseTitle },
+        'SMTP not configured in environment. Course deadline change notification skipped in development.',
+      );
+      return;
+    }
+
+    try {
+      await this.transporter.sendMail({
+        from: env.SMTP_FROM,
+        to: options.to,
+        subject,
+        text,
+        html,
+      });
+
+      logger.info(
+        { to: options.to, courseTitle: options.courseTitle },
+        'Course deadline change email dispatched successfully via SMTP',
+      );
+    } catch (error) {
+      logger.error(
+        { err: error, event: 'EMAIL_DISPATCH_FAILURE', service: 'smtp' },
+        'Failed to dispatch course deadline change email',
       );
     }
   }

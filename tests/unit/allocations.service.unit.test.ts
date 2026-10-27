@@ -508,4 +508,137 @@ void describe('AllocationsService Unit Tests (PRD M7: ALC-01 to ALC-24)', () => 
       assert.equal(revoked.progressPercent, 40);
     });
   });
+
+  void describe('Lifecycle Handlers & Batch Triggers (USR-05, BAT-10, BAT-12)', () => {
+    void it('closes open allocations as CLOSED_ROLE_CHANGE on mentee role change (USR-05)', async () => {
+      let closedUserId = '';
+      allocationsRepository.closeAllocationsForRoleChange = (userId: string) => {
+        closedUserId = userId;
+        return Promise.resolve(1);
+      };
+
+      await allocationsService.handleUserRoleChanged({
+        userId: 'mentee-promoted',
+        newRole: 'MENTOR',
+      });
+
+      assert.equal(closedUserId, 'mentee-promoted');
+    });
+
+    void it('closes old batch allocations as CLOSED_BATCH_CHANGE and reallocates in new batch (BAT-10)', async () => {
+      let closedBatchId = '';
+      let closedMenteeId = '';
+      allocationsRepository.closeAllocationsForBatchTransfer = (batchId, menteeId) => {
+        closedBatchId = batchId;
+        closedMenteeId = menteeId;
+        return Promise.resolve(1);
+      };
+
+      const futureDate = new Date(Date.now() + 86400000 * 10);
+      allocationsRepository.findOpenBatchAllocations = () => {
+        return Promise.resolve([
+          {
+            id: 'alloc-existing',
+            courseId: activeCourse.id,
+            batchId: liveBatch.id,
+            dueDate: futureDate,
+          } as CourseAllocation,
+        ]);
+      };
+
+      let createdAllocationsCount = 0;
+      allocationsRepository.saveAllocations = (allocs) => {
+        createdAllocationsCount = allocs.length;
+        return Promise.resolve(allocs);
+      };
+
+      await allocationsService.handleBatchMemberTransferred({
+        batchId: 'source-batch-id',
+        menteeId: 'mentee-transferred',
+        newBatchId: liveBatch.id,
+        actorId: 'admin-1',
+      });
+
+      assert.equal(closedBatchId, 'source-batch-id');
+      assert.equal(closedMenteeId, 'mentee-transferred');
+      assert.equal(createdAllocationsCount, 1);
+    });
+
+    void it('allocates open courses of a Live batch to joining mentee if due date is in future (BAT-12)', async () => {
+      const futureDate = new Date(Date.now() + 86400000 * 5);
+      allocationsRepository.findOpenBatchAllocations = () => {
+        return Promise.resolve([
+          {
+            id: 'alloc-live-1',
+            courseId: activeCourse.id,
+            batchId: liveBatch.id,
+            dueDate: futureDate,
+          } as CourseAllocation,
+        ]);
+      };
+
+      let createdAllocationsCount = 0;
+      allocationsRepository.saveAllocations = (allocs) => {
+        createdAllocationsCount = allocs.length;
+        return Promise.resolve(allocs);
+      };
+
+      await allocationsService.handleBatchMemberJoined({
+        batchId: liveBatch.id,
+        userId: 'new-mentee-1',
+        role: 'MENTEE',
+        actorId: 'admin-1',
+      });
+
+      assert.equal(createdAllocationsCount, 1);
+    });
+
+    void it('does not allocate courses when batch is not LIVE (BAT-12)', async () => {
+      let saveCalled = false;
+      allocationsRepository.saveAllocations = (allocs) => {
+        saveCalled = true;
+        return Promise.resolve(allocs);
+      };
+
+      await allocationsService.handleBatchMemberJoined({
+        batchId: draftBatch.id,
+        userId: 'new-mentee-2',
+        role: 'MENTEE',
+      });
+
+      assert.equal(saveCalled, false);
+    });
+  });
+
+  void describe('Assignment Due Overrides (FR-7.6)', () => {
+    void it('allows setting an assignment due-date override', async () => {
+      const mockAlloc = {
+        id: 'alloc-1',
+        batchId: liveBatch.id,
+        courseId: activeCourse.id,
+        userId: 'mentee-1',
+        startDate: new Date('2026-11-01T00:00:00.000Z'),
+        dueDate: new Date('2026-11-20T00:00:00.000Z'),
+      } as CourseAllocation;
+
+      allocationsRepository.findAllocationById = () => Promise.resolve(mockAlloc);
+      allocationsRepository.findAssignmentOverride = () => Promise.resolve(null);
+      allocationsRepository.saveAssignmentOverride = (override) => Promise.resolve(override);
+
+      const override = await allocationsService.setAssignmentDueOverride(
+        'alloc-1',
+        {
+          assignmentId: 'assign-uuid-1',
+          dueDate: '2026-11-25T00:00:00.000Z',
+        },
+        adminUser,
+      );
+
+      assert.equal(override.assignmentId, 'assign-uuid-1');
+      assert.equal(
+        override.dueDate.toISOString(),
+        new Date('2026-11-25T00:00:00.000Z').toISOString(),
+      );
+    });
+  });
 });
