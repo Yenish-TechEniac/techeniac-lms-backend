@@ -29,6 +29,7 @@ export interface UserRoleChangedEvent {
   userId: string;
   oldRole: string;
   newRole: string;
+  actorId?: string;
 }
 
 export interface BatchMemberJoinedEvent {

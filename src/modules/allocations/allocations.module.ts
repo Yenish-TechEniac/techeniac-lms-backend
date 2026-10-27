@@ -22,7 +22,7 @@ export function registerAllocationLifecycleListeners(): void {
       batchId: payload.sourceBatchId,
       newBatchId: payload.targetBatchId,
       menteeId: payload.menteeId,
-      actorId: payload.actorId ?? 'system',
+      actorId: payload.actorId,
     });
   });
 }

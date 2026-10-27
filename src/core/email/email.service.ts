@@ -22,6 +22,7 @@ export interface SendPasswordResetOptions {
 
 export interface SendCourseAllocatedOptions {
   to: string;
+  userId?: string;
   recipientName: string;
   courseTitle: string;
   startDate: string;
@@ -31,6 +32,7 @@ export interface SendCourseAllocatedOptions {
 
 export interface SendCourseDeadlineChangedOptions {
   to: string;
+  userId?: string;
   recipientName: string;
   courseTitle: string;
   newDueDate: string;
@@ -95,6 +97,8 @@ export class EmailService {
       // Port 465 requires direct SSL (secure: true); port 587 uses STARTTLS (secure: false)
       const secure = env.SMTP_PORT === 465 ? true : env.SMTP_SECURE && env.SMTP_PORT !== 587;
       this.transporter = nodemailer.createTransport({
+        pool: true,
+        maxConnections: 5,
         host: env.SMTP_HOST,
         port: env.SMTP_PORT,
         secure,
@@ -316,7 +320,7 @@ export class EmailService {
 
     if (!this.transporter) {
       logger.info(
-        { to: options.to, courseTitle: options.courseTitle },
+        { userId: options.userId, courseTitle: options.courseTitle },
         'SMTP not configured in environment. Course allocation notification skipped in development.',
       );
       return;
@@ -332,7 +336,7 @@ export class EmailService {
       });
 
       logger.info(
-        { to: options.to, courseTitle: options.courseTitle },
+        { userId: options.userId, courseTitle: options.courseTitle },
         'Course allocation email dispatched successfully via SMTP',
       );
     } catch (error) {
@@ -354,7 +358,7 @@ export class EmailService {
 
     if (!this.transporter) {
       logger.info(
-        { to: options.to, courseTitle: options.courseTitle },
+        { userId: options.userId, courseTitle: options.courseTitle },
         'SMTP not configured in environment. Course deadline change notification skipped in development.',
       );
       return;
@@ -370,7 +374,7 @@ export class EmailService {
       });
 
       logger.info(
-        { to: options.to, courseTitle: options.courseTitle },
+        { userId: options.userId, courseTitle: options.courseTitle },
         'Course deadline change email dispatched successfully via SMTP',
       );
     } catch (error) {

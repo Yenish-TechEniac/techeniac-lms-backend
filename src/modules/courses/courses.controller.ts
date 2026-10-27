@@ -10,7 +10,7 @@ import {
   type CreateCourseInput,
   type CreateSubtopicInput,
   type CreateTopicInput,
-  listCoursesQuerySchema,
+  type ListCoursesQueryInput,
   type ReorderItemsInput,
   type StatusToggleInput,
   type UpdateAssignmentInput,
@@ -56,7 +56,7 @@ export class CoursesController extends BaseController {
   };
 
   public listCourses = async (req: Request, res: Response): Promise<void> => {
-    const query = listCoursesQuerySchema.shape.query.parse(req.query);
+    const query = req.query as unknown as ListCoursesQueryInput;
     const { items, total } = await this.service.listCourses(query);
     this.sendPaginated(res, items.map(toSafeCourse), query.page, query.limit, total);
   };

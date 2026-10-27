@@ -66,6 +66,11 @@ export class CourseAllocation extends AuditableEntity {
     precision: 5,
     scale: 2,
     default: 0,
+    transformer: {
+      to: (value: number) => value,
+      from: (value: string | number) =>
+        value !== null && value !== undefined ? Number(value) : value,
+    },
   })
   progressPercent!: number;
 

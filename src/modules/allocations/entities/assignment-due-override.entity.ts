@@ -17,7 +17,7 @@ export class AssignmentDueOverride extends AuditableEntity {
   @ManyToOne(() => CourseAllocation, (ca) => ca.assignmentOverrides, { onDelete: 'CASCADE' })
   @JoinColumn({
     name: 'course_allocation_id',
-    foreignKeyConstraintName: 'FK_ado_course_allocation_id',
+    foreignKeyConstraintName: 'FK_assignment_due_overrides_course_allocation_id',
   })
   courseAllocation?: CourseAllocation;
 
@@ -25,7 +25,10 @@ export class AssignmentDueOverride extends AuditableEntity {
   assignmentId!: string;
 
   @ManyToOne(() => Assignment, { onDelete: 'CASCADE' })
-  @JoinColumn({ name: 'assignment_id', foreignKeyConstraintName: 'FK_ado_assignment_id' })
+  @JoinColumn({
+    name: 'assignment_id',
+    foreignKeyConstraintName: 'FK_assignment_due_overrides_assignment_id',
+  })
   assignment?: Assignment;
 
   @Column({ name: 'due_date', type: 'timestamptz' })
@@ -38,6 +41,9 @@ export class AssignmentDueOverride extends AuditableEntity {
   setBy!: string;
 
   @ManyToOne(() => User, { onDelete: 'RESTRICT' })
-  @JoinColumn({ name: 'set_by', foreignKeyConstraintName: 'FK_ado_set_by' })
+  @JoinColumn({
+    name: 'set_by',
+    foreignKeyConstraintName: 'FK_assignment_due_overrides_set_by',
+  })
   setter?: User;
 }

@@ -25,7 +25,7 @@ export class CreateCourseAllocationTables1792650100000 implements MigrationInter
         "status" "public"."course_allocations_status_enum" NOT NULL DEFAULT 'ASSIGNED',
         "completed_at" TIMESTAMP WITH TIME ZONE,
         "progress_percent" numeric(5,2) NOT NULL DEFAULT 0,
-        CONSTRAINT "PK_course_allocations_id" PRIMARY KEY ("id"),
+        CONSTRAINT "PK_b92e1ff2125b76fd4fabdf74915" PRIMARY KEY ("id"),
         CONSTRAINT "chk_ca_due_after_start" CHECK ("due_date" >= "start_date"),
         CONSTRAINT "chk_ca_percent" CHECK ("progress_percent" >= 0 AND "progress_percent" <= 100)
       )
@@ -77,7 +77,7 @@ export class CreateCourseAllocationTables1792650100000 implements MigrationInter
         "due_date" TIMESTAMP WITH TIME ZONE NOT NULL,
         "estimated_minutes" integer,
         "set_by" uuid NOT NULL,
-        CONSTRAINT "PK_assignment_due_overrides_id" PRIMARY KEY ("id")
+        CONSTRAINT "PK_b1bd7aa5732943d3cf97fc1af5b" PRIMARY KEY ("id")
       )
     `);
 
@@ -87,21 +87,21 @@ export class CreateCourseAllocationTables1792650100000 implements MigrationInter
 
     await queryRunner.query(`
       ALTER TABLE "assignment_due_overrides"
-      ADD CONSTRAINT "FK_ado_course_allocation_id"
+      ADD CONSTRAINT "FK_assignment_due_overrides_course_allocation_id"
       FOREIGN KEY ("course_allocation_id") REFERENCES "course_allocations"("id")
       ON DELETE CASCADE ON UPDATE NO ACTION
     `);
 
     await queryRunner.query(`
       ALTER TABLE "assignment_due_overrides"
-      ADD CONSTRAINT "FK_ado_assignment_id"
+      ADD CONSTRAINT "FK_assignment_due_overrides_assignment_id"
       FOREIGN KEY ("assignment_id") REFERENCES "assignments"("id")
       ON DELETE CASCADE ON UPDATE NO ACTION
     `);
 
     await queryRunner.query(`
       ALTER TABLE "assignment_due_overrides"
-      ADD CONSTRAINT "FK_ado_set_by"
+      ADD CONSTRAINT "FK_assignment_due_overrides_set_by"
       FOREIGN KEY ("set_by") REFERENCES "users"("id")
       ON DELETE RESTRICT ON UPDATE NO ACTION
     `);
@@ -109,13 +109,13 @@ export class CreateCourseAllocationTables1792650100000 implements MigrationInter
 
   public async down(queryRunner: QueryRunner): Promise<void> {
     await queryRunner.query(
-      `ALTER TABLE "assignment_due_overrides" DROP CONSTRAINT "FK_ado_set_by"`,
+      `ALTER TABLE "assignment_due_overrides" DROP CONSTRAINT "FK_assignment_due_overrides_set_by"`,
     );
     await queryRunner.query(
-      `ALTER TABLE "assignment_due_overrides" DROP CONSTRAINT "FK_ado_assignment_id"`,
+      `ALTER TABLE "assignment_due_overrides" DROP CONSTRAINT "FK_assignment_due_overrides_assignment_id"`,
     );
     await queryRunner.query(
-      `ALTER TABLE "assignment_due_overrides" DROP CONSTRAINT "FK_ado_course_allocation_id"`,
+      `ALTER TABLE "assignment_due_overrides" DROP CONSTRAINT "FK_assignment_due_overrides_course_allocation_id"`,
     );
     await queryRunner.query(`DROP INDEX "public"."uq_ado_allocation_assignment"`);
     await queryRunner.query(`DROP TABLE "assignment_due_overrides"`);

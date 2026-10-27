@@ -250,6 +250,7 @@ export class UsersService {
         userId: id,
         oldRole: previousRole,
         newRole: input.newRole,
+        actorId,
       });
 
       return result;

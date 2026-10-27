@@ -1,5 +1,4 @@
 import type { Request, Response } from 'express';
-import { StatusCodes } from 'http-status-codes';
 
 import type { AuthenticatedUser } from '../../core/auth';
 import { UnauthorizedError } from '../../core/errors';
@@ -30,7 +29,7 @@ export class AllocationsController extends BaseController {
   public createAllocations = async (req: Request, res: Response): Promise<void> => {
     const actor = this.getAuthUser(req);
     const result = await this.service.createAllocations(req.body as CreateAllocationsInput, actor);
-    this.sendCreated(res, result);
+    this.sendCreated(res, { allocations: result.created, skipped: result.skipped });
   };
 
   public listAllocations = async (req: Request, res: Response): Promise<void> => {
@@ -58,11 +57,11 @@ export class AllocationsController extends BaseController {
 
   public bulkUpdateAllocationDates = async (req: Request, res: Response): Promise<void> => {
     const actor = this.getAuthUser(req);
-    const updated = await this.service.bulkUpdateAllocationDates(
+    const result = await this.service.bulkUpdateAllocationDates(
       req.body as BulkUpdateAllocationDatesInput,
       actor,
     );
-    this.sendSuccess(res, { allocations: updated });
+    this.sendSuccess(res, { allocations: result.allocations, skipped: result.skipped });
   };
 
   public revokeAllocation = async (req: Request, res: Response): Promise<void> => {
@@ -78,7 +77,7 @@ export class AllocationsController extends BaseController {
       req.body as AddMenteesToAllocationInput,
       actor,
     );
-    this.sendSuccess(res, result, StatusCodes.CREATED);
+    this.sendCreated(res, { allocations: result.created, skipped: result.skipped });
   };
 
   public setAssignmentDueOverride = async (req: Request, res: Response): Promise<void> => {
@@ -93,11 +92,11 @@ export class AllocationsController extends BaseController {
 
   public bulkSetAssignmentDueOverrides = async (req: Request, res: Response): Promise<void> => {
     const actor = this.getAuthUser(req);
-    const overrides = await this.service.bulkSetAssignmentDueOverrides(
+    const result = await this.service.bulkSetAssignmentDueOverrides(
       req.body as BulkAssignmentDueOverrideInput,
       actor,
     );
-    this.sendSuccess(res, { overrides });
+    this.sendSuccess(res, { overrides: result.overrides, skipped: result.skipped });
   };
 
   public getAssignmentOverrides = async (req: Request, res: Response): Promise<void> => {
