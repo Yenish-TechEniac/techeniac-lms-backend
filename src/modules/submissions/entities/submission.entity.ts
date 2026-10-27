@@ -91,14 +91,23 @@ export class Submission extends AuditableEntity {
   gradedAt!: Date | null;
 
   @ManyToOne(() => Assignment, { onDelete: 'CASCADE' })
-  @JoinColumn({ name: 'assignment_id' })
+  @JoinColumn({
+    name: 'assignment_id',
+    foreignKeyConstraintName: 'FK_submissions_assignment',
+  })
   assignment?: Assignment;
 
   @ManyToOne(() => Batch, { onDelete: 'SET NULL', nullable: true })
-  @JoinColumn({ name: 'batch_id' })
+  @JoinColumn({
+    name: 'batch_id',
+    foreignKeyConstraintName: 'FK_submissions_batch',
+  })
   batch?: Batch | null;
 
   @ManyToOne(() => User, { onDelete: 'SET NULL', nullable: true })
-  @JoinColumn({ name: 'graded_by' })
+  @JoinColumn({
+    name: 'graded_by',
+    foreignKeyConstraintName: 'FK_submissions_grader',
+  })
   grader?: User | null;
 }
