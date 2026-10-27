@@ -17,6 +17,9 @@ export const trackerQuerySchema = z.object({
   batchId: z.string().uuid().optional(),
   menteeId: z.string().uuid().optional(),
   courseId: z.string().uuid().optional(),
+  search: z.string().trim().optional(),
+  page: z.coerce.number().int().min(1).default(1),
+  limit: z.coerce.number().int().min(1).max(100).default(20),
 });
 
 export const topicProgressQuerySchema = z.object({

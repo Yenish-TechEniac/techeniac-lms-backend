@@ -5,8 +5,9 @@ import { CourseTopicAction } from '../../core/lifecycle';
 import { logger } from '../../core/logging';
 import { CourseAllocationStatus } from '../allocations';
 import { BatchStatus, mentorMenteeRepository } from '../batches';
+import { Topic } from '../courses';
 import { userRepository, UserRole } from '../users';
-import { TopicProgressStatus } from './entities';
+import { TopicProgress, TopicProgressStatus } from './entities';
 import { ProgressPolicy, progressPolicy } from './progress.policy';
 import { ProgressRepository, progressRepository } from './progress.repository';
 import type { UpdateTopicDeadlineInput, UpdateTopicStatusInput } from './schemas';
@@ -353,10 +354,13 @@ export class ProgressService {
       batchId?: string;
       menteeId?: string;
       courseId?: string;
+      search?: string;
+      page?: number;
+      limit?: number;
     },
     actor: AuthenticatedUser,
-  ): Promise<
-    Array<{
+  ): Promise<{
+    trackers: Array<{
       allocationId: string;
       menteeId: string;
       menteeName: string;
@@ -370,17 +374,76 @@ export class ProgressService {
       completedTopicsCount: number;
       overdueTopicsCount: number;
       isOverdue: boolean;
-    }>
-  > {
+    }>;
+    pagination: {
+      page: number;
+      limit: number;
+      total: number;
+      totalPages: number;
+    };
+  }> {
     if (query.menteeId) {
       await this.policy.assertCanTrackMentee(actor, query.menteeId, query.batchId);
     }
 
-    const allocations = await this.repository.listTrackers({
+    let mappedMenteeIds: string[] | undefined = undefined;
+    let mappedBatchIds: string[] | undefined = undefined;
+
+    if ((actor.role as UserRole) === UserRole.MENTOR) {
+      const mappings = await mentorMenteeRepository.findActiveMappingsForMentor(
+        actor.id,
+        query.batchId,
+      );
+      if (mappings.length === 0) {
+        return {
+          trackers: [],
+          pagination: {
+            page: query.page ?? 1,
+            limit: query.limit ?? 20,
+            total: 0,
+            totalPages: 0,
+          },
+        };
+      }
+      mappedMenteeIds = mappings.map((m) => m.menteeId);
+      mappedBatchIds = [...new Set(mappings.map((m) => m.batchId))];
+    }
+
+    const page = query.page ?? 1;
+    const limit = query.limit ?? 20;
+
+    const { allocations, total } = await this.repository.listTrackers({
       batchId: query.batchId,
       menteeId: query.menteeId,
       courseId: query.courseId,
+      menteeIds: mappedMenteeIds,
+      batchIds: mappedBatchIds,
+      search: query.search,
+      page,
+      limit,
     });
+
+    const courseIds = [...new Set(allocations.map((a) => a.courseId))];
+    const allocationIds = allocations.map((a) => a.id);
+
+    const [activeTopicsList, progressRowsList] = await Promise.all([
+      this.repository.findActiveTopicsByCourseIds(courseIds),
+      this.repository.listByAllocationIds(allocationIds),
+    ]);
+
+    const topicsByCourse = new Map<string, Topic[]>();
+    for (const topic of activeTopicsList) {
+      const list = topicsByCourse.get(topic.courseId) ?? [];
+      list.push(topic);
+      topicsByCourse.set(topic.courseId, list);
+    }
+
+    const progressByAlloc = new Map<string, TopicProgress[]>();
+    for (const pr of progressRowsList) {
+      const list = progressByAlloc.get(pr.courseAllocationId) ?? [];
+      list.push(pr);
+      progressByAlloc.set(pr.courseAllocationId, list);
+    }
 
     const results: Array<{
       allocationId: string;
@@ -401,22 +464,8 @@ export class ProgressService {
     const now = new Date();
 
     for (const alloc of allocations) {
-      // If mentor, verify scoped mapping to this mentee in this batch
-      if ((actor.role as UserRole) === UserRole.MENTOR) {
-        if (!alloc.batchId) {
-          continue;
-        }
-        const mapping = await mentorMenteeRepository.findActiveByMenteeAndBatch(
-          alloc.batchId,
-          alloc.userId,
-        );
-        if (!mapping || mapping.mentorId !== actor.id) {
-          continue;
-        }
-      }
-
-      const activeTopics = await this.repository.findActiveTopicsByCourseId(alloc.courseId);
-      const progressRows = await this.repository.listByAllocationId(alloc.id);
+      const activeTopics = topicsByCourse.get(alloc.courseId) ?? [];
+      const progressRows = progressByAlloc.get(alloc.id) ?? [];
 
       const activeTopicIdSet = new Set(activeTopics.map((t) => t.id));
       const activeProgress = progressRows.filter((p) => activeTopicIdSet.has(p.topicId));
@@ -453,7 +502,15 @@ export class ProgressService {
       });
     }
 
-    return results;
+    return {
+      trackers: results,
+      pagination: {
+        page,
+        limit,
+        total,
+        totalPages: Math.ceil(total / limit),
+      },
+    };
   }
 
   /**

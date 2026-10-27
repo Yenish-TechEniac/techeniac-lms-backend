@@ -4,7 +4,11 @@ import type { AuthenticatedUser } from '../../core/auth';
 import { UnauthorizedError } from '../../core/errors';
 import { BaseController } from '../../core/http';
 import { ProgressService, progressService } from './progress.service';
-import type { UpdateTopicDeadlineInput, UpdateTopicStatusInput } from './schemas';
+import type {
+  TrackerQueryInput,
+  UpdateTopicDeadlineInput,
+  UpdateTopicStatusInput,
+} from './schemas';
 
 export class ProgressController extends BaseController {
   constructor(private readonly service: ProgressService = progressService) {
@@ -48,9 +52,9 @@ export class ProgressController extends BaseController {
 
   public getProgressTracker = async (req: Request, res: Response): Promise<void> => {
     const actor = this.getAuthUser(req);
-    const query = req.query as { batchId?: string; menteeId?: string; courseId?: string };
+    const query = req.query as unknown as TrackerQueryInput;
     const result = await this.service.getMenteeProgressTracker(query, actor);
-    this.sendSuccess(res, { trackers: result });
+    this.sendSuccess(res, { trackers: result.trackers, pagination: result.pagination });
   };
 }
 

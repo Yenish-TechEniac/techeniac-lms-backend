@@ -112,12 +112,41 @@ export class ProgressRepository {
     });
   }
 
+  async findActiveTopicsByCourseIds(courseIds: string[]): Promise<Topic[]> {
+    if (courseIds.length === 0) return [];
+    return await this.topicRepo.find({
+      where: {
+        courseId: In(courseIds),
+        isActive: true,
+        deletedAt: IsNull(),
+      },
+      order: {
+        displayOrder: 'ASC',
+      },
+    });
+  }
+
+  async listByAllocationIds(courseAllocationIds: string[]): Promise<TopicProgress[]> {
+    if (courseAllocationIds.length === 0) return [];
+    return await this.repo
+      .createQueryBuilder('tp')
+      .leftJoinAndSelect('tp.topic', 'topic')
+      .where('tp.courseAllocationId IN (:...courseAllocationIds)', { courseAllocationIds })
+      .andWhere('tp.deletedAt IS NULL')
+      .orderBy('topic.displayOrder', 'ASC')
+      .getMany();
+  }
+
   async listTrackers(options: {
     batchId?: string;
     menteeId?: string;
     courseId?: string;
     batchIds?: string[];
-  }): Promise<CourseAllocation[]> {
+    menteeIds?: string[];
+    search?: string;
+    page?: number;
+    limit?: number;
+  }): Promise<{ allocations: CourseAllocation[]; total: number }> {
     const qb = this.allocationRepo
       .createQueryBuilder('alloc')
       .leftJoinAndSelect('alloc.user', 'user')
@@ -127,19 +156,41 @@ export class ProgressRepository {
 
     if (options.batchId) {
       qb.andWhere('alloc.batchId = :batchId', { batchId: options.batchId });
-    } else if (options.batchIds && options.batchIds.length > 0) {
+    } else if (options.batchIds !== undefined) {
+      if (options.batchIds.length === 0) {
+        return { allocations: [], total: 0 };
+      }
       qb.andWhere('alloc.batchId IN (:...batchIds)', { batchIds: options.batchIds });
     }
 
     if (options.menteeId) {
       qb.andWhere('alloc.userId = :menteeId', { menteeId: options.menteeId });
+    } else if (options.menteeIds !== undefined) {
+      if (options.menteeIds.length === 0) {
+        return { allocations: [], total: 0 };
+      }
+      qb.andWhere('alloc.userId IN (:...menteeIds)', { menteeIds: options.menteeIds });
     }
 
     if (options.courseId) {
       qb.andWhere('alloc.courseId = :courseId', { courseId: options.courseId });
     }
 
-    return await qb.orderBy('alloc.createdAt', 'DESC').getMany();
+    if (options.search) {
+      qb.andWhere(
+        '(course.title ILIKE :search OR user.name ILIKE :search OR user.email ILIKE :search OR batch.name ILIKE :search)',
+        { search: `%${options.search}%` },
+      );
+    }
+
+    qb.orderBy('alloc.createdAt', 'DESC');
+
+    if (options.page && options.limit) {
+      qb.skip((options.page - 1) * options.limit).take(options.limit);
+    }
+
+    const [allocations, total] = await qb.getManyAndCount();
+    return { allocations, total };
   }
 
   async updateAllocationProgress(
