@@ -6,5 +6,6 @@ export {
   ForbiddenError,
   NotFoundError,
   UnauthorizedError,
+  UnprocessableEntityError,
   ValidationError,
 } from './app-error';

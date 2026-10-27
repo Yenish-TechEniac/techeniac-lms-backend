@@ -40,6 +40,16 @@ export interface SendMenteeReassignedOptions {
   reason?: string;
 }
 
+export interface SendSubmissionReceivedOptions {
+  to: string;
+  recipientName: string;
+  menteeName: string;
+  assignmentTitle: string;
+  courseTitle: string;
+  version: number;
+  submittedAt: Date;
+}
+
 export class EmailService {
   private readonly transporter: Transporter | null;
 
@@ -216,6 +226,46 @@ export class EmailService {
       logger.error(
         { err: error, event: 'EMAIL_DISPATCH_FAILURE', service: 'smtp' },
         'Failed to dispatch mentee reassignment email',
+      );
+    }
+  }
+
+  async sendSubmissionReceivedEmail(options: SendSubmissionReceivedOptions): Promise<void> {
+    const istTimeStr =
+      options.submittedAt.toLocaleString('en-IN', {
+        timeZone: 'Asia/Kolkata',
+        dateStyle: 'medium',
+        timeStyle: 'medium',
+      }) + ' IST';
+    const subject = `New Submission: ${options.assignmentTitle} (v${options.version}) from ${options.menteeName}`;
+    const text = `Hello ${options.recipientName},\n\nMentee ${options.menteeName} has submitted assignment "${options.assignmentTitle}" for course "${options.courseTitle}" (Version ${options.version}).\n\nSubmitted at: ${istTimeStr}`;
+    const html = `<p>Hello <strong>${options.recipientName}</strong>,</p><p>Mentee <strong>${options.menteeName}</strong> has submitted assignment <strong>"${options.assignmentTitle}"</strong> for course <em>${options.courseTitle}</em> (Version ${options.version}).</p><p>Submitted at: <strong>${istTimeStr}</strong></p>`;
+
+    if (!this.transporter) {
+      logger.info(
+        { menteeName: options.menteeName, assignmentTitle: options.assignmentTitle },
+        'SMTP not configured in environment. Submission received email skipped in development.',
+      );
+      return;
+    }
+
+    try {
+      await this.transporter.sendMail({
+        from: env.SMTP_FROM,
+        to: options.to,
+        subject,
+        text,
+        html,
+      });
+
+      logger.info(
+        { menteeName: options.menteeName, assignmentTitle: options.assignmentTitle },
+        'Submission received email dispatched successfully via SMTP',
+      );
+    } catch (error) {
+      logger.error(
+        { err: error, event: 'EMAIL_DISPATCH_FAILURE', service: 'smtp' },
+        'Failed to dispatch submission received email',
       );
     }
   }
