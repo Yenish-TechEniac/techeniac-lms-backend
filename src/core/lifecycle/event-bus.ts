@@ -2,14 +2,56 @@ import { EventEmitter } from 'node:events';
 
 import { logger } from '../logging';
 
+export enum CourseTopicAction {
+  ADDED = 'ADDED',
+  DEACTIVATED = 'DEACTIVATED',
+  REACTIVATED = 'REACTIVATED',
+  DELETED = 'DELETED',
+}
+
 export interface CourseTopicsChangedEvent {
   courseId: string;
   topicId: string;
-  action: 'ADDED' | 'DEACTIVATED' | 'REACTIVATED' | 'DELETED';
+  action: CourseTopicAction;
+}
+
+export interface AllocationCreatedEvent {
+  allocationIds: string[];
+  courseId: string;
+}
+
+export interface AllocationDeadlineChangedEvent {
+  allocationId: string;
+  dueDate: string;
+}
+
+export interface UserRoleChangedEvent {
+  userId: string;
+  oldRole: string;
+  newRole: string;
+}
+
+export interface BatchMemberJoinedEvent {
+  batchId: string;
+  userId: string;
+  role: string;
+  actorId?: string;
+}
+
+export interface BatchMemberTransferredEvent {
+  sourceBatchId: string;
+  targetBatchId: string;
+  menteeId: string;
+  actorId?: string;
 }
 
 export type LifecycleEvents = {
   'course.topicsChanged': CourseTopicsChangedEvent;
+  'allocation.created': AllocationCreatedEvent;
+  'allocation.deadlineChanged': AllocationDeadlineChangedEvent;
+  'user.roleChanged': UserRoleChangedEvent;
+  'batch.memberJoined': BatchMemberJoinedEvent;
+  'batch.memberTransferred': BatchMemberTransferredEvent;
 };
 
 class LifecycleEventBus extends EventEmitter {

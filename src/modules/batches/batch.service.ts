@@ -1,8 +1,9 @@
 import type { EntityManager } from 'typeorm';
 
 import { AppDataSource, isUniqueViolation } from '../../core/db';
-import { EmailService, emailService } from '../../core/email';
+import { EmailService, emailService, MenteeReassignRecipientRole } from '../../core/email';
 import { BadRequestError, ConflictError, NotFoundError } from '../../core/errors';
+import { eventBus } from '../../core/lifecycle';
 import { User, UserRepository, userRepository, UserRole } from '../users';
 import { BatchRepository, batchRepository } from './batch.repository';
 import { BatchMember, BatchMemberRole, BatchReasonToLeave, BatchStatus } from './entities';
@@ -294,7 +295,7 @@ export class BatchService {
     }
 
     try {
-      return await AppDataSource.transaction(async (manager) => {
+      const result = await AppDataSource.transaction(async (manager) => {
         const addedMembers = [];
         const alreadyMembers: string[] = [];
 
@@ -325,6 +326,17 @@ export class BatchService {
           alreadyMembers,
         };
       });
+
+      for (const member of result.added) {
+        eventBus.emitEvent('batch.memberJoined', {
+          batchId: id,
+          userId: member.userId,
+          role: member.memberRole,
+          actorId,
+        });
+      }
+
+      return result;
     } catch (err) {
       if (isUniqueViolation(err)) {
         throw new ConflictError('A member is already assigned to an active batch');
@@ -406,7 +418,7 @@ export class BatchService {
     );
 
     try {
-      return await AppDataSource.transaction(async (manager) => {
+      const newMembership = await AppDataSource.transaction(async (manager) => {
         // 1. End old membership with BATCH_TRANSFER
         await this.batchRepo.removeMember(
           currentMembership.id,
@@ -435,6 +447,15 @@ export class BatchService {
 
         return newMembership;
       });
+
+      eventBus.emitEvent('batch.memberTransferred', {
+        sourceBatchId,
+        targetBatchId: input.targetBatchId,
+        menteeId: input.menteeId,
+        actorId,
+      });
+
+      return newMembership;
     } catch (err) {
       if (isUniqueViolation(err)) {
         throw new ConflictError('Mentee is already an active member of target batch');
@@ -646,7 +667,7 @@ export class BatchService {
       void this.emailSvc.sendMenteeReassignedEmail({
         to: menteeUser.email,
         recipientName: menteeUser.name,
-        recipientRole: 'MENTEE',
+        recipientRole: MenteeReassignRecipientRole.MENTEE,
         menteeName: menteeUser.name,
         mentorName: newMentorUser.name,
         batchName: batch.name,
@@ -656,7 +677,7 @@ export class BatchService {
       void this.emailSvc.sendMenteeReassignedEmail({
         to: newMentorUser.email,
         recipientName: newMentorUser.name,
-        recipientRole: 'NEW_MENTOR',
+        recipientRole: MenteeReassignRecipientRole.NEW_MENTOR,
         menteeName: menteeUser.name,
         mentorName: newMentorUser.name,
         batchName: batch.name,
@@ -667,7 +688,7 @@ export class BatchService {
         void this.emailSvc.sendMenteeReassignedEmail({
           to: oldMentorUser.email,
           recipientName: oldMentorUser.name,
-          recipientRole: 'PREVIOUS_MENTOR',
+          recipientRole: MenteeReassignRecipientRole.PREVIOUS_MENTOR,
           menteeName: menteeUser.name,
           mentorName: newMentorUser.name,
           batchName: batch.name,
