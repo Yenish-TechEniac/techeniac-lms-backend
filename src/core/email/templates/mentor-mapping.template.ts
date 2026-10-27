@@ -8,9 +8,15 @@ export interface MentorMappedEmailParams {
   portalUrl: string;
 }
 
+export enum MenteeReassignRecipientRole {
+  MENTEE = 'MENTEE',
+  NEW_MENTOR = 'NEW_MENTOR',
+  PREVIOUS_MENTOR = 'PREVIOUS_MENTOR',
+}
+
 export interface MenteeReassignedEmailParams {
   recipientName: string;
-  recipientRole: 'MENTEE' | 'NEW_MENTOR' | 'PREVIOUS_MENTOR';
+  recipientRole: MenteeReassignRecipientRole;
   menteeName: string;
   mentorName: string;
   batchName: string;
@@ -80,7 +86,7 @@ export function renderMenteeReassignedEmail(
   let text = '';
   let content = '';
 
-  if (params.recipientRole === 'MENTEE') {
+  if (params.recipientRole === MenteeReassignRecipientRole.MENTEE) {
     subject = `Techeniac LMS – Your Mentor Has Been Updated for ${params.batchName}`;
     text = `Hello ${params.recipientName},\n\nYour mentor for batch "${params.batchName}" has been updated to ${params.mentorName}.\nReason: ${params.reason || 'Cohort structural update'}\n\nAccess portal: ${portalUrl}\n\nBest regards,\nThe Techeniac Team`;
     content = `
@@ -91,7 +97,7 @@ export function renderMenteeReassignedEmail(
       <div class="btn-container">
         <a href="${portalUrl}" class="btn" target="_blank" rel="noopener noreferrer">Go to Portal</a>
       </div>`;
-  } else if (params.recipientRole === 'NEW_MENTOR') {
+  } else if (params.recipientRole === MenteeReassignRecipientRole.NEW_MENTOR) {
     subject = `Techeniac LMS – Mentee Reassigned to You in ${params.batchName}`;
     text = `Hello ${params.recipientName},\n\nMentee ${params.menteeName} has been reassigned to you in batch "${params.batchName}".\nReason: ${params.reason || 'Cohort structural update'}\n\nAccess portal: ${portalUrl}\n\nBest regards,\nThe Techeniac Team`;
     content = `

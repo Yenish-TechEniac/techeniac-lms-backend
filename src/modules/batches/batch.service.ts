@@ -1,7 +1,7 @@
 import type { EntityManager } from 'typeorm';
 
 import { AppDataSource, isUniqueViolation } from '../../core/db';
-import { EmailService, emailService } from '../../core/email';
+import { EmailService, emailService, MenteeReassignRecipientRole } from '../../core/email';
 import { BadRequestError, ConflictError, NotFoundError } from '../../core/errors';
 import { eventBus } from '../../core/lifecycle';
 import { User, UserRepository, userRepository, UserRole } from '../users';
@@ -667,7 +667,7 @@ export class BatchService {
       void this.emailSvc.sendMenteeReassignedEmail({
         to: menteeUser.email,
         recipientName: menteeUser.name,
-        recipientRole: 'MENTEE',
+        recipientRole: MenteeReassignRecipientRole.MENTEE,
         menteeName: menteeUser.name,
         mentorName: newMentorUser.name,
         batchName: batch.name,
@@ -677,7 +677,7 @@ export class BatchService {
       void this.emailSvc.sendMenteeReassignedEmail({
         to: newMentorUser.email,
         recipientName: newMentorUser.name,
-        recipientRole: 'NEW_MENTOR',
+        recipientRole: MenteeReassignRecipientRole.NEW_MENTOR,
         menteeName: menteeUser.name,
         mentorName: newMentorUser.name,
         batchName: batch.name,
@@ -688,7 +688,7 @@ export class BatchService {
         void this.emailSvc.sendMenteeReassignedEmail({
           to: oldMentorUser.email,
           recipientName: oldMentorUser.name,
-          recipientRole: 'PREVIOUS_MENTOR',
+          recipientRole: MenteeReassignRecipientRole.PREVIOUS_MENTOR,
           menteeName: menteeUser.name,
           mentorName: newMentorUser.name,
           batchName: batch.name,

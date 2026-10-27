@@ -3,6 +3,7 @@ export {
   type AllocationDeadlineChangedEvent,
   type BatchMemberJoinedEvent,
   type BatchMemberTransferredEvent,
+  CourseTopicAction,
   type CourseTopicsChangedEvent,
   eventBus,
   type LifecycleEvents,

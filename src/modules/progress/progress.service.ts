@@ -1,10 +1,11 @@
 import type { AuthenticatedUser } from '../../core/auth';
 import { emailService } from '../../core/email';
 import { NotFoundError } from '../../core/errors';
+import { CourseTopicAction } from '../../core/lifecycle';
 import { logger } from '../../core/logging';
 import { CourseAllocationStatus } from '../allocations';
 import { BatchStatus, mentorMenteeRepository } from '../batches';
-import { userRepository } from '../users';
+import { userRepository, UserRole } from '../users';
 import { TopicProgressStatus } from './entities';
 import { ProgressPolicy, progressPolicy } from './progress.policy';
 import { ProgressRepository, progressRepository } from './progress.repository';
@@ -401,7 +402,7 @@ export class ProgressService {
 
     for (const alloc of allocations) {
       // If mentor, verify scoped mapping to this mentee in this batch
-      if (actor.role === 'MENTOR') {
+      if ((actor.role as UserRole) === UserRole.MENTOR) {
         if (!alloc.batchId) {
           continue;
         }
@@ -461,14 +462,14 @@ export class ProgressService {
   async handleCourseTopicsChanged(payload: {
     courseId: string;
     topicId: string;
-    action: 'ADDED' | 'DEACTIVATED' | 'REACTIVATED' | 'DELETED';
+    action: CourseTopicAction;
   }): Promise<void> {
     const openAllocations = await this.repository.findOpenAllocationsByCourseId(payload.courseId);
     if (openAllocations.length === 0) {
       return;
     }
 
-    if (payload.action === 'ADDED') {
+    if (payload.action === CourseTopicAction.ADDED) {
       const allocationIds = openAllocations.map((a) => a.id);
       await this.repository.initializeTopicProgressForAllocations(allocationIds, [payload.topicId]);
     }

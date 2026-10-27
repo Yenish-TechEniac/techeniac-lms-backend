@@ -2,24 +2,26 @@ import type { AuthenticatedUser } from '../../core/auth';
 import { ForbiddenError, ValidationError } from '../../core/errors';
 import { CourseAllocation, CourseAllocationStatus } from '../allocations';
 import { BatchStatus, MentorScopeAction, mentorScopeHelper } from '../batches';
+import { UserRole } from '../users';
 
 export class ProgressPolicy {
   async assertCanViewAllocationProgress(
     actor: AuthenticatedUser,
     allocation: CourseAllocation,
   ): Promise<void> {
-    if (actor.role === 'SUPER_ADMIN') {
+    const role = actor.role as UserRole;
+    if (role === UserRole.SUPER_ADMIN) {
       return;
     }
 
-    if (actor.role === 'MENTEE') {
+    if (role === UserRole.MENTEE) {
       if (allocation.userId !== actor.id) {
         throw new ForbiddenError('Mentees can only view their own course progress');
       }
       return;
     }
 
-    if (actor.role === 'MENTOR') {
+    if (role === UserRole.MENTOR) {
       if (!allocation.batchId) {
         throw new ForbiddenError('Mentors cannot view progress for allocations outside batches');
       }
@@ -42,11 +44,12 @@ export class ProgressPolicy {
   }
 
   assertCanUpdateTopicStatus(actor: AuthenticatedUser, allocation: CourseAllocation): void {
-    if (actor.role === 'SUPER_ADMIN') {
+    const role = actor.role as UserRole;
+    if (role === UserRole.SUPER_ADMIN) {
       return;
     }
 
-    if (actor.role === 'MENTEE') {
+    if (role === UserRole.MENTEE) {
       if (allocation.userId !== actor.id) {
         throw new ForbiddenError('Mentees can only update their own topic progress');
       }
@@ -88,11 +91,12 @@ export class ProgressPolicy {
     allocation: CourseAllocation,
     deadline: Date,
   ): Promise<void> {
-    if (actor.role !== 'SUPER_ADMIN' && actor.role !== 'MENTOR') {
+    const role = actor.role as UserRole;
+    if (role !== UserRole.SUPER_ADMIN && role !== UserRole.MENTOR) {
       throw new ForbiddenError('Only Super Admin and Mentors can set topic deadlines');
     }
 
-    if (actor.role === 'MENTOR') {
+    if (role === UserRole.MENTOR) {
       if (!allocation.batchId) {
         throw new ForbiddenError('Mentors cannot manage topic deadlines outside batches');
       }
@@ -120,11 +124,12 @@ export class ProgressPolicy {
     menteeId: string,
     batchId?: string | null,
   ): Promise<void> {
-    if (actor.role === 'SUPER_ADMIN') {
+    const role = actor.role as UserRole;
+    if (role === UserRole.SUPER_ADMIN) {
       return;
     }
 
-    if (actor.role === 'MENTOR') {
+    if (role === UserRole.MENTOR) {
       if (!batchId) {
         throw new ForbiddenError('Batch context is required for mentor progress tracking');
       }
