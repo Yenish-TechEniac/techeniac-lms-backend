@@ -312,12 +312,19 @@ export class AllocationsRepository {
   async closeAllocationsForBatchTransfer(
     batchId: string,
     menteeId: string,
+    actorId?: string,
     manager?: EntityManager,
   ): Promise<number> {
+    const updateData: Record<string, unknown> = {
+      status: CourseAllocationStatus.CLOSED_BATCH_CHANGE,
+    };
+    if (actorId) {
+      updateData.updatedBy = actorId;
+    }
     const result = await this.getAllocationRepo(manager)
       .createQueryBuilder()
       .update(CourseAllocation)
-      .set({ status: CourseAllocationStatus.CLOSED_BATCH_CHANGE })
+      .set(updateData)
       .where('batch_id = :batchId AND user_id = :menteeId AND status IN (:...openStatuses)', {
         batchId,
         menteeId,
@@ -327,11 +334,21 @@ export class AllocationsRepository {
     return result.affected ?? 0;
   }
 
-  async closeAllocationsForRoleChange(userId: string, manager?: EntityManager): Promise<number> {
+  async closeAllocationsForRoleChange(
+    userId: string,
+    actorId?: string,
+    manager?: EntityManager,
+  ): Promise<number> {
+    const updateData: Record<string, unknown> = {
+      status: CourseAllocationStatus.CLOSED_ROLE_CHANGE,
+    };
+    if (actorId) {
+      updateData.updatedBy = actorId;
+    }
     const result = await this.getAllocationRepo(manager)
       .createQueryBuilder()
       .update(CourseAllocation)
-      .set({ status: CourseAllocationStatus.CLOSED_ROLE_CHANGE })
+      .set(updateData)
       .where('user_id = :userId AND status IN (:...openStatuses)', {
         userId,
         openStatuses: [CourseAllocationStatus.ASSIGNED, CourseAllocationStatus.IN_PROGRESS],

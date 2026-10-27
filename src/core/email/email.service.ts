@@ -68,6 +68,8 @@ export class EmailService {
       // Port 465 requires direct SSL (secure: true); port 587 uses STARTTLS (secure: false)
       const secure = env.SMTP_PORT === 465 ? true : env.SMTP_SECURE && env.SMTP_PORT !== 587;
       this.transporter = nodemailer.createTransport({
+        pool: true,
+        maxConnections: 5,
         host: env.SMTP_HOST,
         port: env.SMTP_PORT,
         secure,
