@@ -6,6 +6,7 @@ import { StatusCodes } from 'http-status-codes';
 import { env } from './core/config';
 import { healthRouter } from './core/health';
 import { corsMiddleware, errorMiddleware, notFoundMiddleware } from './core/http';
+import { allocationsRouter, registerAllocationLifecycleListeners } from './modules/allocations';
 import { authRouter } from './modules/auth';
 import { batchRouter, menteeRouter, mentorRouter } from './modules/batches';
 import { coursesRouter } from './modules/courses';
@@ -13,6 +14,7 @@ import { coursesRouter } from './modules/courses';
 import { usersRouter } from './modules/users/users.routes';
 
 export function createApp(): Express {
+  registerAllocationLifecycleListeners();
   const app = express();
 
   app.disable('x-powered-by');
@@ -37,6 +39,7 @@ export function createApp(): Express {
   app.use('/api/v1/auth', authRouter);
   app.use('/api/v1/users', usersRouter);
   app.use('/api/v1/courses', coursesRouter);
+  app.use('/api/v1/course-allocations', allocationsRouter);
   app.use('/api/v1/batches', batchRouter);
   app.use('/api/v1/mentor', mentorRouter);
   app.use('/api/v1/mentee', menteeRouter);

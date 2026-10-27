@@ -8,8 +8,44 @@ export interface CourseTopicsChangedEvent {
   action: 'ADDED' | 'DEACTIVATED' | 'REACTIVATED' | 'DELETED';
 }
 
+export interface AllocationCreatedEvent {
+  allocationIds: string[];
+  courseId: string;
+}
+
+export interface AllocationDeadlineChangedEvent {
+  allocationId: string;
+  dueDate: string;
+}
+
+export interface UserRoleChangedEvent {
+  userId: string;
+  oldRole: string;
+  newRole: string;
+  actorId?: string;
+}
+
+export interface BatchMemberJoinedEvent {
+  batchId: string;
+  userId: string;
+  role: string;
+  actorId?: string;
+}
+
+export interface BatchMemberTransferredEvent {
+  sourceBatchId: string;
+  targetBatchId: string;
+  menteeId: string;
+  actorId?: string;
+}
+
 export type LifecycleEvents = {
   'course.topicsChanged': CourseTopicsChangedEvent;
+  'allocation.created': AllocationCreatedEvent;
+  'allocation.deadlineChanged': AllocationDeadlineChangedEvent;
+  'user.roleChanged': UserRoleChangedEvent;
+  'batch.memberJoined': BatchMemberJoinedEvent;
+  'batch.memberTransferred': BatchMemberTransferredEvent;
 };
 
 class LifecycleEventBus extends EventEmitter {
