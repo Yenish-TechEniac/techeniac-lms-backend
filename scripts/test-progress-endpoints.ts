@@ -1,10 +1,11 @@
 import 'reflect-metadata';
 
+import { randomUUID } from 'node:crypto';
 import type { Server } from 'node:http';
 
 import { app } from '../src/app';
 import { hashPassword, signAccessToken } from '../src/core/auth';
-import { closeDatabase, initializeDatabase } from '../src/core/db';
+import { AppDataSource, closeDatabase, initializeDatabase } from '../src/core/db';
 import { logger } from '../src/core/logging';
 import { BatchMemberRole, BatchStatus } from '../src/modules/batches';
 import { userRepository, UserRole } from '../src/modules/users';
@@ -21,6 +22,10 @@ interface ApiResponse<T = unknown> {
 }
 
 async function runProgressTests(): Promise<void> {
+  if (process.env.NODE_ENV === 'production') {
+    throw new Error('Integration test script cannot be run in production environments');
+  }
+
   await initializeDatabase();
 
   const server: Server = await new Promise((resolve) => {
@@ -32,6 +37,10 @@ async function runProgressTests(): Promise<void> {
   const baseUrl = `http://127.0.0.1:${port}/api/v1`;
 
   let failures = 0;
+  const createdUserIds: string[] = [];
+  const createdBatchIds: string[] = [];
+  const createdCourseIds: string[] = [];
+  const createdAllocationIds: string[] = [];
 
   try {
     logger.info(
@@ -39,48 +48,28 @@ async function runProgressTests(): Promise<void> {
       'Running M8 Learning Progress Verification Tests (PRG-01..20, ALC-24)...',
     );
 
-    async function getOrCreateUser(email: string, name: string, role: UserRole) {
-      let u = await userRepository.findByEmail(email);
-      if (!u) {
-        const passwordHash = await hashPassword('Password123!');
-        u = await userRepository.create({
-          name,
-          email,
-          passwordHash,
-          role,
-          mustChangePassword: false,
-        });
-      }
+    const uniqueSuffix = Date.now().toString().slice(-6);
+
+    async function createDisposableUser(name: string, role: UserRole, prefix: string) {
+      const email = `${prefix}-m8-${uniqueSuffix}@techeniac.com`;
+      const password = `TestP@ss-${randomUUID()}`;
+      const passwordHash = await hashPassword(password);
+      const u = await userRepository.create({
+        name,
+        email,
+        passwordHash,
+        role,
+        mustChangePassword: false,
+      });
+      createdUserIds.push(u.id);
       return u;
     }
 
-    const uniqueSuffix = Date.now().toString().slice(-6);
-
-    const admin = await getOrCreateUser(
-      `admin-m8-${uniqueSuffix}@techeniac.com`,
-      'Super Admin M8',
-      UserRole.SUPER_ADMIN,
-    );
-    const mentorA = await getOrCreateUser(
-      `mentor-m8-a-${uniqueSuffix}@techeniac.com`,
-      'Mentor Alpha M8',
-      UserRole.MENTOR,
-    );
-    const mentorB = await getOrCreateUser(
-      `mentor-m8-b-${uniqueSuffix}@techeniac.com`,
-      'Mentor Beta M8',
-      UserRole.MENTOR,
-    );
-    const mentee1 = await getOrCreateUser(
-      `mentee-m8-1-${uniqueSuffix}@techeniac.com`,
-      'Mentee One M8',
-      UserRole.MENTEE,
-    );
-    const mentee2 = await getOrCreateUser(
-      `mentee-m8-2-${uniqueSuffix}@techeniac.com`,
-      'Mentee Two M8',
-      UserRole.MENTEE,
-    );
+    const admin = await createDisposableUser('Super Admin M8', UserRole.SUPER_ADMIN, 'admin');
+    const mentorA = await createDisposableUser('Mentor Alpha M8', UserRole.MENTOR, 'mentor-a');
+    const mentorB = await createDisposableUser('Mentor Beta M8', UserRole.MENTOR, 'mentor-b');
+    const mentee1 = await createDisposableUser('Mentee One M8', UserRole.MENTEE, 'mentee-1');
+    const mentee2 = await createDisposableUser('Mentee Two M8', UserRole.MENTEE, 'mentee-2');
 
     const tokenAdmin = signAccessToken({
       sub: admin.id,
@@ -132,7 +121,9 @@ async function runProgressTests(): Promise<void> {
       id?: string;
     }>;
     const batchId = (batchData.data?.batch?.id ?? batchData.data?.id) as string;
-    if (!batchId) {
+    if (batchId) {
+      createdBatchIds.push(batchId);
+    } else {
       logger.error({ batchData, status: batchRes.status }, 'Failed to create batch');
     }
 
@@ -187,6 +178,9 @@ async function runProgressTests(): Promise<void> {
     });
     const courseData = (await courseRes.json()) as ApiResponse<{ id: string }>;
     const courseId = courseData.data?.id as string;
+    if (courseId) {
+      createdCourseIds.push(courseId);
+    }
 
     // Add 3 topics
     const topic1Res = await fetch(`${baseUrl}/courses/${courseId}/topics`, {
@@ -245,6 +239,9 @@ async function runProgressTests(): Promise<void> {
       created: Array<{ id: string; userId: string }>;
     }>;
     const allocationId = allocData.data?.created[0]?.id as string;
+    if (allocationId) {
+      createdAllocationIds.push(allocationId);
+    }
 
     // Allow event bus microtask to settle
     await new Promise((r) => setTimeout(r, 200));
@@ -536,12 +533,62 @@ async function runProgressTests(): Promise<void> {
     logger.error({ err }, 'Error during M8 progress tests execution');
     failures++;
   } finally {
+    try {
+      if (createdAllocationIds.length > 0) {
+        await AppDataSource.query(
+          `DELETE FROM topic_progress WHERE course_allocation_id = ANY($1::uuid[])`,
+          [createdAllocationIds],
+        );
+        await AppDataSource.query(`DELETE FROM course_allocations WHERE id = ANY($1::uuid[])`, [
+          createdAllocationIds,
+        ]);
+      }
+      if (createdCourseIds.length > 0) {
+        await AppDataSource.query(`DELETE FROM topics WHERE course_id = ANY($1::uuid[])`, [
+          createdCourseIds,
+        ]);
+        await AppDataSource.query(`DELETE FROM courses WHERE id = ANY($1::uuid[])`, [
+          createdCourseIds,
+        ]);
+      }
+      if (createdBatchIds.length > 0) {
+        await AppDataSource.query(`DELETE FROM mentor_mentees WHERE batch_id = ANY($1::uuid[])`, [
+          createdBatchIds,
+        ]);
+        await AppDataSource.query(
+          `DELETE FROM batch_status_history WHERE batch_id = ANY($1::uuid[])`,
+          [createdBatchIds],
+        );
+        await AppDataSource.query(`DELETE FROM batch_members WHERE batch_id = ANY($1::uuid[])`, [
+          createdBatchIds,
+        ]);
+        await AppDataSource.query(`DELETE FROM batches WHERE id = ANY($1::uuid[])`, [
+          createdBatchIds,
+        ]);
+      }
+      if (createdUserIds.length > 0) {
+        await AppDataSource.query(`DELETE FROM refresh_tokens WHERE user_id = ANY($1::uuid[])`, [
+          createdUserIds,
+        ]);
+        await AppDataSource.query(`DELETE FROM user_role_history WHERE user_id = ANY($1::uuid[])`, [
+          createdUserIds,
+        ]);
+        await AppDataSource.query(`DELETE FROM users WHERE id = ANY($1::uuid[])`, [createdUserIds]);
+      }
+    } catch (cleanupError) {
+      logger.error({ err: cleanupError }, 'Failed to clean up test entities');
+    }
+
     server.close();
     await closeDatabase();
-  }
 
-  if (failures > 0) {
-    process.exit(1);
+    if (failures > 0) {
+      console.error(`\nTest suite finished with ${failures} failure(s).`);
+      process.exit(1);
+    } else {
+      console.log('\nAll 11 M8 Learning Progress tests passed successfully!');
+      process.exit(0);
+    }
   }
 }
 
