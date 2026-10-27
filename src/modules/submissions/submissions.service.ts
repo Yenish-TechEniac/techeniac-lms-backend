@@ -105,6 +105,9 @@ export class SubmissionsService {
       const alloc = allocationByCourseId.get(assignment.courseId);
       if (!alloc) continue;
 
+      const overrideDueDateStr = alloc.assignmentOverrides?.[assignment.id];
+      const effectiveDueDate = overrideDueDateStr ? new Date(overrideDueDateStr) : alloc.dueDate;
+
       const key = `${alloc.allocationId}:${assignment.id}`;
       const latestSub = latestSubmissionMap.get(key) || null;
 
@@ -122,7 +125,7 @@ export class SubmissionsService {
         derivedStatus = latestSub ? latestSub.status : 'CLOSED';
       } else if (latestSub) {
         derivedStatus = latestSub.status;
-      } else if (now > alloc.dueDate) {
+      } else if (now > effectiveDueDate) {
         derivedStatus = 'OVERDUE';
       } else {
         derivedStatus = 'PENDING';
@@ -149,7 +152,7 @@ export class SubmissionsService {
         zipMode: assignment.zipMode,
         urlMode: assignment.urlMode,
         resources: assignment.resources,
-        dueDate: alloc.dueDate.toISOString(),
+        dueDate: effectiveDueDate.toISOString(),
         status: derivedStatus,
         latestSubmission: latestSub
           ? {
@@ -199,7 +202,12 @@ export class SubmissionsService {
       throw new NotFoundError('Assignment not found');
     }
 
-    const alloc = await allocationAdapter.getAllocationForCourse(menteeId, assignment.courseId);
+    const alloc = await allocationAdapter.getAllocationForCourse(
+      menteeId,
+      assignment.courseId,
+      undefined,
+      assignmentId,
+    );
 
     const versions = await submissionsRepository.findSubmissionsForAllocationAndAssignment(
       alloc.allocationId,
@@ -283,6 +291,7 @@ export class SubmissionsService {
       menteeId,
       assignment.courseId,
       input.courseAllocationId,
+      assignment.id,
     );
 
     if (
@@ -297,7 +306,8 @@ export class SubmissionsService {
 
     // 6. Check late status and policy (FR-9.5, SUB-13, SUB-14)
     const now = new Date();
-    const isLate = now > alloc.dueDate;
+    const effectiveDueDate = alloc.overrideDueDate || alloc.dueDate;
+    const isLate = now > effectiveDueDate;
     if (isLate && !assignment.allowLate) {
       throw new UnprocessableEntityError('Late submission is not allowed for this assignment');
     }

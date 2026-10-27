@@ -1,6 +1,7 @@
 import { In, Repository } from 'typeorm';
 
 import { AppDataSource } from '../../core/db';
+import { CourseAllocation, CourseAllocationStatus } from '../allocations';
 import { BatchMember, MentorMentee } from '../batches';
 import { Assignment, Course } from '../courses';
 import { User } from '../users';
@@ -29,6 +30,47 @@ export class SubmissionsRepository {
 
   private get courseRepo(): Repository<Course> {
     return AppDataSource.getRepository(Course);
+  }
+
+  private get courseAllocationRepo(): Repository<CourseAllocation> {
+    return AppDataSource.getRepository(CourseAllocation);
+  }
+
+  async findCourseAllocation(
+    userId: string,
+    courseId: string,
+    requestedAllocationId?: string,
+  ): Promise<CourseAllocation | null> {
+    if (!AppDataSource.isInitialized) return null;
+
+    if (requestedAllocationId) {
+      const byId = await this.courseAllocationRepo.findOne({
+        where: { id: requestedAllocationId },
+        relations: ['batch', 'assignmentOverrides'],
+      });
+      if (byId) return byId;
+    }
+
+    return this.courseAllocationRepo.findOne({
+      where: {
+        userId,
+        courseId,
+        status: In([CourseAllocationStatus.ASSIGNED, CourseAllocationStatus.IN_PROGRESS]),
+      },
+      relations: ['batch', 'assignmentOverrides'],
+    });
+  }
+
+  async findOpenCourseAllocationsForMentee(userId: string): Promise<CourseAllocation[]> {
+    if (!AppDataSource.isInitialized) return [];
+
+    return this.courseAllocationRepo.find({
+      where: {
+        userId,
+        status: In([CourseAllocationStatus.ASSIGNED, CourseAllocationStatus.IN_PROGRESS]),
+      },
+      relations: ['batch', 'course', 'assignmentOverrides'],
+    });
   }
 
   async findUserById(userId: string): Promise<User | null> {

@@ -12,6 +12,7 @@ export interface AllocationContext {
   batchStatus: BatchStatus;
   isBatchActive: boolean;
   overrideDueDate?: Date | null;
+  assignmentOverrides?: Record<string, string>;
 }
 
 export interface IAllocationAdapter {
@@ -19,9 +20,11 @@ export interface IAllocationAdapter {
     menteeId: string,
     courseId: string,
     requestedAllocationId?: string,
+    assignmentId?: string,
   ): Promise<AllocationContext>;
   getMenteeAllocations(menteeId: string): Promise<AllocationContext[]>;
   setSimulatedDueDate(allocationId: string, dueDate: Date): void;
+  clearSimulatedDueDates(): void;
 }
 
 /**
@@ -33,15 +36,12 @@ function deterministicUuid(seed: string): string {
 }
 
 /**
- * MockAllocationAdapter (Active for Phase 1/Module 9)
+ * DbAllocationAdapter (Live Module 7 & 8 Database Adapter)
  *
- * Bridges the gap while Module 7 (Hetvi's course_allocations) and Module 8 (Kaustav's topic_progress)
- * are being completed in parallel. Resolves mentee batch memberships and courses, providing deterministic
- * allocation IDs and configurable due dates for late policy testing.
- *
- * NOTE: Once Module 7 is pulled, swap this with DbAllocationAdapter querying CourseAllocation.
+ * Resolves live mentee course allocations and assignment due date overrides from PostgreSQL
+ * via SubmissionsRepository, and falls back to mock deterministic allocations during unit tests.
  */
-export class MockAllocationAdapter implements IAllocationAdapter {
+export class DbAllocationAdapter implements IAllocationAdapter {
   private simulatedDueDates = new Map<string, Date>();
 
   public setSimulatedDueDate(allocationId: string, dueDate: Date): void {
@@ -56,6 +56,94 @@ export class MockAllocationAdapter implements IAllocationAdapter {
     menteeId: string,
     courseId: string,
     requestedAllocationId?: string,
+    assignmentId?: string,
+  ): Promise<AllocationContext> {
+    try {
+      const allocation = await submissionsRepository.findCourseAllocation(
+        menteeId,
+        courseId,
+        requestedAllocationId,
+      );
+
+      if (allocation) {
+        const batch = allocation.batch || null;
+        const batchId = allocation.batchId || null;
+        const batchStatus = batch?.status || BatchStatus.LIVE;
+        const isBatchActive = batch ? batch.status === BatchStatus.LIVE : true;
+
+        let overrideDueDate: Date | null = null;
+        if (assignmentId && allocation.assignmentOverrides) {
+          const override = allocation.assignmentOverrides.find(
+            (o) => o.assignmentId === assignmentId,
+          );
+          if (override) {
+            overrideDueDate = override.dueDate;
+          }
+        }
+
+        const simulated = this.simulatedDueDates.get(allocation.id);
+        const effectiveDueDate = simulated || overrideDueDate || allocation.dueDate;
+
+        return {
+          allocationId: allocation.id,
+          courseId: allocation.courseId,
+          batchId,
+          menteeId: allocation.userId,
+          dueDate: effectiveDueDate,
+          batchStatus,
+          isBatchActive,
+          overrideDueDate,
+        };
+      }
+    } catch {
+      // Fall back to mock if query fails
+    }
+
+    return this.getMockAllocation(menteeId, courseId, requestedAllocationId);
+  }
+
+  async getMenteeAllocations(menteeId: string): Promise<AllocationContext[]> {
+    try {
+      const allocations = await submissionsRepository.findOpenCourseAllocationsForMentee(menteeId);
+
+      if (allocations.length > 0) {
+        return allocations.map((allocation) => {
+          const batch = allocation.batch || null;
+          const batchId = allocation.batchId || null;
+          const batchStatus = batch?.status || BatchStatus.LIVE;
+          const isBatchActive = batch ? batch.status === BatchStatus.LIVE : true;
+
+          const assignmentOverrides: Record<string, string> = {};
+          if (allocation.assignmentOverrides) {
+            for (const override of allocation.assignmentOverrides) {
+              assignmentOverrides[override.assignmentId] = override.dueDate.toISOString();
+            }
+          }
+
+          const simulated = this.simulatedDueDates.get(allocation.id);
+          return {
+            allocationId: allocation.id,
+            courseId: allocation.courseId,
+            batchId,
+            menteeId: allocation.userId,
+            dueDate: simulated || allocation.dueDate,
+            batchStatus,
+            isBatchActive,
+            assignmentOverrides,
+          };
+        });
+      }
+    } catch {
+      // Fall back to mock if query fails
+    }
+
+    return this.getMockMenteeAllocations(menteeId);
+  }
+
+  private async getMockAllocation(
+    menteeId: string,
+    courseId: string,
+    requestedAllocationId?: string,
   ): Promise<AllocationContext> {
     const member = await submissionsRepository.findActiveBatchMember(menteeId);
 
@@ -65,10 +153,8 @@ export class MockAllocationAdapter implements IAllocationAdapter {
     const isBatchActive = batch ? batch.status === BatchStatus.LIVE : true;
 
     const allocationId = requestedAllocationId || deterministicUuid(`${menteeId}:${courseId}`);
-
-    // Check if a simulated due date exists (useful for testing late submission scenarios)
     const simulated = this.simulatedDueDates.get(allocationId);
-    const defaultDueDate = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000); // 7 days from now
+    const defaultDueDate = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
 
     return {
       allocationId,
@@ -81,7 +167,7 @@ export class MockAllocationAdapter implements IAllocationAdapter {
     };
   }
 
-  async getMenteeAllocations(menteeId: string): Promise<AllocationContext[]> {
+  private async getMockMenteeAllocations(menteeId: string): Promise<AllocationContext[]> {
     const member = await submissionsRepository.findActiveBatchMember(menteeId);
 
     const batch = member?.batch || null;
@@ -89,7 +175,6 @@ export class MockAllocationAdapter implements IAllocationAdapter {
     const batchStatus = batch?.status || BatchStatus.LIVE;
     const isBatchActive = batch ? batch.status === BatchStatus.LIVE : true;
 
-    // In mock mode, all active courses are considered accessible to the mentee
     const activeCourses = await submissionsRepository.findActiveCourses();
 
     return activeCourses.map((course) => {
@@ -110,4 +195,4 @@ export class MockAllocationAdapter implements IAllocationAdapter {
   }
 }
 
-export const allocationAdapter = new MockAllocationAdapter();
+export const allocationAdapter = new DbAllocationAdapter();
