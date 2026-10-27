@@ -92,14 +92,12 @@ async function runTests(): Promise<void> {
       method: 'GET',
       headers,
     });
-    const listCoursesData = (await listCoursesRes.json()) as ApiResponse<{
-      courses: Array<{ id: string }>;
-    }>;
+    const listCoursesData = (await listCoursesRes.json()) as ApiResponse<Array<{ id: string }>>;
 
     if (
       listCoursesRes.status === 200 &&
       listCoursesData.success &&
-      Array.isArray(listCoursesData.data?.courses) &&
+      Array.isArray(listCoursesData.data) &&
       listCoursesData.meta?.page === 1
     ) {
       logger.info(
