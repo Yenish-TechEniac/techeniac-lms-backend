@@ -32,7 +32,7 @@ export const createSubmissionSchema = z.object({
         zipUrl: z.string().trim().optional().nullable(),
         linkUrl: z.string().trim().optional().nullable(),
       })
-      .transform((data) => ({
+      .transform((data): { pdfUrl?: string; zipUrl?: string; linkUrl?: string } => ({
         pdfUrl: data.pdfUrl || undefined,
         zipUrl: data.zipUrl || undefined,
         linkUrl: data.linkUrl || undefined,

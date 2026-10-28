@@ -417,7 +417,7 @@ export class SubmissionsService {
     }
   }
 
-  private async getAllocationForCourse(
+  public async getAllocationForCourse(
     menteeId: string,
     courseId: string,
     requestedAllocationId?: string,
@@ -471,7 +471,7 @@ export class SubmissionsService {
     };
   }
 
-  private async getMenteeAllocations(menteeId: string): Promise<AllocationContext[]> {
+  public async getMenteeAllocations(menteeId: string): Promise<AllocationContext[]> {
     let allocations: CourseAllocation[] = [];
     try {
       allocations = await submissionsRepository.findOpenCourseAllocationsForMentee(menteeId);

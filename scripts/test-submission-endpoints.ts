@@ -100,7 +100,6 @@ async function runTests(): Promise<void> {
     testAllocation = allocRepo.create({
       userId: testMentee.id,
       courseId: testCourse.id,
-      targetType: 'ALL_BATCH',
       status: CourseAllocationStatus.IN_PROGRESS,
       startDate: new Date(),
       dueDate: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
