@@ -1,6 +1,6 @@
 import type { AuthenticatedUser } from '../../core/auth';
 import { ConflictError, ForbiddenError, NotFoundError, ValidationError } from '../../core/errors';
-import { eventBus } from '../../core/lifecycle';
+import { CourseTopicAction, eventBus } from '../../core/lifecycle';
 import { sanitizeHtml } from '../../core/utils/sanitizer';
 import { coursesRepository } from './courses.repository';
 import {
@@ -258,7 +258,7 @@ export class CoursesService {
     eventBus.emitEvent('course.topicsChanged', {
       courseId,
       topicId: topic.id,
-      action: 'ADDED',
+      action: CourseTopicAction.ADDED,
     });
 
     return topic;
@@ -348,7 +348,7 @@ export class CoursesService {
     eventBus.emitEvent('course.topicsChanged', {
       courseId: topic.courseId,
       topicId: topic.id,
-      action: isActive ? 'REACTIVATED' : 'DEACTIVATED',
+      action: isActive ? CourseTopicAction.REACTIVATED : CourseTopicAction.DEACTIVATED,
     });
 
     if (!updated) {
@@ -371,7 +371,7 @@ export class CoursesService {
     eventBus.emitEvent('course.topicsChanged', {
       courseId: topic.courseId,
       topicId: id,
-      action: 'DELETED',
+      action: CourseTopicAction.DELETED,
     });
   }
 
