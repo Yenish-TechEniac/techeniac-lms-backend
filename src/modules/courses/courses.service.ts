@@ -2,6 +2,7 @@ import type { AuthenticatedUser } from '../../core/auth';
 import { ConflictError, ForbiddenError, NotFoundError, ValidationError } from '../../core/errors';
 import { CourseTopicAction, eventBus } from '../../core/lifecycle';
 import { sanitizeHtml } from '../../core/utils/sanitizer';
+import { allocationsRepository } from '../allocations';
 import { coursesRepository } from './courses.repository';
 import {
   Assignment,
@@ -104,11 +105,27 @@ export class CoursesService {
 
   // Shared library access (PRD Section 9.6, CRS-18):
   // All mentors can view course details and outlines to discover materials and evaluate curricula.
-  async getCourseById(id: string, includeFullOutline = false): Promise<Course> {
+  async getCourseById(
+    id: string,
+    includeFullOutline = false,
+    actor?: AuthenticatedUser,
+  ): Promise<Course> {
     const course = await coursesRepository.findCourseById(id, includeFullOutline);
     if (!course) {
       throw new NotFoundError('Course not found');
     }
+
+    if (actor && actor.role === 'MENTEE') {
+      if (!course.isActive) {
+        throw new NotFoundError('Course not found');
+      }
+
+      const allocation = await allocationsRepository.findActiveOrCompletedAllocation(id, actor.id);
+      if (!allocation) {
+        throw new ForbiddenError('Mentees can only access courses allocated to them');
+      }
+    }
+
     return course;
   }
 

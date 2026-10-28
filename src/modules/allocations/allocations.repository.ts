@@ -156,6 +156,24 @@ export class AllocationsRepository {
     });
   }
 
+  async findActiveOrCompletedAllocation(
+    courseId: string,
+    userId: string,
+    manager?: EntityManager,
+  ): Promise<CourseAllocation | null> {
+    return await this.getAllocationRepo(manager).findOne({
+      where: {
+        courseId,
+        userId,
+        status: In([
+          CourseAllocationStatus.ASSIGNED,
+          CourseAllocationStatus.IN_PROGRESS,
+          CourseAllocationStatus.COMPLETED,
+        ]),
+      },
+    });
+  }
+
   async findAllocationById(id: string, manager?: EntityManager): Promise<CourseAllocation | null> {
     const allocation = await this.getAllocationRepo(manager)
       .createQueryBuilder('allocation')
