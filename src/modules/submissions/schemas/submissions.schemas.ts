@@ -16,20 +16,12 @@ export const createSubmissionSchema = z.object({
         pdfUrl: z.string().trim().optional().nullable(),
         zipUrl: z.string().trim().optional().nullable(),
         linkUrl: z.string().trim().optional().nullable(),
-        pdf_url: z.string().trim().optional().nullable(),
-        zip_url: z.string().trim().optional().nullable(),
-        url: z.string().trim().optional().nullable(),
       })
-      .transform((data) => {
-        const pdf = data.pdfUrl || data.pdf_url;
-        const zip = data.zipUrl || data.zip_url;
-        const link = data.linkUrl || data.url;
-        return {
-          pdfUrl: pdf || undefined,
-          zipUrl: zip || undefined,
-          linkUrl: link || undefined,
-        };
-      })
+      .transform((data) => ({
+        pdfUrl: data.pdfUrl || undefined,
+        zipUrl: data.zipUrl || undefined,
+        linkUrl: data.linkUrl || undefined,
+      }))
       .refine(
         (data) => {
           const hasPdf = Boolean(data.pdfUrl && data.pdfUrl.trim().length > 0);

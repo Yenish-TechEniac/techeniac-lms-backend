@@ -54,6 +54,7 @@ export class SubmissionsRepository {
         relations: ['batch', 'assignmentOverrides'],
       });
       if (byId) return byId;
+      return null;
     }
 
     return this.courseAllocationRepo.findOne({
