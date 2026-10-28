@@ -24,6 +24,7 @@
     "test:auth": "tsx scripts/test-auth-endpoints.ts",
     "test:courses": "tsx scripts/test-course-endpoints.ts",
     "test:progress": "tsx scripts/test-progress-endpoints.ts",
+    "test:submissions": "tsx scripts/test-submission-endpoints.ts",
     "seed:admin": "tsx --env-file=.env scripts/seed-admin.ts",
     "prepare": "husky"
   },
