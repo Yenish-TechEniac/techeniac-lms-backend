@@ -2,7 +2,7 @@ import { EntityManager, In, IsNull } from 'typeorm';
 
 import { AppDataSource } from '../../core/db';
 import { CourseAllocation, CourseAllocationStatus } from '../allocations';
-import { MentorMentee } from '../batches';
+import { BatchMember, BatchMemberRole, MentorMentee } from '../batches';
 import { Topic } from '../courses';
 import { TopicProgress, TopicProgressStatus } from './entities';
 
@@ -190,6 +190,12 @@ export class ProgressRepository {
         'mm.batchId = alloc.batchId AND mm.menteeId = alloc.userId AND mm.mentorId = :mentorId AND mm.isActive = true AND mm.deletedAt IS NULL',
         { mentorId: options.mentorId },
       );
+      qb.innerJoin(
+        BatchMember,
+        'bm_mentor',
+        'bm_mentor.batchId = alloc.batchId AND bm_mentor.userId = :mentorId AND bm_mentor.isActive = true AND bm_mentor.memberRole = :mentorRole AND bm_mentor.deletedAt IS NULL',
+        { mentorId: options.mentorId, mentorRole: BatchMemberRole.MENTOR },
+      );
     }
 
     if (options.batchId) {
@@ -273,11 +279,6 @@ export class ProgressRepository {
     }
     const repo = manager ? manager.getRepository(CourseAllocation) : this.allocationRepo;
     await repo.update({ id: allocationId, deletedAt: IsNull() }, updates);
-  }
-
-  async save(progress: TopicProgress, manager?: EntityManager): Promise<TopicProgress> {
-    const repo = manager ? manager.getRepository(TopicProgress) : this.repo;
-    return await repo.save(progress);
   }
 }
 

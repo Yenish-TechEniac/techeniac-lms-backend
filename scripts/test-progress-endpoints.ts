@@ -503,21 +503,21 @@ async function runProgressTests(): Promise<void> {
       const res = await fetch(`${baseUrl}/progress/trackers?batchId=${batchId}`, {
         headers: { Authorization: `Bearer ${tokenMentorA}` },
       });
-      const data = (await res.json()) as ApiResponse<{
-        trackers: Array<{
+      const data = (await res.json()) as ApiResponse<
+        Array<{
           menteeId: string;
           progressPercent: number;
           completedTopicsCount: number;
           totalActiveTopics: number;
-        }>;
-      }>;
+        }>
+      > & { meta?: { page: number; limit: number; total: number; totalPages: number } };
 
       if (
         res.status === 200 &&
-        data.data?.trackers &&
-        data.data.trackers.length >= 1 &&
-        data.data.trackers[0]?.progressPercent === 100 &&
-        data.data.trackers[0]?.completedTopicsCount === 3
+        Array.isArray(data.data) &&
+        data.data.length >= 1 &&
+        data.data[0]?.progressPercent === 100 &&
+        data.data[0]?.completedTopicsCount === 3
       ) {
         logger.info(
           '✔ Test 11: Mentor progress tracker returned scoped progress metrics for mapped mentees (FR-8.7)',

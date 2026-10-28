@@ -1,6 +1,8 @@
 import assert from 'node:assert/strict';
 import { beforeEach, describe, it } from 'node:test';
 
+import type { EntityManager } from 'typeorm';
+
 import type { AuthenticatedUser } from '../../src/core/auth';
 import { emailService } from '../../src/core/email';
 import { ForbiddenError, NotFoundError, ValidationError } from '../../src/core/errors';
@@ -242,51 +244,167 @@ void describe('ProgressService Unit Tests (PRD M8: PRG-01 to PRG-20)', () => {
     });
 
     void it('serializes concurrent status updates on the same allocation safely (PRG-20)', async () => {
-      const allocation = {
-        id: 'alloc-1',
-        userId: 'mentee-1',
-        courseId: 'course-1',
-        status: CourseAllocationStatus.ASSIGNED,
-        progressPercent: 0,
-        batch: { status: BatchStatus.LIVE } as Batch,
-      } as CourseAllocation;
-
-      const progressRows: Record<string, TopicProgress> = {
-        'topic-1': {
-          id: 'tp-1',
-          courseAllocationId: 'alloc-1',
-          topicId: 'topic-1',
-          status: TopicProgressStatus.NOT_STARTED,
-          completedAt: null,
-          note: null,
-        } as TopicProgress,
-        'topic-2': {
-          id: 'tp-2',
-          courseAllocationId: 'alloc-1',
-          topicId: 'topic-2',
-          status: TopicProgressStatus.NOT_STARTED,
-          completedAt: null,
-          note: null,
-        } as TopicProgress,
+      const committedState: {
+        allocation: CourseAllocation;
+        topics: Record<string, TopicProgress>;
+      } = {
+        allocation: {
+          id: 'alloc-1',
+          userId: 'mentee-1',
+          courseId: 'course-1',
+          status: CourseAllocationStatus.ASSIGNED,
+          progressPercent: 0,
+          batch: { status: BatchStatus.LIVE } as Batch,
+        } as CourseAllocation,
+        topics: {
+          'topic-1': {
+            id: 'tp-1',
+            courseAllocationId: 'alloc-1',
+            topicId: 'topic-1',
+            status: TopicProgressStatus.NOT_STARTED,
+            completedAt: null,
+            note: null,
+          } as TopicProgress,
+          'topic-2': {
+            id: 'tp-2',
+            courseAllocationId: 'alloc-1',
+            topicId: 'topic-2',
+            status: TopicProgressStatus.NOT_STARTED,
+            completedAt: null,
+            note: null,
+          } as TopicProgress,
+        },
       };
 
-      mockRepo.findAllocationById = () => Promise.resolve(allocation);
-      mockRepo.findByAllocationAndTopic = (_allocId, topicId) =>
-        Promise.resolve(progressRows[topicId]);
+      let currentLockHolder: string | null = null;
+      const lockQueue: Array<{ txId: string; resolve: () => void }> = [];
+
+      const acquireRowLock = async (txId: string) => {
+        if (currentLockHolder === null) {
+          currentLockHolder = txId;
+          return;
+        }
+        if (currentLockHolder === txId) {
+          return;
+        }
+        await new Promise<void>((resolve) => {
+          lockQueue.push({ txId, resolve });
+        });
+      };
+
+      const releaseRowLock = (txId: string) => {
+        if (currentLockHolder === txId) {
+          if (lockQueue.length > 0) {
+            const next = lockQueue.shift()!;
+            currentLockHolder = next.txId;
+            next.resolve();
+          } else {
+            currentLockHolder = null;
+          }
+        }
+      };
+
+      let txCount = 0;
+      const txStaging = new Map<
+        string,
+        {
+          allocationUpdates?: Partial<CourseAllocation>;
+          topicUpdates: Map<string, Partial<TopicProgress>>;
+        }
+      >();
+
+      mockRepo.transaction = async (cb) => {
+        const txId = `tx-${++txCount}`;
+        txStaging.set(txId, { topicUpdates: new Map() });
+        const manager = { id: txId } as unknown as EntityManager;
+        try {
+          const result = await cb(manager);
+          // On commit, flush staged writes to committed state
+          const staging = txStaging.get(txId);
+          if (staging) {
+            if (staging.allocationUpdates) {
+              Object.assign(committedState.allocation, staging.allocationUpdates);
+            }
+            for (const [tpId, updates] of staging.topicUpdates) {
+              const found = Object.values(committedState.topics).find((t) => t.id === tpId);
+              if (found) Object.assign(found, updates);
+            }
+          }
+          return result;
+        } finally {
+          txStaging.delete(txId);
+          releaseRowLock(txId);
+        }
+      };
+
+      const findAllocationCalls: Array<{
+        allocId: string;
+        manager?: EntityManager;
+        lock?: boolean;
+      }> = [];
+      mockRepo.findAllocationById = async (allocId, manager, lock) => {
+        findAllocationCalls.push({ allocId, manager, lock });
+        const txId = (manager as { id?: string } | undefined)?.id;
+        if (lock && txId) {
+          await acquireRowLock(txId);
+        }
+        const staging = txId ? txStaging.get(txId) : undefined;
+        const base: CourseAllocation = { ...committedState.allocation };
+        if (staging?.allocationUpdates) {
+          Object.assign(base, staging.allocationUpdates);
+        }
+        return base;
+      };
+
+      mockRepo.findByAllocationAndTopic = (_allocId, topicId, manager) => {
+        const txId = (manager as { id?: string } | undefined)?.id;
+        const staging = txId ? txStaging.get(txId) : undefined;
+        const base: TopicProgress | undefined = committedState.topics[topicId];
+        if (!base) return Promise.resolve(null);
+        const row: TopicProgress = { ...base };
+        const stagedUpdate = staging?.topicUpdates.get(row.id);
+        if (stagedUpdate) {
+          Object.assign(row, stagedUpdate);
+        }
+        return Promise.resolve(row);
+      };
+
       mockRepo.findActiveTopicsByCourseId = () => Promise.resolve(mockActiveTopics);
-      mockRepo.updateTopicProgressStatus = (id, updates) => {
-        const found = Object.values(progressRows).find((p) => p.id === id);
-        if (found) {
-          found.status = updates.status;
-          found.completedAt = updates.completedAt;
-          found.note = updates.note ?? null;
+
+      mockRepo.updateTopicProgressStatus = (id, updates, manager) => {
+        const txId = (manager as { id?: string } | undefined)?.id;
+        if (txId && txStaging.has(txId)) {
+          txStaging.get(txId)!.topicUpdates.set(id, updates);
+        } else {
+          const found = Object.values(committedState.topics).find((p) => p.id === id);
+          if (found) {
+            Object.assign(found, updates);
+          }
         }
         return Promise.resolve();
       };
-      mockRepo.listByAllocationId = () => Promise.resolve(Object.values(progressRows));
-      mockRepo.updateAllocationProgress = (_id, updates) => {
-        allocation.progressPercent = updates.progressPercent;
-        if (updates.status) allocation.status = updates.status;
+
+      mockRepo.listByAllocationId = (_allocId, manager) => {
+        const txId = (manager as { id?: string } | undefined)?.id;
+        const staging = txId ? txStaging.get(txId) : undefined;
+        const rows: TopicProgress[] = Object.values(committedState.topics).map((p) => {
+          const copy: TopicProgress = { ...p };
+          const stagedUpdate = staging?.topicUpdates.get(p.id);
+          if (stagedUpdate) {
+            Object.assign(copy, stagedUpdate);
+          }
+          return copy;
+        });
+        return Promise.resolve(rows);
+      };
+
+      mockRepo.updateAllocationProgress = (_id, updates, manager) => {
+        const txId = (manager as { id?: string } | undefined)?.id;
+        if (txId && txStaging.has(txId)) {
+          txStaging.get(txId)!.allocationUpdates = updates;
+        } else {
+          Object.assign(committedState.allocation, updates);
+        }
         return Promise.resolve();
       };
 
@@ -308,8 +426,16 @@ void describe('ProgressService Unit Tests (PRD M8: PRG-01 to PRG-20)', () => {
 
       assert.equal(res1.topicProgress.status, TopicProgressStatus.COMPLETED);
       assert.equal(res2.topicProgress.status, TopicProgressStatus.COMPLETED);
-      assert.equal(allocation.status, CourseAllocationStatus.IN_PROGRESS);
-      assert.equal(allocation.progressPercent, 66.67);
+      assert.equal(committedState.allocation.status, CourseAllocationStatus.IN_PROGRESS);
+      assert.equal(committedState.allocation.progressPercent, 66.67);
+
+      // Verify that in-transaction recalculation re-fetches allocation with pessimistic write lock
+      const lockedCalls = findAllocationCalls.filter((c) => Boolean(c.manager) && c.lock === true);
+      assert.equal(
+        lockedCalls.length,
+        2,
+        'Expected both concurrent updateTopicStatus transactions to acquire pessimistic write lock',
+      );
     });
 
     void it('self-heals missing topic progress row on updateTopicStatus if topic belongs to course', async () => {
@@ -1014,39 +1140,32 @@ void describe('ProgressService Unit Tests (PRD M8: PRG-01 to PRG-20)', () => {
       assert.equal(result.pagination.total, 1);
     });
 
-    void it('returns empty trackers when actor is MENTOR with no active mentor mappings', async () => {
-      mentorMenteeRepository.findActiveMappingsForMentor = () => Promise.resolve([]);
+    void it('passes mentorId to listTrackers when actor is MENTOR', async () => {
+      let capturedOpts: { mentorId?: string } | null = null;
+      mockRepo.listTrackers = (opts) => {
+        capturedOpts = opts;
+        return Promise.resolve({ allocations: [], total: 0 });
+      };
 
       const result = await service.getProgressTracker({ batchId: 'batch-1' }, mentorUser);
 
+      assert.equal(capturedOpts?.mentorId, mentorUser.id);
       assert.equal(result.trackers.length, 0);
       assert.equal(result.pagination.total, 0);
     });
 
-    void it('excludes allocation when mentor lacks active batch membership (mentorScopeHelper check)', async () => {
-      const mockAllocations: CourseAllocation[] = [
-        {
-          id: 'alloc-1',
-          userId: 'mentee-1',
-          user: { name: 'Mentee One' },
-          batchId: 'batch-1',
-          batch: { name: 'Batch Alpha' },
-          courseId: 'course-1',
-          course: { title: 'Node.js Core' },
-          dueDate: new Date(Date.now() + 86400000),
-          progressPercent: 50,
-          status: CourseAllocationStatus.IN_PROGRESS,
-        } as unknown as CourseAllocation,
-      ];
+    void it('omits mentorId in listTrackers when actor is SUPER_ADMIN', async () => {
+      let capturedOpts: { mentorId?: string } | null = null;
+      mockRepo.listTrackers = (opts) => {
+        capturedOpts = opts;
+        return Promise.resolve({ allocations: [], total: 0 });
+      };
 
-      mockRepo.listTrackers = () => Promise.resolve(mockAllocations);
+      const result = await service.getProgressTracker({ batchId: 'batch-1' }, adminUser);
 
-      // Mentor mapping exists but active batch membership check fails
-      mentorScopeHelper.canMentorReviewAndTrack = () => Promise.resolve(false);
-
-      const result = await service.getProgressTracker({ batchId: 'batch-1' }, mentorUser);
-
+      assert.equal(capturedOpts?.mentorId, undefined);
       assert.equal(result.trackers.length, 0);
+      assert.equal(result.pagination.total, 0);
     });
   });
 

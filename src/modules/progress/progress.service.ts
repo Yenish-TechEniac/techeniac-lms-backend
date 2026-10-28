@@ -6,7 +6,7 @@ import { NotFoundError } from '../../core/errors';
 import { CourseTopicAction } from '../../core/lifecycle';
 import { logger } from '../../core/logging';
 import { CourseAllocation, CourseAllocationStatus } from '../allocations';
-import { BatchStatus, mentorMenteeRepository, mentorScopeHelper } from '../batches';
+import { BatchStatus, mentorMenteeRepository } from '../batches';
 import { Topic } from '../courses';
 import { userRepository, UserRole } from '../users';
 import { TopicProgress, TopicProgressStatus } from './entities';
@@ -177,13 +177,20 @@ export class ProgressService {
 
     // Wrap topic status update and recalculation in one transaction with row lock
     const updatedAllocation = await this.repository.transaction(async (manager) => {
+      // Re-fetch allocation inside transaction with pessimistic write lock to serialize concurrent updates
+      const locked = await this.repository.findAllocationById(allocationId, manager, true);
+      if (!locked) {
+        throw new NotFoundError(`Allocation with id ${allocationId} not found`);
+      }
+
+      // Re-assert policy against locked allocation in case status changed while waiting for lock
+      this.policy.assertCanUpdateTopicStatus(actor, locked);
+
       let progress = await this.repository.findByAllocationAndTopic(allocationId, topicId, manager);
       if (!progress) {
         const topic = await this.repository.findTopicById(topicId);
-        if (!topic || topic.courseId !== allocation.courseId) {
-          throw new NotFoundError(
-            `Topic ${topicId} does not belong to course ${allocation.courseId}`,
-          );
+        if (!topic || topic.courseId !== locked.courseId) {
+          throw new NotFoundError(`Topic ${topicId} does not belong to course ${locked.courseId}`);
         }
 
         await this.repository.initializeTopicProgressForAllocations(
@@ -212,7 +219,7 @@ export class ProgressService {
       );
 
       // Recalculate allocation progress % and status in the same transaction with row lock
-      return await this.recalculateProgress(allocationId, manager, allocation);
+      return await this.recalculateProgress(allocationId, manager, locked);
     });
 
     return {
@@ -411,29 +418,6 @@ export class ProgressService {
     }
 
     const isMentor = (actor.role as UserRole) === UserRole.MENTOR;
-    let mappedMenteeIds: string[] | undefined = undefined;
-    let mappedBatchIds: string[] | undefined = undefined;
-
-    if (isMentor) {
-      const mappings = await mentorMenteeRepository.findActiveMappingsForMentor(
-        actor.id,
-        query.batchId,
-      );
-      if (mappings.length === 0) {
-        return {
-          trackers: [],
-          pagination: {
-            page: query.page ?? 1,
-            limit: query.limit ?? 20,
-            total: 0,
-            totalPages: 0,
-          },
-        };
-      }
-      mappedMenteeIds = mappings.map((m) => m.menteeId);
-      mappedBatchIds = [...new Set(mappings.map((m) => m.batchId))];
-    }
-
     const page = query.page ?? 1;
     const limit = query.limit ?? 20;
 
@@ -441,33 +425,13 @@ export class ProgressService {
       batchId: query.batchId,
       menteeId: query.menteeId,
       courseId: query.courseId,
-      menteeIds: mappedMenteeIds,
-      batchIds: mappedBatchIds,
+      mentorId: isMentor ? actor.id : undefined,
       search: query.search,
       page,
       limit,
     });
 
-    let filteredAllocations = allocations;
-    if (isMentor) {
-      const allowedAllocations: CourseAllocation[] = [];
-      for (const alloc of allocations) {
-        if (!alloc.batchId) {
-          continue;
-        }
-        const canTrack = await mentorScopeHelper.canMentorReviewAndTrack(
-          actor.id,
-          alloc.userId,
-          alloc.batchId,
-        );
-        if (canTrack) {
-          allowedAllocations.push(alloc);
-        }
-      }
-      filteredAllocations = allowedAllocations;
-    }
-
-    if (filteredAllocations.length === 0) {
+    if (allocations.length === 0) {
       return {
         trackers: [],
         pagination: {
@@ -479,8 +443,8 @@ export class ProgressService {
       };
     }
 
-    const courseIds = [...new Set(filteredAllocations.map((a) => a.courseId))];
-    const allocationIds = filteredAllocations.map((a) => a.id);
+    const courseIds = [...new Set(allocations.map((a) => a.courseId))];
+    const allocationIds = allocations.map((a) => a.id);
 
     const [activeTopicsList, progressRowsList] = await Promise.all([
       this.repository.findActiveTopicsByCourseIds(courseIds),
@@ -519,7 +483,7 @@ export class ProgressService {
 
     const now = new Date();
 
-    for (const alloc of filteredAllocations) {
+    for (const alloc of allocations) {
       const activeTopics = topicsByCourse.get(alloc.courseId) ?? [];
       const progressRows = progressByAlloc.get(alloc.id) ?? [];
 

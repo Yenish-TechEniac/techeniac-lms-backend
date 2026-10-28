@@ -54,7 +54,13 @@ export class ProgressController extends BaseController {
     const actor = this.getAuthUser(req);
     const query = req.query as unknown as TrackerQueryInput;
     const result = await this.service.getProgressTracker(query, actor);
-    this.sendSuccess(res, { trackers: result.trackers, pagination: result.pagination });
+    this.sendPaginated(
+      res,
+      result.trackers,
+      result.pagination.page,
+      result.pagination.limit,
+      result.pagination.total,
+    );
   };
 }
 
