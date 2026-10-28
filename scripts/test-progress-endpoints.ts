@@ -1,9 +1,10 @@
-import { randomBytes } from 'node:crypto';
+import 'reflect-metadata';
+
 import type { Server } from 'node:http';
 
 import { app } from '../src/app';
 import { hashPassword, signAccessToken } from '../src/core/auth';
-import { AppDataSource, closeDatabase, initializeDatabase } from '../src/core/db';
+import { closeDatabase, initializeDatabase } from '../src/core/db';
 import { logger } from '../src/core/logging';
 import { BatchMemberRole, BatchStatus } from '../src/modules/batches';
 import { userRepository, UserRole } from '../src/modules/users';
@@ -31,11 +32,6 @@ async function runProgressTests(): Promise<void> {
   const baseUrl = `http://127.0.0.1:${port}/api/v1`;
 
   let failures = 0;
-  const createdUserIds: string[] = [];
-  let createdBatchId: string | null = null;
-  let createdCourseId: string | null = null;
-  const createdTopicIds: string[] = [];
-  let createdAllocationId: string | null = null;
 
   try {
     logger.info(
@@ -43,12 +39,10 @@ async function runProgressTests(): Promise<void> {
       'Running M8 Learning Progress Verification Tests (PRG-01..20, ALC-24)...',
     );
 
-    const testPassword = process.env.TEST_PASSWORD || `${randomBytes(16).toString('hex')}Aa1!`;
-
     async function getOrCreateUser(email: string, name: string, role: UserRole) {
       let u = await userRepository.findByEmail(email);
       if (!u) {
-        const passwordHash = await hashPassword(testPassword);
+        const passwordHash = await hashPassword('Password123!');
         u = await userRepository.create({
           name,
           email,
@@ -56,7 +50,6 @@ async function runProgressTests(): Promise<void> {
           role,
           mustChangePassword: false,
         });
-        createdUserIds.push(u.id);
       }
       return u;
     }
@@ -139,7 +132,6 @@ async function runProgressTests(): Promise<void> {
       id?: string;
     }>;
     const batchId = (batchData.data?.batch?.id ?? batchData.data?.id) as string;
-    createdBatchId = batchId;
     if (!batchId) {
       logger.error({ batchData, status: batchRes.status }, 'Failed to create batch');
     }
@@ -195,7 +187,6 @@ async function runProgressTests(): Promise<void> {
     });
     const courseData = (await courseRes.json()) as ApiResponse<{ id: string }>;
     const courseId = courseData.data?.id as string;
-    createdCourseId = courseId;
 
     // Add 3 topics
     const topic1Res = await fetch(`${baseUrl}/courses/${courseId}/topics`, {
@@ -210,7 +201,6 @@ async function runProgressTests(): Promise<void> {
     });
     const topic1Data = (await topic1Res.json()) as ApiResponse<{ id: string }>;
     const topic1Id = topic1Data.data?.id as string;
-    if (topic1Id) createdTopicIds.push(topic1Id);
 
     const topic2Res = await fetch(`${baseUrl}/courses/${courseId}/topics`, {
       method: 'POST',
@@ -224,7 +214,6 @@ async function runProgressTests(): Promise<void> {
     });
     const topic2Data = (await topic2Res.json()) as ApiResponse<{ id: string }>;
     const topic2Id = topic2Data.data?.id as string;
-    if (topic2Id) createdTopicIds.push(topic2Id);
 
     const topic3Res = await fetch(`${baseUrl}/courses/${courseId}/topics`, {
       method: 'POST',
@@ -238,7 +227,6 @@ async function runProgressTests(): Promise<void> {
     });
     const topic3Data = (await topic3Res.json()) as ApiResponse<{ id: string }>;
     const topic3Id = topic3Data.data?.id as string;
-    if (topic3Id) createdTopicIds.push(topic3Id);
 
     // 3. Allocate course to Mentee 1
     const allocRes = await fetch(`${baseUrl}/course-allocations`, {
@@ -257,7 +245,6 @@ async function runProgressTests(): Promise<void> {
       created: Array<{ id: string; userId: string }>;
     }>;
     const allocationId = allocData.data?.created[0]?.id as string;
-    createdAllocationId = allocationId;
 
     // Allow event bus microtask to settle
     await new Promise((r) => setTimeout(r, 200));
@@ -549,46 +536,13 @@ async function runProgressTests(): Promise<void> {
     logger.error({ err }, 'Error during M8 progress tests execution');
     failures++;
   } finally {
-    logger.info('Cleaning up M8 test fixtures from database...');
-    try {
-      if (createdAllocationId) {
-        await AppDataSource.query('DELETE FROM topic_progress WHERE course_allocation_id = $1', [
-          createdAllocationId,
-        ]);
-        await AppDataSource.query('DELETE FROM course_allocations WHERE id = $1', [
-          createdAllocationId,
-        ]);
-      }
-      for (const topicId of createdTopicIds) {
-        await AppDataSource.query('DELETE FROM topics WHERE id = $1', [topicId]);
-      }
-      if (createdCourseId) {
-        await AppDataSource.query('DELETE FROM courses WHERE id = $1', [createdCourseId]);
-      }
-      if (createdBatchId) {
-        await AppDataSource.query('DELETE FROM mentor_mentees WHERE batch_id = $1', [
-          createdBatchId,
-        ]);
-        await AppDataSource.query('DELETE FROM batch_members WHERE batch_id = $1', [
-          createdBatchId,
-        ]);
-        await AppDataSource.query('DELETE FROM batches WHERE id = $1', [createdBatchId]);
-      }
-      for (const userId of createdUserIds) {
-        await AppDataSource.query('DELETE FROM user_tokens WHERE user_id = $1', [userId]);
-        await AppDataSource.query('DELETE FROM user_role_history WHERE user_id = $1', [userId]);
-        await AppDataSource.query('DELETE FROM users WHERE id = $1', [userId]);
-      }
-      logger.info('Cleaned up M8 test fixtures successfully');
-    } catch (cleanupErr) {
-      logger.warn({ cleanupErr }, 'Error during test teardown cleanup');
-    }
-
     server.close();
     await closeDatabase();
   }
 
-  process.exit(failures > 0 ? 1 : 0);
+  if (failures > 0) {
+    process.exit(1);
+  }
 }
 
 void runProgressTests();

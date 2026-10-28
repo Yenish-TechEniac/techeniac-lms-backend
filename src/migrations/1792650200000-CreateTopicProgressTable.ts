@@ -22,7 +22,7 @@ export class CreateTopicProgressTable1792650200000 implements MigrationInterface
         "deadline" TIMESTAMP WITH TIME ZONE,
         "completed_at" TIMESTAMP WITH TIME ZONE,
         "note" text,
-        CONSTRAINT "PK_topic_progress_id" PRIMARY KEY ("id")
+        CONSTRAINT "PK_c8051cdf2b8d481701e61825c1c" PRIMARY KEY ("id")
       )
     `);
 

@@ -17,10 +17,9 @@ export const trackerQuerySchema = z.object({
   batchId: z.string().uuid().optional(),
   menteeId: z.string().uuid().optional(),
   courseId: z.string().uuid().optional(),
-});
-
-export const topicProgressQuerySchema = z.object({
-  status: topicProgressStatusSchema.optional(),
+  search: z.string().trim().optional(),
+  page: z.coerce.number().int().min(1).default(1),
+  limit: z.coerce.number().int().min(1).max(100).default(20),
 });
 
 // HTTP Route Validation Schemas (used with validate() middleware)
@@ -53,4 +52,3 @@ export const getProgressTrackerRouteSchema = z.object({
 export type UpdateTopicStatusInput = z.infer<typeof updateTopicStatusSchema>;
 export type UpdateTopicDeadlineInput = z.infer<typeof updateTopicDeadlineSchema>;
 export type TrackerQueryInput = z.infer<typeof trackerQuerySchema>;
-export type TopicProgressQueryInput = z.infer<typeof topicProgressQuerySchema>;

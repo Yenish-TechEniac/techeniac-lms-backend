@@ -403,7 +403,7 @@ export class EmailService {
 
     if (!this.transporter) {
       logger.info(
-        { courseTitle: options.courseTitle, recipientName: options.recipientName },
+        { courseTitle: options.courseTitle },
         'SMTP not configured in environment. Course completion notification skipped in development.',
       );
       return;
@@ -419,7 +419,7 @@ export class EmailService {
       });
 
       logger.info(
-        { courseTitle: options.courseTitle, recipientName: options.recipientName },
+        { courseTitle: options.courseTitle },
         'Course completion email dispatched successfully via SMTP',
       );
     } catch (error) {

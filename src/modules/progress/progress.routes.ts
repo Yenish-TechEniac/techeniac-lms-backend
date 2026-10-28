@@ -2,6 +2,7 @@ import { Router } from 'express';
 
 import { validate } from '../../core/http';
 import { requireAuth, requireRole } from '../auth';
+import { UserRole } from '../users';
 import { progressController } from './progress.controller';
 import {
   getProgressTrackerRouteSchema,
@@ -23,6 +24,7 @@ progressRouter.get(
 progressRouter.patch(
   '/:id/topics/:topicId/status',
   requireAuth,
+  requireRole(UserRole.SUPER_ADMIN, UserRole.MENTEE),
   validate(updateTopicStatusRouteSchema),
   progressController.updateTopicStatus,
 );
@@ -30,7 +32,7 @@ progressRouter.patch(
 progressRouter.patch(
   '/:id/topics/:topicId/deadline',
   requireAuth,
-  requireRole('SUPER_ADMIN', 'MENTOR'),
+  requireRole(UserRole.SUPER_ADMIN, UserRole.MENTOR),
   validate(updateTopicDeadlineRouteSchema),
   progressController.updateTopicDeadline,
 );
@@ -41,7 +43,7 @@ export const progressTrackerRouter = Router();
 progressTrackerRouter.get(
   '/trackers',
   requireAuth,
-  requireRole('SUPER_ADMIN', 'MENTOR'),
+  requireRole(UserRole.SUPER_ADMIN, UserRole.MENTOR),
   validate(getProgressTrackerRouteSchema),
   progressController.getProgressTracker,
 );
