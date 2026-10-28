@@ -87,3 +87,4 @@ function loadEnv(): Env {
 }
 
 export const env = loadEnv();
+export * from './grade-scale';
