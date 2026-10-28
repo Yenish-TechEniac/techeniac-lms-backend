@@ -1,12 +1,21 @@
 import assert from 'node:assert/strict';
-import { beforeEach, describe, it } from 'node:test';
+import { afterEach, beforeEach, describe, it } from 'node:test';
 
 import type { AuthenticatedUser } from '../../src/core/auth';
 import { calculateGradeLabel } from '../../src/core/config/grade-scale';
+import { AppDataSource } from '../../src/core/db';
+import { emailService } from '../../src/core/email';
 import { ForbiddenError, UnprocessableEntityError, ValidationError } from '../../src/core/errors';
 import { CourseAllocation } from '../../src/modules/allocations';
+import { MentorMentee } from '../../src/modules/batches';
 import { Assignment } from '../../src/modules/courses';
-import { GradingPolicy, Submission, SubmissionStatus } from '../../src/modules/submissions';
+import {
+  GradingPolicy,
+  gradingRepository,
+  gradingService,
+  Submission,
+  SubmissionStatus,
+} from '../../src/modules/submissions';
 import { User, UserRole } from '../../src/modules/users';
 
 const createTestUser = (overrides: Partial<AuthenticatedUser>): AuthenticatedUser => ({
@@ -192,6 +201,188 @@ void describe('Module 10: Submission Queue, Review & Grading Unit Tests (REV-01 
       const sub = createSubmissionRow({ version: 2 });
       assert.doesNotThrow(() => policy.assertCanGrade(sub, 2, 85, 100));
       assert.doesNotThrow(() => policy.assertCanRequestResubmission(sub, 2));
+    });
+  });
+
+  void describe('GradingService Orchestration & Concurrency Safety', () => {
+    let originalTransaction: typeof AppDataSource.transaction;
+    let originalLockAndFind: typeof gradingRepository.lockAndFindSubmission;
+    let originalFindAllocation: typeof gradingRepository.findAllocationWithMentee;
+    let originalFindLatestVersion: typeof gradingRepository.findLatestVersionNumber;
+    let originalUpdateFields: typeof gradingRepository.updateGradingFields;
+    let originalSendGradedEmail: typeof emailService.sendAssignmentGradedEmail;
+    let originalSendResubmitEmail: typeof emailService.sendResubmissionRequestedEmail;
+    let originalFindActiveMappings: typeof gradingRepository.findActiveMappingsForMentor;
+    let originalGetSubmissionQueue: typeof gradingRepository.getSubmissionQueue;
+
+    beforeEach(() => {
+      originalTransaction = AppDataSource.transaction.bind(AppDataSource);
+      originalLockAndFind = gradingRepository.lockAndFindSubmission.bind(gradingRepository);
+      originalFindAllocation = gradingRepository.findAllocationWithMentee.bind(gradingRepository);
+      originalFindLatestVersion = gradingRepository.findLatestVersionNumber.bind(gradingRepository);
+      originalUpdateFields = gradingRepository.updateGradingFields.bind(gradingRepository);
+      originalSendGradedEmail = emailService.sendAssignmentGradedEmail.bind(emailService);
+      originalSendResubmitEmail = emailService.sendResubmissionRequestedEmail.bind(emailService);
+      originalFindActiveMappings =
+        gradingRepository.findActiveMappingsForMentor.bind(gradingRepository);
+      originalGetSubmissionQueue = gradingRepository.getSubmissionQueue.bind(gradingRepository);
+    });
+
+    afterEach(() => {
+      AppDataSource.transaction = originalTransaction;
+      gradingRepository.lockAndFindSubmission = originalLockAndFind;
+      gradingRepository.findAllocationWithMentee = originalFindAllocation;
+      gradingRepository.findLatestVersionNumber = originalFindLatestVersion;
+      gradingRepository.updateGradingFields = originalUpdateFields;
+      emailService.sendAssignmentGradedEmail = originalSendGradedEmail;
+      emailService.sendResubmissionRequestedEmail = originalSendResubmitEmail;
+      gradingRepository.findActiveMappingsForMentor = originalFindActiveMappings;
+      gradingRepository.getSubmissionQueue = originalGetSubmissionQueue;
+    });
+
+    void it('gradeSubmission executes within transaction, updates fields, and dispatches email', async () => {
+      let transactionExecuted = false;
+      let updatedPayload: Partial<Submission> | null = null;
+      let emailDispatched = false;
+
+      // Mock transaction runner
+      AppDataSource.transaction = ((runInTx: (m: unknown) => Promise<unknown>) => {
+        transactionExecuted = true;
+        return runInTx({});
+      }) as typeof AppDataSource.transaction;
+
+      const mockSub = createSubmissionRow({
+        id: 'sub-test-1',
+        version: 1,
+        status: SubmissionStatus.SUBMITTED,
+        marks: null,
+        gradeLabel: null,
+      });
+
+      const mockAlloc = {
+        id: 'alloc-1',
+        userId: 'mentee-1',
+        user: { id: 'mentee-1', name: 'Mentee Alice', email: 'alice@techeniac.com' } as User,
+      } as unknown as CourseAllocation;
+
+      gradingRepository.lockAndFindSubmission = () => Promise.resolve(mockSub);
+      gradingRepository.findAllocationWithMentee = () => Promise.resolve(mockAlloc);
+      gradingRepository.findLatestVersionNumber = () => Promise.resolve(1);
+      gradingRepository.updateGradingFields = (_id, fields) => {
+        updatedPayload = fields;
+        return Promise.resolve();
+      };
+
+      emailService.sendAssignmentGradedEmail = (opts) => {
+        emailDispatched = true;
+        assert.equal(opts.marks, 90);
+        assert.equal(opts.gradeLabel, 'A+');
+        assert.equal(opts.to, 'alice@techeniac.com');
+        return Promise.resolve();
+      };
+
+      const result = await gradingService.gradeSubmission(
+        'sub-test-1',
+        { marks: 90, feedback: 'Well done' },
+        superAdmin,
+      );
+
+      assert.equal(transactionExecuted, true);
+      assert.notEqual(updatedPayload, null);
+      assert.equal(updatedPayload?.marks, 90);
+      assert.equal(updatedPayload?.gradeLabel, 'A+');
+      assert.equal(updatedPayload?.status, SubmissionStatus.GRADED);
+      assert.equal(result.grading.marks, 90);
+      assert.equal(result.grading.gradeLabel, 'A+');
+      assert.equal(emailDispatched, true);
+    });
+
+    void it('requestResubmission clears marks/gradeLabel, sets RESUBMIT_REQUESTED, and dispatches email', async () => {
+      let updatedPayload: Partial<Submission> | null = null;
+      let emailDispatched = false;
+
+      AppDataSource.transaction = ((runInTx: (m: unknown) => Promise<unknown>) => {
+        return runInTx({});
+      }) as typeof AppDataSource.transaction;
+
+      // Simulating a submission that was previously GRADED with 85 / B
+      const mockSub = createSubmissionRow({
+        id: 'sub-test-2',
+        version: 1,
+        status: SubmissionStatus.GRADED,
+        marks: 85,
+        gradeLabel: 'B',
+      });
+
+      const mockAlloc = {
+        id: 'alloc-1',
+        userId: 'mentee-1',
+        user: { id: 'mentee-1', name: 'Mentee Alice', email: 'alice@techeniac.com' } as User,
+      } as unknown as CourseAllocation;
+
+      gradingRepository.lockAndFindSubmission = () => Promise.resolve(mockSub);
+      gradingRepository.findAllocationWithMentee = () => Promise.resolve(mockAlloc);
+      gradingRepository.findLatestVersionNumber = () => Promise.resolve(1);
+      gradingRepository.updateGradingFields = (_id, fields) => {
+        updatedPayload = fields;
+        return Promise.resolve();
+      };
+
+      emailService.sendResubmissionRequestedEmail = (opts) => {
+        emailDispatched = true;
+        assert.equal(opts.feedback, 'Please fix tests');
+        assert.equal(opts.to, 'alice@techeniac.com');
+        return Promise.resolve();
+      };
+
+      const result = await gradingService.requestResubmission(
+        'sub-test-2',
+        { feedback: 'Please fix tests' },
+        superAdmin,
+      );
+
+      assert.notEqual(updatedPayload, null);
+      assert.equal(updatedPayload?.status, SubmissionStatus.RESUBMIT_REQUESTED);
+      // Verify marks and gradeLabel are explicitly reset to null (REV-13 fix)
+      assert.equal(updatedPayload?.marks, null);
+      assert.equal(updatedPayload?.gradeLabel, null);
+      assert.equal(result.grading.marks, null);
+      assert.equal(result.grading.gradeLabel, null);
+      assert.equal(emailDispatched, true);
+    });
+
+    void it('getSubmissionQueue for MENTOR returns empty queue immediately if no mappings exist', async () => {
+      let queueQueryCalled = false;
+
+      gradingRepository.findActiveMappingsForMentor = () => Promise.resolve([]);
+      gradingRepository.getSubmissionQueue = () => {
+        queueQueryCalled = true;
+        return Promise.resolve({ items: [], total: 0, page: 1, limit: 20, totalPages: 1 });
+      };
+
+      const result = await gradingService.getSubmissionQueue(
+        { page: 1, limit: 20, sort: 'latest' },
+        mentorA,
+      );
+
+      assert.equal(queueQueryCalled, false);
+      assert.equal(result.items.length, 0);
+      assert.equal(result.total, 0);
+    });
+
+    void it('getSubmissionQueue for MENTOR passes allowed pairs when mappings exist', async () => {
+      let passedAllowedPairs: unknown = null;
+
+      gradingRepository.findActiveMappingsForMentor = () =>
+        Promise.resolve([{ batchId: 'batch-1', menteeId: 'mentee-1' } as MentorMentee]);
+      gradingRepository.getSubmissionQueue = (_q, _role, _id, allowedPairs) => {
+        passedAllowedPairs = allowedPairs;
+        return Promise.resolve({ items: [], total: 0, page: 1, limit: 20, totalPages: 1 });
+      };
+
+      await gradingService.getSubmissionQueue({ page: 1, limit: 20, sort: 'latest' }, mentorA);
+
+      assert.deepEqual(passedAllowedPairs, [{ batchId: 'batch-1', menteeId: 'mentee-1' }]);
     });
   });
 });
