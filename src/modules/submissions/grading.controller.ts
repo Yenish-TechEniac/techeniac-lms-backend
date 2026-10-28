@@ -1,77 +1,60 @@
-import type { NextFunction, Request, Response } from 'express';
-import { StatusCodes } from 'http-status-codes';
+import type { Request, Response } from 'express';
 
-import { gradingService } from './grading.service';
+import type { AuthenticatedUser } from '../../core/auth';
+import { UnauthorizedError } from '../../core/errors';
+import { BaseController } from '../../core/http';
+import { GradingService, gradingService } from './grading.service';
 import type {
   GradeSubmissionInput,
   RequestResubmissionInput,
   SubmissionQueueQuery,
 } from './schemas/grading.schemas';
 
-export class GradingController {
-  async getSubmissionQueue(req: Request, res: Response, next: NextFunction): Promise<void> {
-    try {
-      const actor = req.user!;
-      const query = req.query as unknown as SubmissionQueueQuery;
-      const result = await gradingService.getSubmissionQueue(query, actor);
-
-      res.status(StatusCodes.OK).json({
-        data: result.items,
-        meta: {
-          total: result.total,
-          page: result.page,
-          limit: result.limit,
-          totalPages: result.totalPages,
-        },
-      });
-    } catch (error) {
-      next(error);
-    }
+export class GradingController extends BaseController {
+  constructor(private readonly service: GradingService = gradingService) {
+    super();
   }
 
-  async getReviewDetails(req: Request, res: Response, next: NextFunction): Promise<void> {
-    try {
-      const actor = req.user!;
-      const { submissionId } = req.params as { submissionId: string };
-      const result = await gradingService.getReviewDetails(submissionId, actor);
-
-      res.status(StatusCodes.OK).json({
-        data: result,
-      });
-    } catch (error) {
-      next(error);
+  private getAuthUser(req: Request): AuthenticatedUser {
+    if (!req.user) {
+      throw new UnauthorizedError('Authentication required');
     }
+    return req.user;
   }
 
-  async gradeSubmission(req: Request, res: Response, next: NextFunction): Promise<void> {
-    try {
-      const actor = req.user!;
-      const { submissionId } = req.params as { submissionId: string };
-      const input = req.body as GradeSubmissionInput;
-      const result = await gradingService.gradeSubmission(submissionId, input, actor);
+  public getSubmissionQueue = async (req: Request, res: Response): Promise<void> => {
+    const actor = this.getAuthUser(req);
+    const query = req.query as unknown as SubmissionQueueQuery;
+    const result = await this.service.getSubmissionQueue(query, actor);
 
-      res.status(StatusCodes.OK).json({
-        data: result,
-      });
-    } catch (error) {
-      next(error);
-    }
-  }
+    this.sendPaginated(res, result.items, result.page, result.limit, result.total);
+  };
 
-  async requestResubmission(req: Request, res: Response, next: NextFunction): Promise<void> {
-    try {
-      const actor = req.user!;
-      const { submissionId } = req.params as { submissionId: string };
-      const input = req.body as RequestResubmissionInput;
-      const result = await gradingService.requestResubmission(submissionId, input, actor);
+  public getReviewDetails = async (req: Request, res: Response): Promise<void> => {
+    const actor = this.getAuthUser(req);
+    const { submissionId } = req.params as { submissionId: string };
+    const result = await this.service.getReviewDetails(submissionId, actor);
 
-      res.status(StatusCodes.OK).json({
-        data: result,
-      });
-    } catch (error) {
-      next(error);
-    }
-  }
+    this.sendSuccess(res, result);
+  };
+
+  public gradeSubmission = async (req: Request, res: Response): Promise<void> => {
+    const actor = this.getAuthUser(req);
+    const { submissionId } = req.params as { submissionId: string };
+    const input = req.body as GradeSubmissionInput;
+    const result = await this.service.gradeSubmission(submissionId, input, actor);
+
+    this.sendSuccess(res, result);
+  };
+
+  public requestResubmission = async (req: Request, res: Response): Promise<void> => {
+    const actor = this.getAuthUser(req);
+    const { submissionId } = req.params as { submissionId: string };
+    const input = req.body as RequestResubmissionInput;
+    const result = await this.service.requestResubmission(submissionId, input, actor);
+
+    this.sendSuccess(res, result);
+  };
 }
 
 export const gradingController = new GradingController();
