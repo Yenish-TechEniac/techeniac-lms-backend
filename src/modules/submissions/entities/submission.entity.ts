@@ -60,7 +60,6 @@ export class Submission extends AuditableEntity {
     name: 'status',
     type: 'enum',
     enum: SubmissionStatus,
-    enumName: 'submissions_status_enum',
     default: SubmissionStatus.SUBMITTED,
   })
   status!: SubmissionStatus;
