@@ -4,14 +4,10 @@ import { after, before, beforeEach, describe, it } from 'node:test';
 
 import { app } from '../../src/app';
 import { signAccessToken } from '../../src/core/auth';
-import { BatchMember, BatchStatus } from '../../src/modules/batches';
+import { CourseAllocation, CourseAllocationStatus } from '../../src/modules/allocations';
+import { Batch, BatchMember, BatchStatus } from '../../src/modules/batches';
 import { Assignment, AssignmentScope, Course, SubmissionMode } from '../../src/modules/courses';
-import {
-  allocationAdapter,
-  Submission,
-  submissionsRepository,
-  SubmissionStatus,
-} from '../../src/modules/submissions';
+import { Submission, submissionsRepository, SubmissionStatus } from '../../src/modules/submissions';
 import { User, userRepository, UserRole } from '../../src/modules/users';
 
 void describe('Submissions API Integration Tests (Module 9)', () => {
@@ -74,8 +70,35 @@ void describe('Submissions API Integration Tests (Module 9)', () => {
     course: { id: courseId, title: 'Node.js Mastery' } as Course,
   } as Assignment;
 
+  const baseAllocation = {
+    id: allocationId,
+    courseId,
+    userId: menteeId,
+    status: CourseAllocationStatus.IN_PROGRESS,
+    dueDate: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
+    startDate: new Date(),
+    progressPercent: 0,
+    batchId: 'batch-1',
+    batch: { id: 'batch-1', status: BatchStatus.LIVE } as Batch,
+    course: { id: courseId, title: 'Node.js Mastery' } as Course,
+    assignmentOverrides: [],
+  } as unknown as CourseAllocation;
+
   beforeEach(() => {
-    allocationAdapter.clearSimulatedDueDates();
+    // Stub course allocation resolution
+    submissionsRepository.findCourseAllocation = (uId, cId, reqAllocId) => {
+      if (uId === menteeId && cId === courseId && (!reqAllocId || reqAllocId === allocationId)) {
+        return Promise.resolve(baseAllocation);
+      }
+      return Promise.resolve(null);
+    };
+
+    submissionsRepository.findOpenCourseAllocationsForMentee = (uId) => {
+      if (uId === menteeId) {
+        return Promise.resolve([baseAllocation]);
+      }
+      return Promise.resolve([]);
+    };
 
     // Stub user resolution
     userRepository.findById = (id: string): Promise<User | null> => {
@@ -124,6 +147,8 @@ void describe('Submissions API Integration Tests (Module 9)', () => {
 
     submissionsRepository.findActiveCourses = () =>
       Promise.resolve([baseAssignment.course as Course]);
+
+    submissionsRepository.findMentorMapping = () => Promise.resolve(null);
   });
 
   void describe('Access Control & Roles (SUB-21)', () => {
@@ -137,6 +162,25 @@ void describe('Submissions API Integration Tests (Module 9)', () => {
     void it('rejects unauthenticated requests with 401 Unauthorized', async () => {
       const res = await fetch(`${baseUrl}/submissions/my-assignments`);
       assert.equal(res.status, 401);
+    });
+
+    void it('rejects submission with 403 Forbidden when mentee is not enrolled (fail-closed)', async () => {
+      submissionsRepository.findCourseAllocation = () => Promise.resolve(null);
+
+      const res = await fetch(`${baseUrl}/submissions`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${tokenMentee}`,
+        },
+        body: JSON.stringify({
+          assignmentId,
+          confirmedComplete: true,
+          submissionData: { linkUrl: 'https://github.com/work' },
+        }),
+      });
+
+      assert.equal(res.status, 403);
     });
   });
 
@@ -363,7 +407,11 @@ void describe('Submissions API Integration Tests (Module 9)', () => {
   void describe('Late Policies (SUB-13, SUB-14)', () => {
     void it('SUB-13: marks is_late true when submitted after deadline and late is allowed', async () => {
       const pastDate = new Date(Date.now() - 24 * 60 * 60 * 1000); // 1 day ago
-      allocationAdapter.setSimulatedDueDate(allocationId, pastDate);
+      submissionsRepository.findCourseAllocation = () =>
+        Promise.resolve({
+          ...baseAllocation,
+          dueDate: pastDate,
+        });
 
       const res = await fetch(`${baseUrl}/submissions`, {
         method: 'POST',
@@ -392,7 +440,11 @@ void describe('Submissions API Integration Tests (Module 9)', () => {
         } as Assignment);
 
       const pastDate = new Date(Date.now() - 24 * 60 * 60 * 1000);
-      allocationAdapter.setSimulatedDueDate(allocationId, pastDate);
+      submissionsRepository.findCourseAllocation = () =>
+        Promise.resolve({
+          ...baseAllocation,
+          dueDate: pastDate,
+        });
 
       const res = await fetch(`${baseUrl}/submissions`, {
         method: 'POST',
@@ -500,12 +552,11 @@ void describe('Submissions API Integration Tests (Module 9)', () => {
 
   void describe('Batch Read-Only Locks & Double Submit Protection (SUB-18, SUB-22)', () => {
     void it('SUB-22: blocks submissions when batch is ON_HOLD or COMPLETED', async () => {
-      submissionsRepository.findActiveBatchMember = () =>
+      submissionsRepository.findCourseAllocation = () =>
         Promise.resolve({
-          userId: menteeId,
-          isActive: true,
-          batch: { id: 'batch-1', status: BatchStatus.ON_HOLD },
-        } as unknown as BatchMember);
+          ...baseAllocation,
+          batch: { id: 'batch-1', status: BatchStatus.ON_HOLD } as Batch,
+        });
 
       const res = await fetch(`${baseUrl}/submissions`, {
         method: 'POST',

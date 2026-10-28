@@ -1,4 +1,4 @@
-import { EntityManager, In, IsNull } from 'typeorm';
+import { EntityManager, In, IsNull, Repository } from 'typeorm';
 
 import { AppDataSource } from '../../core/db';
 import { CourseAllocation, CourseAllocationStatus } from '../allocations';
@@ -7,15 +7,15 @@ import { Topic } from '../courses';
 import { TopicProgress, TopicProgressStatus } from './entities';
 
 export class ProgressRepository {
-  private get repo() {
+  private get repo(): Repository<TopicProgress> {
     return AppDataSource.getRepository(TopicProgress);
   }
 
-  private get topicRepo() {
+  private get topicRepo(): Repository<Topic> {
     return AppDataSource.getRepository(Topic);
   }
 
-  private get allocationRepo() {
+  private get allocationRepo(): Repository<CourseAllocation> {
     return AppDataSource.getRepository(CourseAllocation);
   }
 

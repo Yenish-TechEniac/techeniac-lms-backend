@@ -6,6 +6,7 @@ import { app } from '../src/app';
 import { signAccessToken } from '../src/core/auth';
 import { AppDataSource, closeDatabase, initializeDatabase } from '../src/core/db';
 import { logger } from '../src/core/logging';
+import { CourseAllocation, CourseAllocationStatus } from '../src/modules/allocations';
 import { Assignment, AssignmentScope, Course, SubmissionMode } from '../src/modules/courses';
 import { Submission, SubmissionStatus } from '../src/modules/submissions';
 import { User, UserRole } from '../src/modules/users';
@@ -43,71 +44,70 @@ async function runTests(): Promise<void> {
   const courseRepo = AppDataSource.getRepository(Course);
   const assignmentRepo = AppDataSource.getRepository(Assignment);
   const submissionRepo = AppDataSource.getRepository(Submission);
+  const allocRepo = AppDataSource.getRepository(CourseAllocation);
 
   let testMentee: User | null = null;
   let testCourse: Course | null = null;
   let testAssignment: Assignment | null = null;
+  let testAllocation: CourseAllocation | null = null;
   const createdSubmissionIds: string[] = [];
 
   try {
     logger.info({ baseUrl }, '=== Starting Module 9 Submissions Live API Verification ===');
 
-    // 1. Find or create a test mentee
-    testMentee = await userRepo.findOne({ where: { role: UserRole.MENTEE, isActive: true } });
-    if (!testMentee) {
-      testMentee = userRepo.create({
-        name: 'Test Mentee Auto',
-        email: `test-mentee-${Date.now()}@techeniac.com`,
-        passwordHash: 'dummy_hash',
-        role: UserRole.MENTEE,
-        isActive: true,
-        tokenVersion: 1,
-      });
-      testMentee = await userRepo.save(testMentee);
-      logger.info({ menteeId: testMentee.id }, 'Created temporary test mentee');
-    }
+    const uniqueSuffix = Date.now().toString().slice(-6);
 
-    // 2. Find or create a test course & assignment
-    testCourse = await courseRepo.findOne({ where: { isActive: true } });
-    if (!testCourse) {
-      testCourse = courseRepo.create({
-        title: 'Module 9 Test Course',
-        description: 'Course created for automated testing',
-        estimatedMinutes: 300,
-        isActive: true,
-        createdBy: testMentee.id,
-      });
-      testCourse = await courseRepo.save(testCourse);
-    }
-
-    testAssignment = await assignmentRepo.findOne({
-      where: { courseId: testCourse.id, deletedAt: null as unknown as Date },
+    // 1. Create a dedicated test mentee for this script run
+    testMentee = userRepo.create({
+      name: `Test Mentee M9 ${uniqueSuffix}`,
+      email: `test-mentee-m9-${uniqueSuffix}@techeniac.com`,
+      passwordHash: 'dummy_hash',
+      role: UserRole.MENTEE,
+      isActive: true,
+      tokenVersion: 1,
     });
-    if (!testAssignment) {
-      testAssignment = assignmentRepo.create({
-        courseId: testCourse.id,
-        topicId: null,
-        scope: AssignmentScope.COURSE,
-        displayOrder: 1,
-        title: 'Module 9 Test Assignment',
-        instructions: 'Please submit URL or report link',
-        estimatedMinutes: 60,
-        maxMarks: 100,
-        passMarks: 50,
-        allowLate: true,
-        pdfMode: SubmissionMode.OPTIONAL,
-        zipMode: SubmissionMode.OPTIONAL,
-        urlMode: SubmissionMode.REQUIRED,
-      });
-      testAssignment = await assignmentRepo.save(testAssignment);
-    } else {
-      // Ensure modes allow both PDF and URL for test cases
-      testAssignment.pdfMode = SubmissionMode.OPTIONAL;
-      testAssignment.zipMode = SubmissionMode.OPTIONAL;
-      testAssignment.urlMode = SubmissionMode.REQUIRED;
-      testAssignment.allowLate = true;
-      testAssignment = await assignmentRepo.save(testAssignment);
-    }
+    testMentee = await userRepo.save(testMentee);
+    logger.info({ menteeId: testMentee.id }, 'Created temporary test mentee');
+
+    // 2. Create dedicated test course & assignment owned exclusively by this script
+    testCourse = courseRepo.create({
+      title: `Module 9 Test Course ${uniqueSuffix}`,
+      description: 'Course created for automated testing',
+      estimatedMinutes: 300,
+      isActive: true,
+      createdBy: testMentee.id,
+    });
+    testCourse = await courseRepo.save(testCourse);
+
+    testAssignment = assignmentRepo.create({
+      courseId: testCourse.id,
+      topicId: null,
+      scope: AssignmentScope.COURSE,
+      displayOrder: 1,
+      title: `Module 9 Test Assignment ${uniqueSuffix}`,
+      instructions: 'Please submit URL or report link',
+      estimatedMinutes: 60,
+      maxMarks: 100,
+      passMarks: 50,
+      allowLate: true,
+      pdfMode: SubmissionMode.OPTIONAL,
+      zipMode: SubmissionMode.OPTIONAL,
+      urlMode: SubmissionMode.REQUIRED,
+    });
+    testAssignment = await assignmentRepo.save(testAssignment);
+
+    // 3. Create dedicated test course allocation so mentee is genuinely enrolled
+    testAllocation = allocRepo.create({
+      userId: testMentee.id,
+      courseId: testCourse.id,
+      status: CourseAllocationStatus.IN_PROGRESS,
+      startDate: new Date(),
+      dueDate: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
+      progressPercent: 0,
+      createdBy: testMentee.id,
+    });
+    testAllocation = await allocRepo.save(testAllocation);
+    logger.info({ allocationId: testAllocation.id }, 'Created temporary test course allocation');
 
     const token = signAccessToken({
       sub: testMentee.id,
@@ -289,17 +289,43 @@ async function runTests(): Promise<void> {
       process.exitCode = 1;
     }
   } finally {
-    // Teardown: Clean up test submissions created in the live database
-    if (createdSubmissionIds.length > 0) {
-      for (const id of createdSubmissionIds) {
-        await submissionRepo.delete(id);
+    // Teardown: Clean up test fixtures created in the live database
+    try {
+      if (createdSubmissionIds.length > 0) {
+        for (const id of createdSubmissionIds) {
+          await submissionRepo.delete(id);
+        }
+        logger.info({ count: createdSubmissionIds.length }, 'Cleaned up live test submission rows');
       }
-      logger.info({ count: createdSubmissionIds.length }, 'Cleaned up live test submission rows');
+
+      if (testAssignment?.id) {
+        await assignmentRepo.delete(testAssignment.id);
+        logger.info({ assignmentId: testAssignment.id }, 'Cleaned up test assignment');
+      }
+
+      if (testAllocation?.id) {
+        await allocRepo.delete(testAllocation.id);
+        logger.info({ allocationId: testAllocation.id }, 'Cleaned up test allocation');
+      }
+
+      if (testCourse?.id) {
+        await courseRepo.delete(testCourse.id);
+        logger.info({ courseId: testCourse.id }, 'Cleaned up test course');
+      }
+
+      if (testMentee?.id) {
+        await userRepo.delete(testMentee.id);
+        logger.info({ menteeId: testMentee.id }, 'Cleaned up test mentee');
+      }
+    } catch (cleanupErr) {
+      logger.warn({ cleanupErr }, 'Error during test fixture teardown');
     }
 
     server.close();
     await closeDatabase();
   }
+
+  process.exit(failures > 0 ? 1 : 0);
 }
 
 void runTests();

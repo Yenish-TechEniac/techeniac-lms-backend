@@ -71,20 +71,19 @@ submissionsRouter.get(
   '/my-assignments',
   menteeAuth,
   validate(listMyAssignmentsQuerySchema),
-  (req, res, next) => {
-    void submissionsController.getMyAssignments(req, res, next);
-  },
+  submissionsController.getMyAssignments,
 );
 
 submissionsRouter.get(
   '/assignments/:assignmentId',
   menteeAuth,
   validate(assignmentIdParamSchema),
-  (req, res, next) => {
-    void submissionsController.getAssignmentSubmissionDetails(req, res, next);
-  },
+  submissionsController.getAssignmentSubmissionDetails,
 );
 
-submissionsRouter.post('/', menteeAuth, validate(createSubmissionSchema), (req, res, next) => {
-  void submissionsController.submitAssignment(req, res, next);
-});
+submissionsRouter.post(
+  '/',
+  menteeAuth,
+  validate(createSubmissionSchema),
+  submissionsController.submitAssignment,
+);

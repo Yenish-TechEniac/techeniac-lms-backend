@@ -1,4 +1,3 @@
-export * from './adapters/allocation.adapter';
 export * from './entities';
 export * from './grading.controller';
 export * from './grading.policy';

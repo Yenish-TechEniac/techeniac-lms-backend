@@ -1,5 +1,20 @@
 import { z } from 'zod';
 
+import { SubmissionStatus } from '../entities/submission.entity';
+
+export const ASSIGNMENT_DERIVED_STATUSES = [
+  'PENDING',
+  SubmissionStatus.SUBMITTED,
+  SubmissionStatus.RESUBMIT_REQUESTED,
+  SubmissionStatus.GRADED,
+  'OVERDUE',
+  'CLOSED',
+] as const;
+
+export type AssignmentDerivedStatus = (typeof ASSIGNMENT_DERIVED_STATUSES)[number];
+
+export const ASSIGNMENT_QUERY_STATUSES = ['ALL', ...ASSIGNMENT_DERIVED_STATUSES] as const;
+export type AssignmentQueryStatus = (typeof ASSIGNMENT_QUERY_STATUSES)[number];
 export const createSubmissionSchema = z.object({
   body: z.object({
     assignmentId: z.string().uuid({ message: 'assignmentId must be a valid UUID' }),
@@ -16,20 +31,12 @@ export const createSubmissionSchema = z.object({
         pdfUrl: z.string().trim().optional().nullable(),
         zipUrl: z.string().trim().optional().nullable(),
         linkUrl: z.string().trim().optional().nullable(),
-        pdf_url: z.string().trim().optional().nullable(),
-        zip_url: z.string().trim().optional().nullable(),
-        url: z.string().trim().optional().nullable(),
       })
-      .transform((data) => {
-        const pdf = data.pdfUrl || data.pdf_url;
-        const zip = data.zipUrl || data.zip_url;
-        const link = data.linkUrl || data.url;
-        return {
-          pdfUrl: pdf || undefined,
-          zipUrl: zip || undefined,
-          linkUrl: link || undefined,
-        };
-      })
+      .transform((data): { pdfUrl?: string; zipUrl?: string; linkUrl?: string } => ({
+        pdfUrl: data.pdfUrl || undefined,
+        zipUrl: data.zipUrl || undefined,
+        linkUrl: data.linkUrl || undefined,
+      }))
       .refine(
         (data) => {
           const hasPdf = Boolean(data.pdfUrl && data.pdfUrl.trim().length > 0);
@@ -48,10 +55,7 @@ export const listMyAssignmentsQuerySchema = z.object({
   query: z.object({
     courseId: z.string().uuid().optional(),
     topicId: z.string().uuid().optional(),
-    status: z
-      .enum(['ALL', 'PENDING', 'SUBMITTED', 'RESUBMIT_REQUESTED', 'GRADED', 'OVERDUE', 'CLOSED'])
-      .optional()
-      .default('ALL'),
+    status: z.enum(ASSIGNMENT_QUERY_STATUSES).optional().default('ALL'),
     page: z.coerce.number().int().positive().default(1),
     limit: z.coerce.number().int().positive().max(100).default(20),
   }),

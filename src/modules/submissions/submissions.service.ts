@@ -5,17 +5,31 @@ import {
   NotFoundError,
   UnprocessableEntityError,
 } from '../../core/errors';
+import { logger } from '../../core/logging';
 import { safeUrl } from '../../core/utils/sanitizer';
+import { CourseAllocation } from '../allocations';
 import { BatchStatus } from '../batches';
 import { Assignment, SubmissionMode } from '../courses';
 import { User, UserRole } from '../users';
-import { allocationAdapter } from './adapters/allocation.adapter';
 import { Submission, SubmissionData, SubmissionStatus } from './entities/submission.entity';
-import type { CreateSubmissionInput, ListMyAssignmentsQuery } from './schemas/submissions.schemas';
+import type {
+  AssignmentDerivedStatus,
+  CreateSubmissionInput,
+  ListMyAssignmentsQuery,
+} from './schemas/submissions.schemas';
 import { submissionsRepository } from './submissions.repository';
 
-export type AssignmentDerivedStatus =
-  'PENDING' | 'SUBMITTED' | 'RESUBMIT_REQUESTED' | 'GRADED' | 'OVERDUE' | 'CLOSED';
+export interface AllocationContext {
+  allocationId: string;
+  courseId: string;
+  batchId: string | null;
+  menteeId: string;
+  dueDate: Date;
+  batchStatus: BatchStatus;
+  isBatchActive: boolean;
+  overrideDueDate?: Date | null;
+  assignmentOverrides?: Record<string, string>;
+}
 
 export interface AssignmentWithSubmissionStatus {
   id: string;
@@ -67,7 +81,7 @@ export class SubmissionsService {
     const isMenteeRole = user.role === UserRole.MENTEE && user.isActive;
 
     // Retrieve active course allocations for this mentee
-    const allocations = await allocationAdapter.getMenteeAllocations(menteeId);
+    const allocations = await this.getMenteeAllocations(menteeId);
     if (allocations.length === 0) {
       return { items: [], total: 0, page: query.page, limit: query.limit, totalPages: 0 };
     }
@@ -202,7 +216,7 @@ export class SubmissionsService {
       throw new NotFoundError('Assignment not found');
     }
 
-    const alloc = await allocationAdapter.getAllocationForCourse(
+    const alloc = await this.getAllocationForCourse(
       menteeId,
       assignment.courseId,
       undefined,
@@ -279,15 +293,8 @@ export class SubmissionsService {
       throw new UnprocessableEntityError('URL submission is required for this assignment');
     }
 
-    // Verify at least one field is provided (SUB-07)
-    if (!sanitizedData.pdfUrl && !sanitizedData.zipUrl && !sanitizedData.linkUrl) {
-      throw new UnprocessableEntityError(
-        'At least one submission field (pdfUrl, zipUrl, or linkUrl) must be provided',
-      );
-    }
-
-    // 5. Allocation Context & Batch status check (SUB-22)
-    const alloc = await allocationAdapter.getAllocationForCourse(
+    // 5. Allocation Context & Initial Batch status check (SUB-22)
+    const alloc = await this.getAllocationForCourse(
       menteeId,
       assignment.courseId,
       input.courseAllocationId,
@@ -312,38 +319,52 @@ export class SubmissionsService {
       throw new UnprocessableEntityError('Late submission is not allowed for this assignment');
     }
 
-    // 7. Check existing submission & determine version (FR-9.4, SUB-15, SUB-16, SUB-17)
-    const latestSubmission = await submissionsRepository.findLatestSubmission(
-      alloc.allocationId,
-      assignment.id,
-    );
-
-    let nextVersion = 1;
-    if (latestSubmission) {
-      if (latestSubmission.status === SubmissionStatus.GRADED) {
-        throw new UnprocessableEntityError(
-          'Cannot resubmit an assignment that has already been graded unless a resubmission is requested by the mentor',
-        );
-      }
-      nextVersion = latestSubmission.version + 1;
-    }
-
-    // 8. Persist new submission row (SUB-18 concurrency safe)
-    const newSubmission = submissionsRepository.createSubmission({
-      courseAllocationId: alloc.allocationId,
-      assignmentId: assignment.id,
-      batchId: alloc.batchId,
-      version: nextVersion,
-      submissionData: sanitizedData,
-      submittedAt: now,
-      isLate,
-      status: SubmissionStatus.SUBMITTED,
-      createdBy: menteeId,
-    });
-
+    // 7 & 8. Transactionally verify batch & latest submission status and persist (SUB-18 concurrency safe)
     let savedSubmission: Submission;
     try {
-      savedSubmission = await submissionsRepository.saveSubmission(newSubmission);
+      savedSubmission = await submissionsRepository.transaction(async (manager) => {
+        // Re-verify batch status inside transaction
+        if (
+          alloc.batchStatus === BatchStatus.ON_HOLD ||
+          alloc.batchStatus === BatchStatus.COMPLETED ||
+          alloc.batchStatus === BatchStatus.ARCHIVED
+        ) {
+          throw new UnprocessableEntityError(
+            `Submissions are blocked because the batch is ${alloc.batchStatus.toLowerCase()}`,
+          );
+        }
+
+        // Re-check latest submission inside transaction
+        const latestSubmission = await submissionsRepository.findLatestSubmission(
+          alloc.allocationId,
+          assignment.id,
+          manager,
+        );
+
+        let nextVersion = 1;
+        if (latestSubmission) {
+          if (latestSubmission.status === SubmissionStatus.GRADED) {
+            throw new UnprocessableEntityError(
+              'Cannot resubmit an assignment that has already been graded unless a resubmission is requested by the mentor',
+            );
+          }
+          nextVersion = latestSubmission.version + 1;
+        }
+
+        const newSubmission = submissionsRepository.createSubmission({
+          courseAllocationId: alloc.allocationId,
+          assignmentId: assignment.id,
+          batchId: alloc.batchId,
+          version: nextVersion,
+          submissionData: sanitizedData,
+          submittedAt: now,
+          isLate,
+          status: SubmissionStatus.SUBMITTED,
+          createdBy: menteeId,
+        });
+
+        return await submissionsRepository.saveSubmission(newSubmission, manager);
+      });
     } catch (err: unknown) {
       const errorMsg = (err as Error)?.message || '';
       const errorCode = (err as { code?: string })?.code;
@@ -388,9 +409,104 @@ export class SubmissionsService {
         version: submission.version,
         submittedAt: submission.submittedAt,
       });
-    } catch {
-      // Non-blocking notification failure
+    } catch (err: unknown) {
+      logger.error(
+        { err, submissionId: submission.id },
+        '[SubmissionsService] Failed to send submission received email notification',
+      );
     }
+  }
+
+  public async getAllocationForCourse(
+    menteeId: string,
+    courseId: string,
+    requestedAllocationId?: string,
+    assignmentId?: string,
+  ): Promise<AllocationContext> {
+    let allocation: CourseAllocation | null = null;
+    try {
+      allocation = await submissionsRepository.findCourseAllocation(
+        menteeId,
+        courseId,
+        requestedAllocationId,
+      );
+    } catch (err: unknown) {
+      logger.error(
+        { err, menteeId, courseId, requestedAllocationId },
+        '[SubmissionsService] Failed to query course allocation',
+      );
+      throw err;
+    }
+
+    if (!allocation) {
+      throw new ForbiddenError(
+        'You are not enrolled in this course or your allocation is inactive',
+      );
+    }
+
+    const batch = allocation.batch || null;
+    const batchId = allocation.batchId || null;
+    const batchStatus = batch?.status || BatchStatus.LIVE;
+    const isBatchActive = batch ? batch.status === BatchStatus.LIVE : true;
+
+    let overrideDueDate: Date | null = null;
+    if (assignmentId && allocation.assignmentOverrides) {
+      const override = allocation.assignmentOverrides.find((o) => o.assignmentId === assignmentId);
+      if (override) {
+        overrideDueDate = override.dueDate;
+      }
+    }
+
+    const effectiveDueDate = overrideDueDate || allocation.dueDate;
+
+    return {
+      allocationId: allocation.id,
+      courseId: allocation.courseId,
+      batchId,
+      menteeId: allocation.userId,
+      dueDate: effectiveDueDate,
+      batchStatus,
+      isBatchActive,
+      overrideDueDate,
+    };
+  }
+
+  public async getMenteeAllocations(menteeId: string): Promise<AllocationContext[]> {
+    let allocations: CourseAllocation[] = [];
+    try {
+      allocations = await submissionsRepository.findOpenCourseAllocationsForMentee(menteeId);
+    } catch (err: unknown) {
+      logger.error(
+        { err, menteeId },
+        '[SubmissionsService] Failed to query mentee course allocations',
+      );
+      throw err;
+    }
+
+    return allocations.map((allocation) => {
+      const batch = allocation.batch || null;
+      const batchId = allocation.batchId || null;
+      const batchStatus = batch?.status || BatchStatus.LIVE;
+      const isBatchActive = batch ? batch.status === BatchStatus.LIVE : true;
+
+      const assignmentOverrides: Record<string, string> = {};
+      if (allocation.assignmentOverrides) {
+        for (const override of allocation.assignmentOverrides) {
+          assignmentOverrides[override.assignmentId] = override.dueDate.toISOString();
+        }
+      }
+
+      return {
+        allocationId: allocation.id,
+        courseId: allocation.courseId,
+        batchId,
+        menteeId: allocation.userId,
+        dueDate: allocation.dueDate,
+        batchStatus,
+        isBatchActive,
+        assignmentOverrides,
+      };
+    });
   }
 }
 
