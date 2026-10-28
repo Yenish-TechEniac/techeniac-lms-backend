@@ -272,13 +272,20 @@ export class ProgressService {
     // Email mentee about deadline change (FR-8.6)
     if (allocation.user?.email) {
       const topic = await this.repository.findTopicById(topicId);
-      void emailService.sendTopicDeadlineChangedEmail({
-        to: allocation.user.email,
-        recipientName: allocation.user.name,
-        topicTitle: topic?.title ?? 'Course Topic',
-        courseTitle: allocation.course?.title ?? 'Assigned Course',
-        deadline: input.deadline,
-      });
+      void emailService
+        .sendTopicDeadlineChangedEmail({
+          to: allocation.user.email,
+          recipientName: allocation.user.name,
+          topicTitle: topic?.title ?? 'Course Topic',
+          courseTitle: allocation.course?.title ?? 'Assigned Course',
+          deadline: input.deadline,
+        })
+        .catch((err: unknown) => {
+          logger.error(
+            { err, allocationId, topicId },
+            '[ProgressService] Failed to send topic deadline email',
+          );
+        });
     }
 
     return {
@@ -551,16 +558,18 @@ export class ProgressService {
       await this.repository.initializeTopicProgressForAllocations(allocationIds, [payload.topicId]);
     }
 
-    for (const alloc of openAllocations) {
-      try {
-        await this.recalculateProgress(alloc.id, undefined, alloc);
-      } catch (err: unknown) {
-        logger.error(
-          { err, allocationId: alloc.id, courseId: payload.courseId },
-          '[ProgressService] Failed to recalculate progress for allocation during topicsChanged event',
-        );
-      }
-    }
+    await Promise.all(
+      openAllocations.map(async (alloc) => {
+        try {
+          await this.recalculateProgress(alloc.id, undefined, alloc);
+        } catch (err: unknown) {
+          logger.error(
+            { err, allocationId: alloc.id, courseId: payload.courseId },
+            '[ProgressService] Failed to recalculate progress for allocation during topicsChanged event',
+          );
+        }
+      }),
+    );
   }
 
   private async notifyMentorOnAllocationCompleted(allocation: {
