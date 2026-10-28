@@ -19,12 +19,14 @@ void describe('Courses API Integration Tests', () => {
   const mentorAId = '11111111-1111-4111-a111-111111111111';
   const mentorBId = '22222222-2222-4222-a222-222222222222';
   const adminId = '33333333-3333-4333-a333-333333333333';
+  const menteeId = '66666666-6666-4666-a666-666666666666';
   const courseId = '44444444-4444-4444-a444-444444444444';
   const topicId = '55555555-5555-4555-a555-555555555555';
 
   let tokenMentorA: string;
   let tokenMentorB: string;
   let tokenAdmin: string;
+  let tokenMentee: string;
 
   before(async () => {
     tokenMentorA = signAccessToken({
@@ -45,6 +47,13 @@ void describe('Courses API Integration Tests', () => {
       sub: adminId,
       email: 'admin@techeniac.com',
       role: 'SUPER_ADMIN',
+      tokenVersion: 1,
+    });
+
+    tokenMentee = signAccessToken({
+      sub: menteeId,
+      email: 'mentee@techeniac.com',
+      role: 'MENTEE',
       tokenVersion: 1,
     });
 
@@ -87,6 +96,15 @@ void describe('Courses API Integration Tests', () => {
           id: adminId,
           email: 'admin@techeniac.com',
           role: 'SUPER_ADMIN',
+          isActive: true,
+          tokenVersion: 1,
+        } as User);
+      }
+      if (id === menteeId) {
+        return Promise.resolve({
+          id: menteeId,
+          email: 'mentee@techeniac.com',
+          role: 'MENTEE',
           isActive: true,
           tokenVersion: 1,
         } as User);
@@ -327,6 +345,49 @@ void describe('Courses API Integration Tests', () => {
       assert.equal(data.data?.creator?.name, 'Mentor Alice');
       assert.equal(data.data?.creator?.email, undefined, 'email must not be exposed');
       assert.equal(data.data?.creator?.tokenVersion, undefined, 'tokenVersion must not be exposed');
+    });
+  });
+
+  void describe('Mentee Course Outline Access', () => {
+    void it('allows MENTEE to view course outline for learning via GET /courses/:id?outline=true', async () => {
+      const mockCourse = {
+        id: courseId,
+        title: 'Mentee Learning Track',
+        createdBy: mentorAId,
+        creator: { id: mentorAId, name: 'Mentor A' },
+        topics: [{ id: topicId, title: 'Introduction' }] as Topic[],
+      } as unknown as Course;
+
+      coursesRepository.findCourseById = (_id, includeOutline) => {
+        assert.equal(includeOutline, true);
+        return Promise.resolve(mockCourse);
+      };
+
+      const res = await fetch(`${baseUrl}/courses/${courseId}?outline=true`, {
+        method: 'GET',
+        headers: {
+          Authorization: `Bearer ${tokenMentee}`,
+        },
+      });
+
+      assert.equal(res.status, 200);
+      const data = (await res.json()) as { success: boolean; data?: Course };
+      assert.equal(data.success, true);
+      assert.equal(data.data?.id, courseId);
+      assert.equal(data.data?.title, 'Mentee Learning Track');
+    });
+
+    void it('rejects MENTEE with 403 Forbidden when trying to list courses in builder library', async () => {
+      const res = await fetch(`${baseUrl}/courses`, {
+        method: 'GET',
+        headers: {
+          Authorization: `Bearer ${tokenMentee}`,
+        },
+      });
+
+      assert.equal(res.status, 403);
+      const data = (await res.json()) as { error?: { code: string } };
+      assert.equal(data.error?.code, 'FORBIDDEN');
     });
   });
 
