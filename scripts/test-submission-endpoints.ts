@@ -6,6 +6,7 @@ import { app } from '../src/app';
 import { signAccessToken } from '../src/core/auth';
 import { AppDataSource, closeDatabase, initializeDatabase } from '../src/core/db';
 import { logger } from '../src/core/logging';
+import { CourseAllocation, CourseAllocationStatus } from '../src/modules/allocations';
 import { Assignment, AssignmentScope, Course, SubmissionMode } from '../src/modules/courses';
 import { Submission, SubmissionStatus } from '../src/modules/submissions';
 import { User, UserRole } from '../src/modules/users';
@@ -43,10 +44,12 @@ async function runTests(): Promise<void> {
   const courseRepo = AppDataSource.getRepository(Course);
   const assignmentRepo = AppDataSource.getRepository(Assignment);
   const submissionRepo = AppDataSource.getRepository(Submission);
+  const allocRepo = AppDataSource.getRepository(CourseAllocation);
 
   let testMentee: User | null = null;
   let testCourse: Course | null = null;
   let testAssignment: Assignment | null = null;
+  let testAllocation: CourseAllocation | null = null;
   const createdSubmissionIds: string[] = [];
 
   try {
@@ -92,6 +95,20 @@ async function runTests(): Promise<void> {
       urlMode: SubmissionMode.REQUIRED,
     });
     testAssignment = await assignmentRepo.save(testAssignment);
+
+    // 3. Create dedicated test course allocation so mentee is genuinely enrolled
+    testAllocation = allocRepo.create({
+      userId: testMentee.id,
+      courseId: testCourse.id,
+      targetType: 'ALL_BATCH',
+      status: CourseAllocationStatus.IN_PROGRESS,
+      startDate: new Date(),
+      dueDate: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
+      progressPercent: 0,
+      createdBy: testMentee.id,
+    });
+    testAllocation = await allocRepo.save(testAllocation);
+    logger.info({ allocationId: testAllocation.id }, 'Created temporary test course allocation');
 
     const token = signAccessToken({
       sub: testMentee.id,
@@ -285,6 +302,11 @@ async function runTests(): Promise<void> {
       if (testAssignment?.id) {
         await assignmentRepo.delete(testAssignment.id);
         logger.info({ assignmentId: testAssignment.id }, 'Cleaned up test assignment');
+      }
+
+      if (testAllocation?.id) {
+        await allocRepo.delete(testAllocation.id);
+        logger.info({ allocationId: testAllocation.id }, 'Cleaned up test allocation');
       }
 
       if (testCourse?.id) {

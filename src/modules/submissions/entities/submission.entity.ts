@@ -1,6 +1,7 @@
 import { Check, Column, Entity, Index, JoinColumn, ManyToOne, Unique } from 'typeorm';
 
 import { AuditableEntity } from '../../../core/db';
+import { CourseAllocation } from '../../allocations';
 import { Batch } from '../../batches';
 import { Assignment } from '../../courses';
 import { User } from '../../users';
@@ -57,8 +58,8 @@ export class Submission extends AuditableEntity {
 
   @Column({
     name: 'status',
-    type: 'varchar',
-    length: 30,
+    type: 'enum',
+    enum: SubmissionStatus,
     default: SubmissionStatus.SUBMITTED,
   })
   status!: SubmissionStatus;
@@ -89,6 +90,13 @@ export class Submission extends AuditableEntity {
 
   @Column({ name: 'graded_at', type: 'timestamptz', nullable: true })
   gradedAt!: Date | null;
+
+  @ManyToOne(() => CourseAllocation, { onDelete: 'CASCADE' })
+  @JoinColumn({
+    name: 'course_allocation_id',
+    foreignKeyConstraintName: 'FK_submissions_course_allocation',
+  })
+  courseAllocation?: CourseAllocation;
 
   @ManyToOne(() => Assignment, { onDelete: 'CASCADE' })
   @JoinColumn({

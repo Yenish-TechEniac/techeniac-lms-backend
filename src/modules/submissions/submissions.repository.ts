@@ -45,7 +45,12 @@ export class SubmissionsRepository {
 
     if (requestedAllocationId) {
       const byId = await this.courseAllocationRepo.findOne({
-        where: { id: requestedAllocationId },
+        where: {
+          id: requestedAllocationId,
+          userId,
+          courseId,
+          status: In([CourseAllocationStatus.ASSIGNED, CourseAllocationStatus.IN_PROGRESS]),
+        },
         relations: ['batch', 'assignmentOverrides'],
       });
       if (byId) return byId;
