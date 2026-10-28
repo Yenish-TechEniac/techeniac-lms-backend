@@ -16,6 +16,7 @@ import {
   registerProgressLifecycleListeners,
 } from './modules/progress';
 import { submissionsRouter } from './modules/submissions';
+import { user360Router } from './modules/user-360';
 // eslint-disable-next-line architecture/cross-module-index-imports -- router mount isolated from barrel to eliminate circular dependency
 import { usersRouter } from './modules/users/users.routes';
 
@@ -44,6 +45,7 @@ export function createApp(): Express {
   });
 
   app.use('/api/v1/auth', authRouter);
+  app.use('/api/v1/users', user360Router);
   app.use('/api/v1/users', usersRouter);
   app.use('/api/v1/courses', coursesRouter);
   app.use('/api/v1/course-allocations', allocationsRouter);
