@@ -11,6 +11,7 @@ import {
   renderMenteeReassignedEmail,
   renderMentorMappedEmail,
   renderPasswordResetEmail,
+  renderSubmissionReceivedEmail,
   renderTopicDeadlineChangedEmail,
 } from './templates';
 
@@ -278,9 +279,15 @@ export class EmailService {
         dateStyle: 'medium',
         timeStyle: 'medium',
       }) + ' IST';
-    const subject = `New Submission: ${options.assignmentTitle} (v${options.version}) from ${options.menteeName}`;
-    const text = `Hello ${options.recipientName},\n\nMentee ${options.menteeName} has submitted assignment "${options.assignmentTitle}" for course "${options.courseTitle}" (Version ${options.version}).\n\nSubmitted at: ${istTimeStr}`;
-    const html = `<p>Hello <strong>${options.recipientName}</strong>,</p><p>Mentee <strong>${options.menteeName}</strong> has submitted assignment <strong>"${options.assignmentTitle}"</strong> for course <em>${options.courseTitle}</em> (Version ${options.version}).</p><p>Submitted at: <strong>${istTimeStr}</strong></p>`;
+    const { subject, text, html } = renderSubmissionReceivedEmail({
+      recipientName: options.recipientName,
+      menteeName: options.menteeName,
+      assignmentTitle: options.assignmentTitle,
+      courseTitle: options.courseTitle,
+      version: options.version,
+      submittedAtFormatted: istTimeStr,
+      portalUrl: `${env.FRONTEND_URL}/submissions`,
+    });
 
     if (!this.transporter) {
       logger.info(
