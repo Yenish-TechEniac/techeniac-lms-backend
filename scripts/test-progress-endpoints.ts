@@ -1,6 +1,6 @@
 import 'reflect-metadata';
 
-import { randomUUID } from 'node:crypto';
+import { randomBytes, randomUUID } from 'node:crypto';
 import type { Server } from 'node:http';
 
 import { app } from '../src/app';
@@ -38,9 +38,10 @@ async function runProgressTests(): Promise<void> {
 
   let failures = 0;
   const createdUserIds: string[] = [];
-  const createdBatchIds: string[] = [];
-  const createdCourseIds: string[] = [];
-  const createdAllocationIds: string[] = [];
+  let createdBatchId: string | null = null;
+  let createdCourseId: string | null = null;
+  const createdTopicIds: string[] = [];
+  let createdAllocationId: string | null = null;
 
   try {
     logger.info(
@@ -52,7 +53,7 @@ async function runProgressTests(): Promise<void> {
 
     async function createDisposableUser(name: string, role: UserRole, prefix: string) {
       const email = `${prefix}-m8-${uniqueSuffix}@techeniac.com`;
-      const password = `TestP@ss-${randomUUID()}`;
+      const password = process.env.TEST_PASSWORD || `TestP@ss-${randomUUID()}`;
       const passwordHash = await hashPassword(password);
       const u = await userRepository.create({
         name,
@@ -121,9 +122,8 @@ async function runProgressTests(): Promise<void> {
       id?: string;
     }>;
     const batchId = (batchData.data?.batch?.id ?? batchData.data?.id) as string;
-    if (batchId) {
-      createdBatchIds.push(batchId);
-    } else {
+    createdBatchId = batchId;
+    if (!batchId) {
       logger.error({ batchData, status: batchRes.status }, 'Failed to create batch');
     }
 
@@ -178,9 +178,7 @@ async function runProgressTests(): Promise<void> {
     });
     const courseData = (await courseRes.json()) as ApiResponse<{ id: string }>;
     const courseId = courseData.data?.id as string;
-    if (courseId) {
-      createdCourseIds.push(courseId);
-    }
+    createdCourseId = courseId;
 
     // Add 3 topics
     const topic1Res = await fetch(`${baseUrl}/courses/${courseId}/topics`, {
@@ -195,6 +193,7 @@ async function runProgressTests(): Promise<void> {
     });
     const topic1Data = (await topic1Res.json()) as ApiResponse<{ id: string }>;
     const topic1Id = topic1Data.data?.id as string;
+    if (topic1Id) createdTopicIds.push(topic1Id);
 
     const topic2Res = await fetch(`${baseUrl}/courses/${courseId}/topics`, {
       method: 'POST',
@@ -208,6 +207,7 @@ async function runProgressTests(): Promise<void> {
     });
     const topic2Data = (await topic2Res.json()) as ApiResponse<{ id: string }>;
     const topic2Id = topic2Data.data?.id as string;
+    if (topic2Id) createdTopicIds.push(topic2Id);
 
     const topic3Res = await fetch(`${baseUrl}/courses/${courseId}/topics`, {
       method: 'POST',
@@ -221,6 +221,7 @@ async function runProgressTests(): Promise<void> {
     });
     const topic3Data = (await topic3Res.json()) as ApiResponse<{ id: string }>;
     const topic3Id = topic3Data.data?.id as string;
+    if (topic3Id) createdTopicIds.push(topic3Id);
 
     // 3. Allocate course to Mentee 1
     const allocRes = await fetch(`${baseUrl}/course-allocations`, {
@@ -239,9 +240,7 @@ async function runProgressTests(): Promise<void> {
       created: Array<{ id: string; userId: string }>;
     }>;
     const allocationId = allocData.data?.created[0]?.id as string;
-    if (allocationId) {
-      createdAllocationIds.push(allocationId);
-    }
+    createdAllocationId = allocationId;
 
     // Allow event bus microtask to settle
     await new Promise((r) => setTimeout(r, 200));
@@ -533,50 +532,45 @@ async function runProgressTests(): Promise<void> {
     logger.error({ err }, 'Error during M8 progress tests execution');
     failures++;
   } finally {
+    logger.info('Cleaning up M8 test fixtures from database...');
     try {
-      if (createdAllocationIds.length > 0) {
-        await AppDataSource.query(
-          `DELETE FROM topic_progress WHERE course_allocation_id = ANY($1::uuid[])`,
-          [createdAllocationIds],
-        );
-        await AppDataSource.query(`DELETE FROM course_allocations WHERE id = ANY($1::uuid[])`, [
-          createdAllocationIds,
+      if (createdAllocationId) {
+        await AppDataSource.query('DELETE FROM topic_progress WHERE course_allocation_id = $1', [
+          createdAllocationId,
+        ]);
+        await AppDataSource.query('DELETE FROM course_allocations WHERE id = $1', [
+          createdAllocationId,
         ]);
       }
-      if (createdCourseIds.length > 0) {
-        await AppDataSource.query(`DELETE FROM topics WHERE course_id = ANY($1::uuid[])`, [
-          createdCourseIds,
-        ]);
-        await AppDataSource.query(`DELETE FROM courses WHERE id = ANY($1::uuid[])`, [
-          createdCourseIds,
+      if (createdTopicIds.length > 0) {
+        await AppDataSource.query('DELETE FROM topics WHERE id = ANY($1::uuid[])', [
+          createdTopicIds,
         ]);
       }
-      if (createdBatchIds.length > 0) {
-        await AppDataSource.query(`DELETE FROM mentor_mentees WHERE batch_id = ANY($1::uuid[])`, [
-          createdBatchIds,
+      if (createdCourseId) {
+        await AppDataSource.query('DELETE FROM courses WHERE id = $1', [createdCourseId]);
+      }
+      if (createdBatchId) {
+        await AppDataSource.query('DELETE FROM mentor_mentees WHERE batch_id = $1', [
+          createdBatchId,
         ]);
-        await AppDataSource.query(
-          `DELETE FROM batch_status_history WHERE batch_id = ANY($1::uuid[])`,
-          [createdBatchIds],
-        );
-        await AppDataSource.query(`DELETE FROM batch_members WHERE batch_id = ANY($1::uuid[])`, [
-          createdBatchIds,
+        await AppDataSource.query('DELETE FROM batch_members WHERE batch_id = $1', [
+          createdBatchId,
         ]);
-        await AppDataSource.query(`DELETE FROM batches WHERE id = ANY($1::uuid[])`, [
-          createdBatchIds,
-        ]);
+        await AppDataSource.query('DELETE FROM batches WHERE id = $1', [createdBatchId]);
       }
       if (createdUserIds.length > 0) {
-        await AppDataSource.query(`DELETE FROM refresh_tokens WHERE user_id = ANY($1::uuid[])`, [
+        await AppDataSource.query('DELETE FROM tokens WHERE user_id = ANY($1::uuid[])', [
           createdUserIds,
-        ]);
-        await AppDataSource.query(`DELETE FROM user_role_history WHERE user_id = ANY($1::uuid[])`, [
+        ]).catch(() => {});
+        await AppDataSource.query('DELETE FROM user_role_history WHERE user_id = ANY($1::uuid[])', [
           createdUserIds,
-        ]);
-        await AppDataSource.query(`DELETE FROM users WHERE id = ANY($1::uuid[])`, [createdUserIds]);
+        ]).catch(() => {});
+        await AppDataSource.query('DELETE FROM users WHERE id = ANY($1::uuid[])', [createdUserIds]);
       }
-    } catch (cleanupError) {
-      logger.error({ err: cleanupError }, 'Failed to clean up test entities');
+      logger.info('Cleaned up M8 test fixtures successfully');
+    } catch (cleanupErr) {
+      logger.warn({ cleanupErr }, 'Error during test teardown cleanup');
     }
 
     server.close();

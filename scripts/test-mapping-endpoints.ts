@@ -435,7 +435,7 @@ async function runMappingTests(): Promise<void> {
     // Check bulk mapped mentees in Batch A no longer active
     const activeBulkMapping = await mentorScopeHelper.canMentorReviewAndTrack(
       mentorA.id,
-      bulkMentees[0].id,
+      bulkMentees[0]!.id,
       batchId,
     );
 

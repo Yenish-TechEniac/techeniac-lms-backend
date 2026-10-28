@@ -73,3 +73,13 @@ export class BadGatewayError extends AppError {
     super(message, StatusCodes.BAD_GATEWAY, code, details);
   }
 }
+
+export class UnprocessableEntityError extends AppError {
+  constructor(
+    message: string = 'Unprocessable entity',
+    details?: unknown,
+    code: string = 'UNPROCESSABLE_ENTITY',
+  ) {
+    super(message, StatusCodes.UNPROCESSABLE_ENTITY, code, details);
+  }
+}

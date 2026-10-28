@@ -11,6 +11,7 @@ import {
   renderMenteeReassignedEmail,
   renderMentorMappedEmail,
   renderPasswordResetEmail,
+  renderSubmissionReceivedEmail,
   renderTopicDeadlineChangedEmail,
 } from './templates';
 
@@ -61,6 +62,16 @@ export interface SendMenteeReassignedOptions {
   mentorName: string;
   batchName: string;
   reason?: string;
+}
+
+export interface SendSubmissionReceivedOptions {
+  to: string;
+  recipientName: string;
+  menteeName: string;
+  assignmentTitle: string;
+  courseTitle: string;
+  version: number;
+  submittedAt: Date;
 }
 
 export interface SendAllocationCompletedOptions {
@@ -257,6 +268,52 @@ export class EmailService {
       logger.error(
         { err: error, event: 'EMAIL_DISPATCH_FAILURE', service: 'smtp' },
         'Failed to dispatch mentee reassignment email',
+      );
+    }
+  }
+
+  async sendSubmissionReceivedEmail(options: SendSubmissionReceivedOptions): Promise<void> {
+    const istTimeStr =
+      options.submittedAt.toLocaleString('en-IN', {
+        timeZone: 'Asia/Kolkata',
+        dateStyle: 'medium',
+        timeStyle: 'medium',
+      }) + ' IST';
+    const { subject, text, html } = renderSubmissionReceivedEmail({
+      recipientName: options.recipientName,
+      menteeName: options.menteeName,
+      assignmentTitle: options.assignmentTitle,
+      courseTitle: options.courseTitle,
+      version: options.version,
+      submittedAtFormatted: istTimeStr,
+      portalUrl: `${env.FRONTEND_URL}/submissions`,
+    });
+
+    if (!this.transporter) {
+      logger.info(
+        { menteeName: options.menteeName, assignmentTitle: options.assignmentTitle },
+        'SMTP not configured in environment. Submission received email skipped in development.',
+      );
+      return;
+    }
+
+    try {
+      await this.transporter.sendMail({
+        from: env.SMTP_FROM,
+        to: options.to,
+        subject,
+        text,
+        html,
+      });
+
+      logger.info(
+        { menteeName: options.menteeName, assignmentTitle: options.assignmentTitle },
+        'Submission received email dispatched successfully via SMTP',
+      );
+    } catch (error) {
+      logger.error(
+        { err: error, event: 'EMAIL_DISPATCH_FAILURE', service: 'smtp' },
+        'Failed to dispatch submission received email',
       );
     }
   }
