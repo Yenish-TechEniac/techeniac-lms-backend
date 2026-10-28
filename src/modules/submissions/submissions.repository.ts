@@ -1,4 +1,4 @@
-import { In, Repository } from 'typeorm';
+import { EntityManager, In, Repository } from 'typeorm';
 
 import { AppDataSource } from '../../core/db';
 import { CourseAllocation, CourseAllocationStatus } from '../allocations';
@@ -36,15 +36,26 @@ export class SubmissionsRepository {
     return AppDataSource.getRepository(CourseAllocation);
   }
 
+  async transaction<T>(runInTransaction: (manager?: EntityManager) => Promise<T>): Promise<T> {
+    if (AppDataSource.isInitialized) {
+      return await AppDataSource.transaction(
+        runInTransaction as (manager: EntityManager) => Promise<T>,
+      );
+    }
+    return await runInTransaction(undefined);
+  }
+
   async findCourseAllocation(
     userId: string,
     courseId: string,
     requestedAllocationId?: string,
+    manager?: EntityManager,
   ): Promise<CourseAllocation | null> {
     if (!AppDataSource.isInitialized) return null;
+    const repo = manager ? manager.getRepository(CourseAllocation) : this.courseAllocationRepo;
 
     if (requestedAllocationId) {
-      const byId = await this.courseAllocationRepo.findOne({
+      const byId = await repo.findOne({
         where: {
           id: requestedAllocationId,
           userId,
@@ -57,7 +68,7 @@ export class SubmissionsRepository {
       return null;
     }
 
-    return this.courseAllocationRepo.findOne({
+    return repo.findOne({
       where: {
         userId,
         courseId,
@@ -166,8 +177,10 @@ export class SubmissionsRepository {
   async findLatestSubmission(
     allocationId: string,
     assignmentId: string,
+    manager?: EntityManager,
   ): Promise<Submission | null> {
-    return this.submissionRepo.findOne({
+    const repo = manager ? manager.getRepository(Submission) : this.submissionRepo;
+    return repo.findOne({
       where: {
         courseAllocationId: allocationId,
         assignmentId,
@@ -181,8 +194,9 @@ export class SubmissionsRepository {
     return Object.assign(sub, data);
   }
 
-  async saveSubmission(submission: Submission): Promise<Submission> {
-    return this.submissionRepo.save(submission);
+  async saveSubmission(submission: Submission, manager?: EntityManager): Promise<Submission> {
+    const repo = manager ? manager.getRepository(Submission) : this.submissionRepo;
+    return repo.save(submission);
   }
 
   async findMentorMapping(batchId: string, menteeId: string): Promise<MentorMentee | null> {

@@ -12,7 +12,11 @@ import { BatchStatus } from '../batches';
 import { Assignment, SubmissionMode } from '../courses';
 import { User, UserRole } from '../users';
 import { Submission, SubmissionData, SubmissionStatus } from './entities/submission.entity';
-import type { CreateSubmissionInput, ListMyAssignmentsQuery } from './schemas/submissions.schemas';
+import type {
+  AssignmentDerivedStatus,
+  CreateSubmissionInput,
+  ListMyAssignmentsQuery,
+} from './schemas/submissions.schemas';
 import { submissionsRepository } from './submissions.repository';
 
 export interface AllocationContext {
@@ -26,9 +30,6 @@ export interface AllocationContext {
   overrideDueDate?: Date | null;
   assignmentOverrides?: Record<string, string>;
 }
-
-export type AssignmentDerivedStatus =
-  'PENDING' | 'SUBMITTED' | 'RESUBMIT_REQUESTED' | 'GRADED' | 'OVERDUE' | 'CLOSED';
 
 export interface AssignmentWithSubmissionStatus {
   id: string;
@@ -292,14 +293,7 @@ export class SubmissionsService {
       throw new UnprocessableEntityError('URL submission is required for this assignment');
     }
 
-    // Verify at least one field is provided (SUB-07)
-    if (!sanitizedData.pdfUrl && !sanitizedData.zipUrl && !sanitizedData.linkUrl) {
-      throw new UnprocessableEntityError(
-        'At least one submission field (pdfUrl, zipUrl, or linkUrl) must be provided',
-      );
-    }
-
-    // 5. Allocation Context & Batch status check (SUB-22)
+    // 5. Allocation Context & Initial Batch status check (SUB-22)
     const alloc = await this.getAllocationForCourse(
       menteeId,
       assignment.courseId,
@@ -325,38 +319,52 @@ export class SubmissionsService {
       throw new UnprocessableEntityError('Late submission is not allowed for this assignment');
     }
 
-    // 7. Check existing submission & determine version (FR-9.4, SUB-15, SUB-16, SUB-17)
-    const latestSubmission = await submissionsRepository.findLatestSubmission(
-      alloc.allocationId,
-      assignment.id,
-    );
-
-    let nextVersion = 1;
-    if (latestSubmission) {
-      if (latestSubmission.status === SubmissionStatus.GRADED) {
-        throw new UnprocessableEntityError(
-          'Cannot resubmit an assignment that has already been graded unless a resubmission is requested by the mentor',
-        );
-      }
-      nextVersion = latestSubmission.version + 1;
-    }
-
-    // 8. Persist new submission row (SUB-18 concurrency safe)
-    const newSubmission = submissionsRepository.createSubmission({
-      courseAllocationId: alloc.allocationId,
-      assignmentId: assignment.id,
-      batchId: alloc.batchId,
-      version: nextVersion,
-      submissionData: sanitizedData,
-      submittedAt: now,
-      isLate,
-      status: SubmissionStatus.SUBMITTED,
-      createdBy: menteeId,
-    });
-
+    // 7 & 8. Transactionally verify batch & latest submission status and persist (SUB-18 concurrency safe)
     let savedSubmission: Submission;
     try {
-      savedSubmission = await submissionsRepository.saveSubmission(newSubmission);
+      savedSubmission = await submissionsRepository.transaction(async (manager) => {
+        // Re-verify batch status inside transaction
+        if (
+          alloc.batchStatus === BatchStatus.ON_HOLD ||
+          alloc.batchStatus === BatchStatus.COMPLETED ||
+          alloc.batchStatus === BatchStatus.ARCHIVED
+        ) {
+          throw new UnprocessableEntityError(
+            `Submissions are blocked because the batch is ${alloc.batchStatus.toLowerCase()}`,
+          );
+        }
+
+        // Re-check latest submission inside transaction
+        const latestSubmission = await submissionsRepository.findLatestSubmission(
+          alloc.allocationId,
+          assignment.id,
+          manager,
+        );
+
+        let nextVersion = 1;
+        if (latestSubmission) {
+          if (latestSubmission.status === SubmissionStatus.GRADED) {
+            throw new UnprocessableEntityError(
+              'Cannot resubmit an assignment that has already been graded unless a resubmission is requested by the mentor',
+            );
+          }
+          nextVersion = latestSubmission.version + 1;
+        }
+
+        const newSubmission = submissionsRepository.createSubmission({
+          courseAllocationId: alloc.allocationId,
+          assignmentId: assignment.id,
+          batchId: alloc.batchId,
+          version: nextVersion,
+          submissionData: sanitizedData,
+          submittedAt: now,
+          isLate,
+          status: SubmissionStatus.SUBMITTED,
+          createdBy: menteeId,
+        });
+
+        return await submissionsRepository.saveSubmission(newSubmission, manager);
+      });
     } catch (err: unknown) {
       const errorMsg = (err as Error)?.message || '';
       const errorCode = (err as { code?: string })?.code;
