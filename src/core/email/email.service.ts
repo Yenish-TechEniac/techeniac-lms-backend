@@ -74,6 +74,25 @@ export interface SendSubmissionReceivedOptions {
   submittedAt: Date;
 }
 
+export interface SendAssignmentGradedOptions {
+  to: string;
+  recipientName: string;
+  assignmentTitle: string;
+  courseTitle: string;
+  marks: number;
+  maxMarks: number;
+  gradeLabel: string;
+  feedback?: string | null;
+}
+
+export interface SendResubmissionRequestedOptions {
+  to: string;
+  recipientName: string;
+  assignmentTitle: string;
+  courseTitle: string;
+  feedback: string;
+}
+
 export interface SendAllocationCompletedOptions {
   to: string;
   recipientName: string;
@@ -314,6 +333,74 @@ export class EmailService {
       logger.error(
         { err: error, event: 'EMAIL_DISPATCH_FAILURE', service: 'smtp' },
         'Failed to dispatch submission received email',
+      );
+    }
+  }
+
+  async sendAssignmentGradedEmail(options: SendAssignmentGradedOptions): Promise<void> {
+    const subject = `Assignment Graded: ${options.assignmentTitle} - Grade: ${options.gradeLabel}`;
+    const text = `Hello ${options.recipientName},\n\nYour submission for "${options.assignmentTitle}" in course "${options.courseTitle}" has been graded.\n\nScore: ${options.marks}/${options.maxMarks} (${options.gradeLabel})\nFeedback: ${options.feedback || 'No additional comments.'}`;
+    const html = `<p>Hello <strong>${options.recipientName}</strong>,</p><p>Your submission for <strong>"${options.assignmentTitle}"</strong> in course <em>${options.courseTitle}</em> has been graded.</p><p><strong>Score:</strong> ${options.marks}/${options.maxMarks} (Grade: <strong>${options.gradeLabel}</strong>)</p><p><strong>Feedback:</strong> ${options.feedback || 'No additional comments.'}</p>`;
+
+    if (!this.transporter) {
+      logger.info(
+        { recipient: options.to, assignmentTitle: options.assignmentTitle },
+        'SMTP not configured in environment. Graded notification skipped in development.',
+      );
+      return;
+    }
+
+    try {
+      await this.transporter.sendMail({
+        from: env.SMTP_FROM,
+        to: options.to,
+        subject,
+        text,
+        html,
+      });
+
+      logger.info(
+        { recipient: options.to, assignmentTitle: options.assignmentTitle },
+        'Assignment graded email dispatched successfully via SMTP',
+      );
+    } catch (error) {
+      logger.error(
+        { err: error, event: 'EMAIL_DISPATCH_FAILURE', service: 'smtp' },
+        'Failed to dispatch assignment graded email',
+      );
+    }
+  }
+
+  async sendResubmissionRequestedEmail(options: SendResubmissionRequestedOptions): Promise<void> {
+    const subject = `Resubmission Requested: ${options.assignmentTitle}`;
+    const text = `Hello ${options.recipientName},\n\nA resubmission has been requested for your assignment "${options.assignmentTitle}" in course "${options.courseTitle}".\n\nMentor Feedback:\n${options.feedback}\n\nPlease review the feedback and submit an updated version.`;
+    const html = `<p>Hello <strong>${options.recipientName}</strong>,</p><p>A resubmission has been requested for your assignment <strong>"${options.assignmentTitle}"</strong> in course <em>${options.courseTitle}</em>.</p><p><strong>Mentor Feedback:</strong></p><blockquote>${options.feedback}</blockquote><p>Please review the feedback and upload an updated submission.</p>`;
+
+    if (!this.transporter) {
+      logger.info(
+        { recipient: options.to, assignmentTitle: options.assignmentTitle },
+        'SMTP not configured in environment. Resubmission request email skipped in development.',
+      );
+      return;
+    }
+
+    try {
+      await this.transporter.sendMail({
+        from: env.SMTP_FROM,
+        to: options.to,
+        subject,
+        text,
+        html,
+      });
+
+      logger.info(
+        { recipient: options.to, assignmentTitle: options.assignmentTitle },
+        'Resubmission requested email dispatched successfully via SMTP',
+      );
+    } catch (error) {
+      logger.error(
+        { err: error, event: 'EMAIL_DISPATCH_FAILURE', service: 'smtp' },
+        'Failed to dispatch resubmission requested email',
       );
     }
   }
