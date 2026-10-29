@@ -262,7 +262,7 @@ export class BatchService {
       entityId: id,
       action: 'STATUS_CHANGE',
       oldValue: { status: currentStatus },
-      newValue: { status: targetStatus, reason: input.reason },
+      newValue: { name: updatedBatch.name, status: targetStatus, reason: input.reason },
     });
 
     return updatedBatch;

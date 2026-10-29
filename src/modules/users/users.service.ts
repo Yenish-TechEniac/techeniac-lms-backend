@@ -301,7 +301,12 @@ export class UsersService {
         entityId: id,
         action: 'ROLE_CHANGE',
         oldValue: { role: previousRole },
-        newValue: { role: input.newRole, reason: input.reason },
+        newValue: {
+          name: result.user.name,
+          email: result.user.email,
+          role: input.newRole,
+          reason: input.reason,
+        },
       });
 
       return result;
@@ -359,7 +364,7 @@ export class UsersService {
       entityId: id,
       action: isActive ? 'USER_ACTIVATED' : 'USER_DEACTIVATED',
       oldValue: { isActive: !isActive },
-      newValue: { isActive },
+      newValue: { name: savedUser.name, email: savedUser.email, isActive },
     });
 
     return savedUser;
