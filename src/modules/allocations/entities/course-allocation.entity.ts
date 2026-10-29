@@ -16,6 +16,12 @@ import type { AssignmentDueOverride } from './assignment-due-override.entity';
 @Index('idx_ca_course_status', ['courseId', 'status'])
 @Index('idx_ca_due', ['dueDate'])
 @Index('idx_ca_batch', ['batchId'])
+@Index('idx_ca_perf_batch_user', ['batchId', 'userId', 'status'], {
+  where: `"deleted_at" IS NULL`,
+})
+@Index('idx_ca_perf_progress_due', ['progressPercent', 'dueDate'], {
+  where: `"deleted_at" IS NULL`,
+})
 @Check('chk_ca_due_after_start', `"due_date" >= "start_date"`)
 @Check('chk_ca_percent', `"progress_percent" >= 0 AND "progress_percent" <= 100`)
 export class CourseAllocation extends AuditableEntity {
