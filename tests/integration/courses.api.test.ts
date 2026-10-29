@@ -358,6 +358,7 @@ void describe('Courses API Integration Tests', () => {
       const mockCourse = {
         id: courseId,
         title: 'Mentee Learning Track',
+        isActive: true,
         createdBy: mentorAId,
         creator: { id: mentorAId, name: 'Mentor A' },
         isActive: true,
@@ -375,14 +376,24 @@ void describe('Courses API Integration Tests', () => {
         return Promise.resolve(mockCourse);
       };
 
-      allocationsRepository.findActiveOrCompletedAllocation = () => {
-        return Promise.resolve({
-          id: 'alloc-1',
-          courseId,
-          userId: menteeId,
-          status: CourseAllocationStatus.IN_PROGRESS,
-        } as CourseAllocation);
+      allocationsRepository.findActiveOrCompletedAllocation = (cId, uId) => {
+        if (cId === courseId && uId === menteeId) {
+          return Promise.resolve({
+            id: 'alloc-1',
+            courseId,
+            userId: menteeId,
+            status: CourseAllocationStatus.IN_PROGRESS,
+          } as CourseAllocation);
+        }
+        return Promise.resolve(null);
       };
+
+      const res = await fetch(`${baseUrl}/courses/${courseId}?outline=true`, {
+        method: 'GET',
+        headers: {
+          Authorization: `Bearer ${tokenMentee}`,
+        },
+      });
 
       try {
         const res = await fetch(`${baseUrl}/courses/${courseId}?outline=true`, {
