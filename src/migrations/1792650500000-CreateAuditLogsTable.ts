@@ -35,7 +35,7 @@ export class CreateAuditLogsTable1792650500000 implements MigrationInterface {
         "action" character varying(100) NOT NULL,
         "old_value" jsonb,
         "new_value" jsonb,
-        "created_at" TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        "created_at" TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT now(),
         CONSTRAINT "PK_audit_logs_id" PRIMARY KEY ("id")
       )
     `);

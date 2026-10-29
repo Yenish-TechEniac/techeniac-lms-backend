@@ -62,7 +62,7 @@ export class AuditLog {
   @CreateDateColumn({
     name: 'created_at',
     type: 'timestamptz',
-    default: () => 'CURRENT_TIMESTAMP',
+    default: () => 'now()',
   })
   createdAt!: Date;
 }
