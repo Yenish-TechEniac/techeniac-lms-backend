@@ -6,7 +6,12 @@ import { SubmissionStatus } from '../submissions';
 import type { SafeUser, UserRoleHistory } from '../users';
 import { toSafeUser, UserRole } from '../users';
 import { User360Repository, user360Repository } from './user-360.repository';
-import type { User360ExportParams, User360QueryParams, User360Tab } from './user-360.schemas';
+import type {
+  AuditType,
+  User360ExportParams,
+  User360QueryParams,
+  User360Tab,
+} from './user-360.schemas';
 
 export interface RoleHistoryItem {
   id: string;
@@ -58,6 +63,7 @@ export interface CourseHistoryItem {
   completedAt: Date | null;
   progressPercent: number;
   periodLabel: string;
+  role: UserRole;
 }
 
 export interface SubmissionHistoryItem {
@@ -76,6 +82,7 @@ export interface SubmissionHistoryItem {
   gradedAt: Date | null;
   graderName: string | null;
   periodLabel: string;
+  role: UserRole;
 }
 
 export interface PerformanceSummary {
@@ -92,14 +99,18 @@ export interface PerformanceSummary {
   gradeDistribution: Record<string, number>;
 }
 
+export type AuditAction = 'ROLE_CHANGED' | 'BATCH_JOINED' | 'BATCH_LEFT' | 'ASSIGNMENT_GRADED';
+
 export interface AuditHistoryItem {
   id: string;
-  type: string;
-  action: string;
+  type: AuditType;
+  action: AuditAction;
   timestamp: Date;
   actorId: string | null;
   details: Record<string, unknown>;
   periodLabel: string;
+  role: UserRole;
+  batchId?: string;
 }
 
 export interface User360Profile {
@@ -116,24 +127,32 @@ export interface User360Profile {
   };
 }
 
+export type User360TabResponse = {
+  user: SafeUser;
+  tabs: Partial<User360Profile['tabs']>;
+};
+
 export class User360Service {
   constructor(private readonly repository: User360Repository = user360Repository) {}
 
   public async getUser360(
     userId: string,
     query: User360QueryParams,
-  ): Promise<Partial<User360Profile> | User360Profile> {
+  ): Promise<User360Profile | User360TabResponse> {
     const user = await this.repository.getUser(userId);
     if (!user) {
       throw new NotFoundError(`User with ID ${userId} not found`);
     }
 
     const safeUser = toSafeUser(user);
-    const roleHistory = await this.repository.getRoleHistory(userId);
-    const batchMemberships = await this.repository.getBatchMemberships(userId);
-    const mentorMappings = await this.repository.getMentorMappings(userId);
-    const courseAllocations = await this.repository.getCourseAllocations(userId);
-    const submissions = await this.repository.getSubmissions(userId);
+    const [roleHistory, batchMemberships, mentorMappings, courseAllocations, submissions] =
+      await Promise.all([
+        this.repository.getRoleHistory(userId),
+        this.repository.getBatchMemberships(userId),
+        this.repository.getMentorMappings(userId),
+        this.repository.getCourseAllocations(userId),
+        this.repository.getSubmissions(userId),
+      ]);
 
     const fullProfile = this.aggregateProfile(
       safeUser,
@@ -191,10 +210,12 @@ export class User360Service {
 
     // 4. Mentor Mappings
     lines.push('--- MENTOR MAPPINGS ---');
-    lines.push('Batch Code,User Role In Mapping,Peer Name,Peer Email,Start Date,End Date,Status');
+    lines.push(
+      'Batch Code,User Role In Mapping,Peer Name,Peer Email,Start Date,End Date,Reason,Status',
+    );
     for (const m of profile.tabs.mentorMappingHistory) {
       lines.push(
-        `${m.batchCode},${m.mappedRole},${this.escapeCsv(m.peerName)},${m.peerEmail},${m.startDate.toISOString()},${m.endDate ? m.endDate.toISOString() : ''},${m.isActive ? 'Active' : 'Ended'}`,
+        `${m.batchCode},${m.mappedRole},${this.escapeCsv(m.peerName)},${m.peerEmail},${m.startDate.toISOString()},${m.endDate ? m.endDate.toISOString() : ''},${this.escapeCsv(m.endReason ?? '')},${m.isActive ? 'Active' : 'Ended'}`,
       );
     }
     lines.push('');
@@ -239,37 +260,65 @@ export class User360Service {
     return lines.join('\n');
   }
 
-  private aggregateProfile(
-    user: SafeUser,
+  private isWithinDateRange(
+    start: Date,
+    end: Date | null,
+    startDate?: string,
+    endDate?: string,
+  ): boolean {
+    if (startDate) {
+      const qStart = new Date(startDate);
+      const effectiveEnd = end ?? new Date();
+      if (effectiveEnd < qStart) return false;
+    }
+    if (endDate) {
+      const qEnd = new Date(endDate);
+      if (start > qEnd) return false;
+    }
+    return true;
+  }
+
+  private buildRoleHistory(
     roleHistory: UserRoleHistory[],
-    batchMemberships: BatchMember[],
-    mentorMappings: MentorMentee[],
-    courseAllocations: CourseAllocation[],
-    submissions: Submission[],
     query: User360QueryParams,
-  ): User360Profile {
-    const roleItems: RoleHistoryItem[] = roleHistory.map((rh) => ({
-      id: rh.id,
-      role: rh.role,
-      fromAt: rh.fromAt,
-      toAt: rh.toAt,
-      reason: rh.reason,
-      changedBy: rh.changedBy,
-      periodLabel: this.formatPeriodLabel(rh.role, rh.fromAt, rh.toAt),
-    }));
+  ): RoleHistoryItem[] {
+    return roleHistory
+      .map((rh) => ({
+        id: rh.id,
+        role: rh.role,
+        fromAt: rh.fromAt,
+        toAt: rh.toAt,
+        reason: rh.reason,
+        changedBy: rh.changedBy,
+        periodLabel: this.formatPeriodLabel(rh.role, rh.fromAt, rh.toAt),
+      }))
+      .filter((rh) => {
+        if (query.rolePeriod && rh.role !== query.rolePeriod) return false;
+        if (!this.isWithinDateRange(rh.fromAt, rh.toAt, query.startDate, query.endDate)) {
+          return false;
+        }
+        return true;
+      });
+  }
 
-    // Filter role history if requested
-    const filteredRoleHistory = roleItems.filter((rh) => {
-      if (query.rolePeriod && rh.role !== query.rolePeriod) return false;
-      if (query.startDate && rh.fromAt < new Date(query.startDate)) return false;
-      if (query.endDate && rh.fromAt > new Date(query.endDate)) return false;
-      return true;
-    });
-
-    // Batch History
-    const batchItems: BatchHistoryItem[] = batchMemberships
+  private buildBatchHistory(
+    batchMemberships: BatchMember[],
+    roleHistory: UserRoleHistory[],
+    userRole: UserRole,
+    query: User360QueryParams,
+  ): BatchHistoryItem[] {
+    return batchMemberships
+      .filter((bm) => {
+        if (query.batchId && bm.batchId !== query.batchId) return false;
+        const period = this.getRolePeriodForDate(bm.joinedAt, roleHistory, userRole);
+        if (query.rolePeriod && period.role !== query.rolePeriod) return false;
+        if (!this.isWithinDateRange(bm.joinedAt, bm.leftAt, query.startDate, query.endDate)) {
+          return false;
+        }
+        return true;
+      })
       .map((bm) => {
-        const period = this.getRolePeriodForDate(bm.joinedAt, roleHistory, user.role);
+        const period = this.getRolePeriodForDate(bm.joinedAt, roleHistory, userRole);
         return {
           id: bm.id,
           batchId: bm.batchId,
@@ -282,17 +331,25 @@ export class User360Service {
           isActive: bm.isActive,
           periodLabel: period.label,
         };
-      })
-      .filter((b) => {
-        if (query.batchId && b.batchId !== query.batchId) return false;
-        if (query.rolePeriod && String(b.role) !== String(query.rolePeriod)) return false;
-        if (query.startDate && b.joinedAt < new Date(query.startDate)) return false;
-        if (query.endDate && b.joinedAt > new Date(query.endDate)) return false;
-        return true;
       });
+  }
 
-    // Mentor Mapping History
-    const mappingItems: MentorMappingItem[] = mentorMappings
+  private buildMentorMappingHistory(
+    mentorMappings: MentorMentee[],
+    roleHistory: UserRoleHistory[],
+    user: SafeUser,
+    query: User360QueryParams,
+  ): MentorMappingItem[] {
+    return mentorMappings
+      .filter((mm) => {
+        if (query.batchId && mm.batchId !== query.batchId) return false;
+        const period = this.getRolePeriodForDate(mm.startDate, roleHistory, user.role);
+        if (query.rolePeriod && period.role !== query.rolePeriod) return false;
+        if (!this.isWithinDateRange(mm.startDate, mm.endDate, query.startDate, query.endDate)) {
+          return false;
+        }
+        return true;
+      })
       .map((mm) => {
         const isUserMentor = mm.mentorId === user.id;
         const peer = isUserMentor ? mm.mentee : mm.mentor;
@@ -311,19 +368,18 @@ export class User360Service {
           endReason: mm.endReason,
           periodLabel: period.label,
         };
-      })
-      .filter((m) => {
-        if (query.batchId && m.batchId !== query.batchId) return false;
-        if (query.rolePeriod && String(m.mappedRole) !== String(query.rolePeriod)) return false;
-        if (query.startDate && m.startDate < new Date(query.startDate)) return false;
-        if (query.endDate && m.startDate > new Date(query.endDate)) return false;
-        return true;
       });
+  }
 
-    // Course History
-    const courseItems: CourseHistoryItem[] = courseAllocations
+  private buildCourseHistory(
+    courseAllocations: CourseAllocation[],
+    roleHistory: UserRoleHistory[],
+    userRole: UserRole,
+    query: User360QueryParams,
+  ): CourseHistoryItem[] {
+    return courseAllocations
       .map((ca) => {
-        const period = this.getRolePeriodForDate(ca.startDate, roleHistory, user.role);
+        const period = this.getRolePeriodForDate(ca.startDate, roleHistory, userRole);
         return {
           id: ca.id,
           courseId: ca.courseId,
@@ -336,20 +392,35 @@ export class User360Service {
           completedAt: ca.completedAt,
           progressPercent: ca.progressPercent,
           periodLabel: period.label,
+          role: period.role,
         };
       })
       .filter((c) => {
         if (query.batchId && c.batchId !== query.batchId) return false;
-        if (query.rolePeriod && query.rolePeriod !== UserRole.MENTEE) return false;
-        if (query.startDate && c.startDate < new Date(query.startDate)) return false;
-        if (query.endDate && c.startDate > new Date(query.endDate)) return false;
+        if (query.rolePeriod && c.role !== query.rolePeriod) return false;
+        if (
+          !this.isWithinDateRange(
+            c.startDate,
+            c.completedAt ?? c.dueDate,
+            query.startDate,
+            query.endDate,
+          )
+        ) {
+          return false;
+        }
         return true;
       });
+  }
 
-    // Submission & Grade History
-    const submissionItems: SubmissionHistoryItem[] = submissions
+  private buildSubmissionHistory(
+    submissions: Submission[],
+    roleHistory: UserRoleHistory[],
+    userRole: UserRole,
+    query: User360QueryParams,
+  ): SubmissionHistoryItem[] {
+    return submissions
       .map((sub) => {
-        const period = this.getRolePeriodForDate(sub.submittedAt, roleHistory, user.role);
+        const period = this.getRolePeriodForDate(sub.submittedAt, roleHistory, userRole);
         return {
           id: sub.id,
           assignmentId: sub.assignmentId,
@@ -366,17 +437,23 @@ export class User360Service {
           gradedAt: sub.gradedAt,
           graderName: sub.grader?.name ?? null,
           periodLabel: period.label,
+          role: period.role,
         };
       })
       .filter((s) => {
         if (query.batchId && s.batchId !== query.batchId) return false;
-        if (query.rolePeriod && query.rolePeriod !== UserRole.MENTEE) return false;
-        if (query.startDate && s.submittedAt < new Date(query.startDate)) return false;
-        if (query.endDate && s.submittedAt > new Date(query.endDate)) return false;
+        if (query.rolePeriod && s.role !== query.rolePeriod) return false;
+        if (!this.isWithinDateRange(s.submittedAt, s.submittedAt, query.startDate, query.endDate)) {
+          return false;
+        }
         return true;
       });
+  }
 
-    // Performance Summary
+  private buildPerformanceSummary(
+    courseItems: CourseHistoryItem[],
+    submissionItems: SubmissionHistoryItem[],
+  ): PerformanceSummary {
     const totalAllocations = courseItems.length;
     const completedAllocations = courseItems.filter((c) => c.status === 'COMPLETED').length;
     const inProgressAllocations = courseItems.filter((c) => c.status === 'IN_PROGRESS').length;
@@ -402,7 +479,7 @@ export class User360Service {
       }
     }
 
-    const performanceSummary: PerformanceSummary = {
+    return {
       totalAllocations,
       completedAllocations,
       inProgressAllocations,
@@ -415,8 +492,15 @@ export class User360Service {
       onTimeRatePercent,
       gradeDistribution,
     };
+  }
 
-    // Synthetic Audit Tab
+  private buildAuditHistory(
+    roleHistory: UserRoleHistory[],
+    batchMemberships: BatchMember[],
+    submissions: Submission[],
+    userRole: UserRole,
+    query: User360QueryParams,
+  ): AuditHistoryItem[] {
     const auditItems: AuditHistoryItem[] = [];
 
     // Role changes
@@ -429,11 +513,14 @@ export class User360Service {
         actorId: rh.changedBy,
         details: { role: rh.role, reason: rh.reason },
         periodLabel: this.formatPeriodLabel(rh.role, rh.fromAt, rh.toAt),
+        role: rh.role,
+        batchId: undefined,
       });
     }
 
     // Batch memberships
     for (const bm of batchMemberships) {
+      const joinPeriod = this.getRolePeriodForDate(bm.joinedAt, roleHistory, userRole);
       auditItems.push({
         id: `audit-bm-join-${bm.id}`,
         type: 'BATCH',
@@ -441,9 +528,12 @@ export class User360Service {
         timestamp: bm.joinedAt,
         actorId: bm.createdBy,
         details: { batchId: bm.batchId, role: bm.memberRole },
-        periodLabel: this.getRolePeriodForDate(bm.joinedAt, roleHistory, user.role).label,
+        periodLabel: joinPeriod.label,
+        role: joinPeriod.role,
+        batchId: bm.batchId,
       });
       if (bm.leftAt) {
+        const leavePeriod = this.getRolePeriodForDate(bm.leftAt, roleHistory, userRole);
         auditItems.push({
           id: `audit-bm-leave-${bm.id}`,
           type: 'BATCH',
@@ -451,7 +541,9 @@ export class User360Service {
           timestamp: bm.leftAt,
           actorId: bm.updatedBy,
           details: { batchId: bm.batchId, reasonToLeave: bm.reasonToLeave },
-          periodLabel: this.getRolePeriodForDate(bm.leftAt, roleHistory, user.role).label,
+          periodLabel: leavePeriod.label,
+          role: leavePeriod.role,
+          batchId: bm.batchId,
         });
       }
     }
@@ -459,6 +551,7 @@ export class User360Service {
     // Submissions and Grading
     for (const sub of submissions) {
       if (sub.status === SubmissionStatus.GRADED && sub.gradedAt) {
+        const gradePeriod = this.getRolePeriodForDate(sub.gradedAt, roleHistory, userRole);
         auditItems.push({
           id: `audit-grade-${sub.id}`,
           type: 'GRADING',
@@ -471,7 +564,9 @@ export class User360Service {
             gradeLabel: sub.gradeLabel,
             feedback: sub.feedback,
           },
-          periodLabel: this.getRolePeriodForDate(sub.gradedAt, roleHistory, user.role).label,
+          periodLabel: gradePeriod.label,
+          role: gradePeriod.role,
+          batchId: sub.batchId ?? undefined,
         });
       }
     }
@@ -479,73 +574,82 @@ export class User360Service {
     // Sort audit chronologically descending
     auditItems.sort((a, b) => b.timestamp.getTime() - a.timestamp.getTime());
 
-    const filteredAudit = auditItems.filter((a) => {
+    return auditItems.filter((a) => {
       if (query.auditType && a.type !== query.auditType) return false;
-      if (query.startDate && a.timestamp < new Date(query.startDate)) return false;
-      if (query.endDate && a.timestamp > new Date(query.endDate)) return false;
+      if (query.rolePeriod && a.role !== query.rolePeriod) return false;
+      if (query.batchId && a.batchId !== query.batchId) return false;
+      if (!this.isWithinDateRange(a.timestamp, a.timestamp, query.startDate, query.endDate)) {
+        return false;
+      }
       return true;
     });
+  }
+
+  private aggregateProfile(
+    user: SafeUser,
+    roleHistory: UserRoleHistory[],
+    batchMemberships: BatchMember[],
+    mentorMappings: MentorMentee[],
+    courseAllocations: CourseAllocation[],
+    submissions: Submission[],
+    query: User360QueryParams,
+  ): User360Profile {
+    const roleItems = this.buildRoleHistory(roleHistory, query);
+    const batchItems = this.buildBatchHistory(batchMemberships, roleHistory, user.role, query);
+    const mappingItems = this.buildMentorMappingHistory(mentorMappings, roleHistory, user, query);
+    const courseItems = this.buildCourseHistory(courseAllocations, roleHistory, user.role, query);
+    const submissionItems = this.buildSubmissionHistory(submissions, roleHistory, user.role, query);
+    const performanceSummary = this.buildPerformanceSummary(courseItems, submissionItems);
+    const auditItems = this.buildAuditHistory(
+      roleHistory,
+      batchMemberships,
+      submissions,
+      user.role,
+      query,
+    );
 
     return {
       user,
       tabs: {
         profile: user,
-        roleHistory: filteredRoleHistory,
+        roleHistory: roleItems,
         batchHistory: batchItems,
         mentorMappingHistory: mappingItems,
         courseHistory: courseItems,
         assignmentGradeHistory: submissionItems,
         performanceSummary,
-        audit: filteredAudit,
+        audit: auditItems,
       },
     };
   }
 
-  private filterByTab(profile: User360Profile, tab: User360Tab): Partial<User360Profile> {
+  private filterByTab(profile: User360Profile, tab: User360Tab): User360TabResponse {
     switch (tab) {
       case 'profile':
-        return { user: profile.user, tabs: { profile: profile.user } as User360Profile['tabs'] };
+        return { user: profile.user, tabs: { profile: profile.user } };
       case 'role-history':
-        return {
-          user: profile.user,
-          tabs: { roleHistory: profile.tabs.roleHistory } as User360Profile['tabs'],
-        };
+        return { user: profile.user, tabs: { roleHistory: profile.tabs.roleHistory } };
       case 'batch-history':
-        return {
-          user: profile.user,
-          tabs: { batchHistory: profile.tabs.batchHistory } as User360Profile['tabs'],
-        };
+        return { user: profile.user, tabs: { batchHistory: profile.tabs.batchHistory } };
       case 'mentor-mapping-history':
         return {
           user: profile.user,
-          tabs: {
-            mentorMappingHistory: profile.tabs.mentorMappingHistory,
-          } as User360Profile['tabs'],
+          tabs: { mentorMappingHistory: profile.tabs.mentorMappingHistory },
         };
       case 'course-history':
-        return {
-          user: profile.user,
-          tabs: { courseHistory: profile.tabs.courseHistory } as User360Profile['tabs'],
-        };
+        return { user: profile.user, tabs: { courseHistory: profile.tabs.courseHistory } };
       case 'assignment-grade-history':
         return {
           user: profile.user,
-          tabs: {
-            assignmentGradeHistory: profile.tabs.assignmentGradeHistory,
-          } as User360Profile['tabs'],
+          tabs: { assignmentGradeHistory: profile.tabs.assignmentGradeHistory },
         };
       case 'performance-summary':
         return {
           user: profile.user,
-          tabs: {
-            performanceSummary: profile.tabs.performanceSummary,
-          } as User360Profile['tabs'],
+          tabs: { performanceSummary: profile.tabs.performanceSummary },
         };
       case 'audit':
-        return {
-          user: profile.user,
-          tabs: { audit: profile.tabs.audit } as User360Profile['tabs'],
-        };
+        return { user: profile.user, tabs: { audit: profile.tabs.audit } };
       default:
         return profile;
     }
@@ -556,7 +660,10 @@ export class User360Service {
     history: UserRoleHistory[],
     fallbackRole: UserRole,
   ): { role: UserRole; label: string } {
-    for (const h of history) {
+    const sorted = [...history].sort(
+      (a, b) => new Date(a.fromAt).getTime() - new Date(b.fromAt).getTime(),
+    );
+    for (const h of sorted) {
       const from = new Date(h.fromAt);
       const to = h.toAt ? new Date(h.toAt) : null;
       if (date >= from && (!to || date <= to)) {
@@ -610,10 +717,14 @@ export class User360Service {
   }
 
   private escapeCsv(value: string): string {
-    if (value.includes(',') || value.includes('"') || value.includes('\n')) {
-      return `"${value.replace(/"/g, '""')}"`;
+    let v = value;
+    if (/^[=+\-@\t\r]/.test(v)) {
+      v = `'${v}`;
     }
-    return value;
+    if (v.includes(',') || v.includes('"') || v.includes('\n')) {
+      return `"${v.replace(/"/g, '""')}"`;
+    }
+    return v;
   }
 }
 

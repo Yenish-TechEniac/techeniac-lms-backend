@@ -1,44 +1,17 @@
 import type { Request, Response } from 'express';
 
 import { BaseController } from '../../core/http';
-import { User, UserRole } from './entities/user.entity';
+import { UserRole } from './entities/user.entity';
 import type {
   ChangeRoleInput,
   CreateUserInput,
   UpdateUserInput,
   UserQueryParams,
 } from './users.schemas';
-import { UsersService, usersService } from './users.service';
+import { type SafeUser, toSafeUser, UsersService, usersService } from './users.service';
 
-export interface SafeUser {
-  id: string;
-  name: string;
-  email: string;
-  role: UserRole;
-  isActive: boolean;
-  mustChangePassword: boolean;
-  tokenVersion: number;
-  lastLoginAt: Date | null;
-  createdAt: Date;
-  updatedAt: Date;
-  deletedAt: Date | null;
-}
-
-export function toSafeUser(user: User): SafeUser {
-  return {
-    id: user.id,
-    name: user.name,
-    email: user.email,
-    role: user.role,
-    isActive: user.isActive,
-    mustChangePassword: user.mustChangePassword,
-    tokenVersion: user.tokenVersion,
-    lastLoginAt: user.lastLoginAt,
-    createdAt: user.createdAt,
-    updatedAt: user.updatedAt,
-    deletedAt: user.deletedAt,
-  };
-}
+export type { SafeUser };
+export { toSafeUser };
 
 export class UsersController extends BaseController {
   constructor(private readonly service: UsersService = usersService) {

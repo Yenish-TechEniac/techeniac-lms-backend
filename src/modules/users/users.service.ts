@@ -25,6 +25,36 @@ import type {
 
 export type RoleChangeBlockReason = 'SAME_ROLE' | 'LAST_SUPER_ADMIN' | 'ACTIVE_MENTEES';
 
+export interface SafeUser {
+  id: string;
+  name: string;
+  email: string;
+  role: UserRole;
+  isActive: boolean;
+  mustChangePassword: boolean;
+  tokenVersion: number;
+  lastLoginAt: Date | null;
+  createdAt: Date;
+  updatedAt: Date;
+  deletedAt: Date | null;
+}
+
+export function toSafeUser(user: User): SafeUser {
+  return {
+    id: user.id,
+    name: user.name,
+    email: user.email,
+    role: user.role,
+    isActive: user.isActive,
+    mustChangePassword: user.mustChangePassword,
+    tokenVersion: user.tokenVersion,
+    lastLoginAt: user.lastLoginAt,
+    createdAt: user.createdAt,
+    updatedAt: user.updatedAt,
+    deletedAt: user.deletedAt,
+  };
+}
+
 function pickRandomChar(source: string): string {
   const index = crypto.randomInt(0, source.length);
   const char = source[index];

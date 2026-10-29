@@ -16,6 +16,14 @@ export const user360TabEnum = z.enum([
 
 export type User360Tab = z.infer<typeof user360TabEnum>;
 
+export const auditTypeEnum = z.enum(['USER_ROLE', 'BATCH', 'GRADING']);
+export type AuditType = z.infer<typeof auditTypeEnum>;
+
+const isoDateFilterSchema = z
+  .string()
+  .refine((v) => !Number.isNaN(Date.parse(v)), 'Must be a valid ISO date string')
+  .optional();
+
 export const user360QuerySchema = z.object({
   params: z.object({
     id: z.string().uuid({ message: 'User ID must be a valid UUID' }),
@@ -23,9 +31,9 @@ export const user360QuerySchema = z.object({
   query: z.object({
     rolePeriod: z.nativeEnum(UserRole).optional(),
     batchId: z.string().uuid().optional(),
-    startDate: z.string().optional(),
-    endDate: z.string().optional(),
-    auditType: z.string().optional(),
+    startDate: isoDateFilterSchema,
+    endDate: isoDateFilterSchema,
+    auditType: auditTypeEnum.optional(),
     tab: user360TabEnum.default('all'),
   }),
 });
@@ -37,13 +45,12 @@ export const user360ExportSchema = z.object({
     id: z.string().uuid({ message: 'User ID must be a valid UUID' }),
   }),
   query: z.object({
-    format: z.enum(['csv', 'pdf']).default('csv'),
+    format: z.literal('csv').default('csv'),
     rolePeriod: z.nativeEnum(UserRole).optional(),
     batchId: z.string().uuid().optional(),
-    startDate: z.string().optional(),
-    endDate: z.string().optional(),
-    auditType: z.string().optional(),
-    tab: user360TabEnum.optional(),
+    startDate: isoDateFilterSchema,
+    endDate: isoDateFilterSchema,
+    auditType: auditTypeEnum.optional(),
   }),
 });
 

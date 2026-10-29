@@ -15,7 +15,7 @@ import { Submission, SubmissionStatus } from '../../src/modules/submissions';
 import { User360Profile, User360Repository, User360Service } from '../../src/modules/user-360';
 import { User, UserRole, UserRoleHistory } from '../../src/modules/users';
 
-void describe('Module 13: M3 User 360 Profile Unit Tests (HIS-01 to HIS-09)', () => {
+void describe('Module 3: User 360 Profile Unit Tests (HIS-01 to HIS-09)', () => {
   let service: User360Service;
   let mockRepository: Partial<User360Repository>;
 
@@ -248,10 +248,38 @@ void describe('Module 13: M3 User 360 Profile Unit Tests (HIS-01 to HIS-09)', ()
 
     assert.equal(profile.tabs.mentorMappingHistory.length, 1);
     assert.equal(profile.tabs.mentorMappingHistory[0]?.mappedRole, 'MENTEE');
+
+    assert.equal(profile.tabs.courseHistory.length, 1);
+    assert.equal(profile.tabs.courseHistory[0]?.role, UserRole.MENTEE);
+
+    assert.equal(profile.tabs.assignmentGradeHistory.length, 2);
+    assert.equal(profile.tabs.assignmentGradeHistory[0]?.role, UserRole.MENTEE);
+
+    // When filtered by MENTOR, mentee-only course & submission history are excluded
+    const mentorProfile = (await service.getUser360('user-uuid-1', {
+      tab: 'all',
+      rolePeriod: UserRole.MENTOR,
+    })) as User360Profile;
+
+    assert.equal(mentorProfile.tabs.courseHistory.length, 0);
+    assert.equal(mentorProfile.tabs.assignmentGradeHistory.length, 0);
+    assert.equal(mentorProfile.tabs.batchHistory.length, 1);
+    assert.equal(mentorProfile.tabs.batchHistory[0]?.batchCode, 'BETA-2026');
   });
 
-  void it('HIS-05: Export CSV -> File generated with correct headers and user details', async () => {
-    const csv = await service.exportUser360Csv('user-uuid-1', { format: 'csv' });
+  void it('HIS-05: Export CSV -> File generated with correct headers, reason, and formula escaping', async () => {
+    const customRepo: Partial<User360Repository> = {
+      ...mockRepository,
+      getSubmissions: () =>
+        Promise.resolve([
+          {
+            ...mockSubmissions[0],
+            feedback: '=HYPERLINK("http://evil.com","Click")',
+          } as Submission,
+        ]),
+    };
+    const exportService = new User360Service(customRepo as User360Repository);
+    const csv = await exportService.exportUser360Csv('user-uuid-1', { format: 'csv' });
 
     assert.ok(csv.includes('--- USER 360 PROFILE ---'));
     assert.ok(csv.includes('Jane Doe'));
@@ -259,9 +287,31 @@ void describe('Module 13: M3 User 360 Profile Unit Tests (HIS-01 to HIS-09)', ()
     assert.ok(csv.includes('--- ROLE HISTORY ---'));
     assert.ok(csv.includes('--- BATCH HISTORY ---'));
     assert.ok(csv.includes('ALPHA-2026'));
+    assert.ok(csv.includes('--- MENTOR MAPPINGS ---'));
+    assert.ok(csv.includes('Reason,Status'));
+    assert.ok(csv.includes('ROLE_CHANGE'));
     assert.ok(csv.includes('--- ASSIGNMENT & GRADE HISTORY ---'));
-    assert.ok(csv.includes('React Todo App'));
+    // Formula neutralized with leading apostrophe
+    assert.ok(csv.includes(`"'=HYPERLINK(""http://evil.com"",""Click"")"`));
     assert.ok(csv.includes('--- PERFORMANCE SUMMARY ---'));
+  });
+
+  void it('Date range filtering includes ongoing records overlapping the requested window', async () => {
+    const profile = (await service.getUser360('user-uuid-1', {
+      tab: 'all',
+      startDate: '2026-08-01T00:00:00Z',
+    })) as User360Profile;
+
+    // The ongoing MENTOR role started 2026-07-01 (toAt: null) is active during August
+    assert.equal(profile.tabs.roleHistory.length, 1);
+    assert.equal(profile.tabs.roleHistory[0]?.role, UserRole.MENTOR);
+
+    // bm-2 joined 2026-07-02 (leftAt: null, active: true) is active during August
+    assert.equal(profile.tabs.batchHistory.length, 1);
+    assert.equal(profile.tabs.batchHistory[0]?.batchCode, 'BETA-2026');
+
+    // mm-2 started 2026-07-05 (endDate: null, active: true) is active during August
+    assert.equal(profile.tabs.mentorMappingHistory.length, 1);
   });
 
   void it('HIS-07: User with only mentor history -> Mentee tabs show empty state', async () => {
@@ -315,16 +365,37 @@ void describe('Module 13: M3 User 360 Profile Unit Tests (HIS-01 to HIS-09)', ()
     assert.equal(profile.tabs.performanceSummary.totalSubmissions, 0);
   });
 
-  void it('HIS-09: Audit tab filtered by type GRADING -> Only grade entries', async () => {
-    const profile = (await service.getUser360('user-uuid-1', {
+  void it('HIS-09: Audit tab filtered by auditType -> USER_ROLE, BATCH, and GRADING', async () => {
+    const gradeProfile = (await service.getUser360('user-uuid-1', {
       tab: 'all',
       auditType: 'GRADING',
     })) as User360Profile;
 
-    assert.ok(profile.tabs.audit.length > 0);
-    for (const auditItem of profile.tabs.audit) {
+    assert.ok(gradeProfile.tabs.audit.length > 0);
+    for (const auditItem of gradeProfile.tabs.audit) {
       assert.equal(auditItem.type, 'GRADING');
       assert.equal(auditItem.action, 'ASSIGNMENT_GRADED');
+    }
+
+    const roleProfile = (await service.getUser360('user-uuid-1', {
+      tab: 'all',
+      auditType: 'USER_ROLE',
+    })) as User360Profile;
+
+    assert.ok(roleProfile.tabs.audit.length > 0);
+    for (const auditItem of roleProfile.tabs.audit) {
+      assert.equal(auditItem.type, 'USER_ROLE');
+      assert.equal(auditItem.action, 'ROLE_CHANGED');
+    }
+
+    const batchProfile = (await service.getUser360('user-uuid-1', {
+      tab: 'all',
+      auditType: 'BATCH',
+    })) as User360Profile;
+
+    assert.ok(batchProfile.tabs.audit.length > 0);
+    for (const auditItem of batchProfile.tabs.audit) {
+      assert.equal(auditItem.type, 'BATCH');
     }
   });
 
