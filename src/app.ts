@@ -10,6 +10,7 @@ import { allocationsRouter, registerAllocationLifecycleListeners } from './modul
 import { authRouter } from './modules/auth';
 import { batchRouter, menteeRouter, mentorRouter } from './modules/batches';
 import { coursesRouter } from './modules/courses';
+import { dashboardRouter } from './modules/dashboard';
 import { meRouter, performanceRouter } from './modules/performance';
 import {
   progressRouter,
@@ -56,6 +57,7 @@ export function createApp(): Express {
   app.use('/api/v1/mentor', mentorRouter);
   app.use('/api/v1/mentee', menteeRouter);
   app.use('/api/v1/submissions', submissionsRouter);
+  app.use('/api/v1/dashboard', dashboardRouter);
   app.use('/api/v1/performance', performanceRouter);
   app.use('/api/v1/me', meRouter);
 
