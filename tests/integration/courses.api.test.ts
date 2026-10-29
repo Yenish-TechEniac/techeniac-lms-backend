@@ -388,13 +388,6 @@ void describe('Courses API Integration Tests', () => {
         return Promise.resolve(null);
       };
 
-      const res = await fetch(`${baseUrl}/courses/${courseId}?outline=true`, {
-        method: 'GET',
-        headers: {
-          Authorization: `Bearer ${tokenMentee}`,
-        },
-      });
-
       try {
         const res = await fetch(`${baseUrl}/courses/${courseId}?outline=true`, {
           method: 'GET',

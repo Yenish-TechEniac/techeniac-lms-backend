@@ -765,7 +765,7 @@ void describe('Submissions API Integration Tests (Module 9)', () => {
         const json = (await res.json()) as {
           success: boolean;
           data: unknown[];
-          meta: { page: number; limit: number; total: number; t- COMMENTS RESOLVED otalPages: number };
+          meta: { page: number; limit: number; total: number; totalPages: number };
         };
         assert.equal(json.success, true);
         assert.equal(json.data.length, 1);
