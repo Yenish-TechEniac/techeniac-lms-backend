@@ -51,6 +51,19 @@ void describe('Batches Mentor Scoping Unit Tests', () => {
     },
   } as unknown as BatchMember;
 
+  const mockUnmappedMenteeMember = {
+    id: 'bm-mentee-2',
+    batchId,
+    userId: '44444444-4444-4444-a444-444444444444',
+    memberRole: BatchMemberRole.MENTEE,
+    isActive: true,
+    user: {
+      id: '44444444-4444-4444-a444-444444444444',
+      name: 'Second Mentee',
+      email: 'second_mentee@techeniac.com',
+    },
+  } as unknown as BatchMember;
+
   beforeEach(() => {
     // Mock batch repository methods
     batchRepository.findById = (id: string) => {
@@ -67,7 +80,7 @@ void describe('Batches Mentor Scoping Unit Tests', () => {
 
     batchRepository.findMembersByBatchId = (bId: string) => {
       if (bId === batchId) {
-        return Promise.resolve([mockMentorMember, mockMenteeMember]);
+        return Promise.resolve([mockMentorMember, mockMenteeMember, mockUnmappedMenteeMember]);
       }
       return Promise.resolve([]);
     };
@@ -91,9 +104,11 @@ void describe('Batches Mentor Scoping Unit Tests', () => {
 
     assert.ok(result);
     assert.equal(result.batch.id, batchId);
-    assert.equal(result.mentees.length, 1);
+    assert.equal(result.mentees.length, 2);
     assert.equal(result.mentees[0]?.user?.id, '33333333-3333-4333-a333-333333333333');
     assert.equal(result.mentees[0]?.user?.name, 'Mentee User');
+    assert.equal(result.mentees[1]?.user?.id, '44444444-4444-4444-a444-444444444444');
+    assert.equal(result.mentees[1]?.user?.name, 'Second Mentee');
   });
 
   void it('denies mentor access with ForbiddenError when mentor is not a member of the batch', async () => {

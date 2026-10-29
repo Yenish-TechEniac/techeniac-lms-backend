@@ -752,16 +752,11 @@ export class BatchService {
     });
 
     const fullBatch = await this.getBatchById(batchId);
-    const activeMappings = await this.mentorMenteeRepo.findActiveMappingsForMentor(
-      mentorId,
-      batchId,
-    );
-    const mappedMenteeIds = new Set(activeMappings.map((m) => m.menteeId));
 
     return {
       ...fullBatch,
-      mentors: fullBatch.mentors.filter((m) => m.userId === mentorId),
-      mentees: fullBatch.mentees.filter((m) => mappedMenteeIds.has(m.userId)),
+      mentors: fullBatch.mentors,
+      mentees: fullBatch.mentees,
     };
   }
 
