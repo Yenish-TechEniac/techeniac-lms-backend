@@ -1,3 +1,4 @@
+import { logAudit } from '../../core/audit';
 import type { AuthenticatedUser } from '../../core/auth';
 import { calculateGradeLabel } from '../../core/config';
 import { AppDataSource } from '../../core/db';
@@ -5,6 +6,7 @@ import { emailService } from '../../core/email';
 import { NotFoundError } from '../../core/errors';
 import { logger } from '../../core/logging';
 import { type CourseAllocation } from '../allocations';
+import { AuditType } from '../audit';
 import { UserRole } from '../users';
 import { Submission, SubmissionStatus } from './entities/submission.entity';
 import { gradingPolicy } from './grading.policy';
@@ -194,6 +196,21 @@ export class GradingService {
     const safeAllocation = targetAllocation as CourseAllocation;
 
     // Post-commit audit logging: captures verified persisted state
+    await logAudit({
+      actorId: actor.id,
+      type: AuditType.GRADING,
+      entity: 'Submission',
+      entityId: safeSubmission.id,
+      action: 'GRADE_SUBMISSION',
+      oldValue: oldValues,
+      newValue: {
+        marks: input.marks,
+        gradeLabel: computedGradeLabel,
+        feedback: input.feedback ?? null,
+        status: SubmissionStatus.GRADED,
+      },
+    });
+
     logger.info(
       {
         auditType: 'GRADING',
@@ -307,6 +324,19 @@ export class GradingService {
     const safeAllocation = targetAllocation as CourseAllocation;
 
     // Post-commit audit logging
+    await logAudit({
+      actorId: actor.id,
+      type: AuditType.GRADING,
+      entity: 'Submission',
+      entityId: safeSubmission.id,
+      action: 'REQUEST_RESUBMISSION',
+      oldValue: { status: previousStatus },
+      newValue: {
+        status: SubmissionStatus.RESUBMIT_REQUESTED,
+        feedback: input.feedback,
+      },
+    });
+
     logger.info(
       {
         auditType: 'GRADING',

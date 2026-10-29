@@ -1,8 +1,10 @@
+import { logAudit } from '../../core/audit';
 import type { AuthenticatedUser } from '../../core/auth';
 import { ConflictError, ForbiddenError, NotFoundError, ValidationError } from '../../core/errors';
 import { CourseTopicAction, eventBus } from '../../core/lifecycle';
 import { sanitizeHtml } from '../../core/utils/sanitizer';
 import { allocationsRepository, CourseAllocationStatus } from '../allocations';
+import { AuditType } from '../audit';
 import { UserRole } from '../users';
 import { coursesRepository } from './courses.repository';
 import {
@@ -191,6 +193,27 @@ export class CoursesService {
     if (!updated) {
       throw new NotFoundError('Course not found');
     }
+
+    await logAudit({
+      actorId: user.id,
+      type: AuditType.COURSE,
+      entity: 'Course',
+      entityId: id,
+      action: 'LIVE_EDIT',
+      oldValue: {
+        title: course.title,
+        description: course.description,
+        estimatedMinutes: course.estimatedMinutes,
+        isActive: course.isActive,
+      },
+      newValue: {
+        title: updated.title,
+        description: updated.description,
+        estimatedMinutes: updated.estimatedMinutes,
+        isActive: updated.isActive,
+      },
+    });
+
     return updated;
   }
 

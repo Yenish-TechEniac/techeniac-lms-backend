@@ -1,9 +1,11 @@
+import { logAudit } from '../../core/audit';
 import type { AuthenticatedUser } from '../../core/auth';
 import { isUniqueViolation } from '../../core/db';
 import { emailService } from '../../core/email';
 import { ConflictError, ForbiddenError, NotFoundError, ValidationError } from '../../core/errors';
 import { eventBus } from '../../core/lifecycle';
 import { logger } from '../../core/logging';
+import { AuditType } from '../audit';
 import { BatchStatus } from '../batches';
 import { UserRole } from '../users';
 import { AllocationsPolicy, allocationsPolicy } from './allocations.policy';
@@ -123,6 +125,23 @@ export class AllocationsService {
       allocationIds: savedAllocations.map((a) => a.id),
       courseId: course.id,
     });
+
+    for (const alloc of savedAllocations) {
+      await logAudit({
+        actorId: actor.id,
+        type: AuditType.COURSE_ALLOCATION,
+        entity: 'CourseAllocation',
+        entityId: alloc.id,
+        action: 'ALLOCATE_COURSE',
+        newValue: {
+          courseId: alloc.courseId,
+          userId: alloc.userId,
+          batchId: alloc.batchId,
+          startDate: alloc.startDate,
+          dueDate: alloc.dueDate,
+        },
+      });
+    }
 
     void this.dispatchAllocationEmails(savedAllocations, course.title, input.batchId);
 
@@ -464,7 +483,18 @@ export class AllocationsService {
     allocation.status = CourseAllocationStatus.REVOKED;
     allocation.updatedBy = actor.id;
 
-    return await this.repo.saveAllocation(allocation);
+    const saved = await this.repo.saveAllocation(allocation);
+
+    await logAudit({
+      actorId: actor.id,
+      type: AuditType.COURSE_ALLOCATION,
+      entity: 'CourseAllocation',
+      entityId: id,
+      action: 'REVOKE_ALLOCATION',
+      newValue: { status: CourseAllocationStatus.REVOKED },
+    });
+
+    return saved;
   }
 
   async addMenteesToBatchAllocation(
@@ -521,7 +551,22 @@ export class AllocationsService {
     override.setBy = actor.id;
     override.updatedBy = actor.id;
 
-    return await this.repo.saveAssignmentOverride(override);
+    const saved = await this.repo.saveAssignmentOverride(override);
+
+    await logAudit({
+      actorId: actor.id,
+      type: AuditType.COURSE_ALLOCATION,
+      entity: 'AssignmentDueOverride',
+      entityId: saved.id,
+      action: 'OVERRIDE_DUE_DATE',
+      newValue: {
+        courseAllocationId: allocationId,
+        assignmentId: input.assignmentId,
+        dueDate: input.dueDate,
+      },
+    });
+
+    return saved;
   }
 
   async bulkSetAssignmentDueOverrides(
