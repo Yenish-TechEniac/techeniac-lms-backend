@@ -5,6 +5,11 @@ import { after, before, beforeEach, describe, it } from 'node:test';
 import { app } from '../../src/app';
 import { signAccessToken } from '../../src/core/auth';
 import {
+  allocationsRepository,
+  type CourseAllocation,
+  CourseAllocationStatus,
+} from '../../src/modules/allocations';
+import {
   type Course,
   coursesRepository,
   type Subtopic,
@@ -355,26 +360,47 @@ void describe('Courses API Integration Tests', () => {
         title: 'Mentee Learning Track',
         createdBy: mentorAId,
         creator: { id: mentorAId, name: 'Mentor A' },
-        topics: [{ id: topicId, title: 'Introduction' }] as Topic[],
+        isActive: true,
+        topics: [
+          { id: topicId, title: 'Introduction', isActive: true, subtopics: [] } as unknown as Topic,
+        ],
       } as unknown as Course;
+
+      const origFindCourse = coursesRepository.findCourseById.bind(coursesRepository);
+      const origFindAlloc =
+        allocationsRepository.findActiveOrCompletedAllocation.bind(allocationsRepository);
 
       coursesRepository.findCourseById = (_id, includeOutline) => {
         assert.equal(includeOutline, true);
         return Promise.resolve(mockCourse);
       };
 
-      const res = await fetch(`${baseUrl}/courses/${courseId}?outline=true`, {
-        method: 'GET',
-        headers: {
-          Authorization: `Bearer ${tokenMentee}`,
-        },
-      });
+      allocationsRepository.findActiveOrCompletedAllocation = () => {
+        return Promise.resolve({
+          id: 'alloc-1',
+          courseId,
+          userId: menteeId,
+          status: CourseAllocationStatus.IN_PROGRESS,
+        } as CourseAllocation);
+      };
 
-      assert.equal(res.status, 200);
-      const data = (await res.json()) as { success: boolean; data?: Course };
-      assert.equal(data.success, true);
-      assert.equal(data.data?.id, courseId);
-      assert.equal(data.data?.title, 'Mentee Learning Track');
+      try {
+        const res = await fetch(`${baseUrl}/courses/${courseId}?outline=true`, {
+          method: 'GET',
+          headers: {
+            Authorization: `Bearer ${tokenMentee}`,
+          },
+        });
+
+        assert.equal(res.status, 200);
+        const data = (await res.json()) as { success: boolean; data?: Course };
+        assert.equal(data.success, true);
+        assert.equal(data.data?.id, courseId);
+        assert.equal(data.data?.title, 'Mentee Learning Track');
+      } finally {
+        coursesRepository.findCourseById = origFindCourse;
+        allocationsRepository.findActiveOrCompletedAllocation = origFindAlloc;
+      }
     });
 
     void it('rejects MENTEE with 403 Forbidden when trying to list courses in builder library', async () => {

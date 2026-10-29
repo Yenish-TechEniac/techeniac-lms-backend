@@ -6,6 +6,7 @@ import type {
   ExportPerformanceQuery,
   LearningHistoryQuery,
   LearningHistoryResult,
+  MenteePerformanceRow,
   PaginatedPerformanceResult,
   PerformanceFilterQuery,
 } from './schemas/performance.schemas';
@@ -54,17 +55,28 @@ export class PerformanceService {
   ): Promise<{ csvData: string; filename: string }> {
     const scope = await this.policy.resolvePerformanceScope(actor, filter.batchId);
 
-    // Retrieve full filtered dataset for export without page limits
-    const { mentees } = await this.repo.getMenteePerformanceList(
-      {
-        ...filter,
-        page: 1,
-        limit: 10000,
-      },
-      scope,
-    );
+    // Retrieve full filtered dataset across pages until exhausted without arbitrary truncation
+    const pageSize = 1000;
+    let page = 1;
+    let allMentees: MenteePerformanceRow[] = [];
+    let total = 0;
 
-    const csvData = this.exportSvc.generatePerformanceCsv(mentees);
+    do {
+      const result = await this.repo.getMenteePerformanceList(
+        {
+          ...filter,
+          page,
+          limit: pageSize,
+        },
+        scope,
+      );
+      allMentees = allMentees.concat(result.mentees);
+      total = result.total;
+      page++;
+      if (result.mentees.length === 0) break;
+    } while (allMentees.length < total);
+
+    const csvData = this.exportSvc.generatePerformanceCsv(allMentees);
     const dateStr = new Date().toISOString().slice(0, 10);
     const filename = `performance-report-${dateStr}.csv`;
 

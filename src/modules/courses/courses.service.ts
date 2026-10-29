@@ -2,7 +2,8 @@ import type { AuthenticatedUser } from '../../core/auth';
 import { ConflictError, ForbiddenError, NotFoundError, ValidationError } from '../../core/errors';
 import { CourseTopicAction, eventBus } from '../../core/lifecycle';
 import { sanitizeHtml } from '../../core/utils/sanitizer';
-import { allocationsRepository } from '../allocations';
+import { allocationsRepository, CourseAllocationStatus } from '../allocations';
+import { UserRole } from '../users';
 import { coursesRepository } from './courses.repository';
 import {
   Assignment,
@@ -115,14 +116,27 @@ export class CoursesService {
       throw new NotFoundError('Course not found');
     }
 
-    if (actor && actor.role === 'MENTEE') {
-      if (!course.isActive) {
-        throw new NotFoundError('Course not found');
-      }
-
+    const actorRole = actor?.role as UserRole | undefined;
+    if (actor && actorRole === UserRole.MENTEE) {
       const allocation = await allocationsRepository.findActiveOrCompletedAllocation(id, actor.id);
       if (!allocation) {
         throw new ForbiddenError('Mentees can only access courses allocated to them');
+      }
+
+      if (!course.isActive && allocation.status !== CourseAllocationStatus.COMPLETED) {
+        throw new NotFoundError('Course not found');
+      }
+
+      // Filter out draft/unpublished topics and subtopics for mentees (F-03)
+      if (course.topics) {
+        course.topics = course.topics
+          .filter((topic) => topic.isActive)
+          .map((topic) => {
+            if (topic.subtopics) {
+              topic.subtopics = topic.subtopics.filter((subtopic) => subtopic.isActive);
+            }
+            return topic;
+          });
       }
     }
 

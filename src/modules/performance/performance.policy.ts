@@ -41,19 +41,28 @@ export class PerformancePolicy {
 
     if (role === UserRole.MENTOR) {
       if (requestedBatchId) {
-        // Verify mentor is an active member of the requested batch
-        const membership = await this.batchRepo.findActiveMemberInBatch(requestedBatchId, actor.id);
+        // Verify mentor is a member of the requested batch (active or historical)
+        let membership = await this.batchRepo.findActiveMemberInBatch(requestedBatchId, actor.id);
+        if (!membership || membership.memberRole !== BatchMemberRole.MENTOR) {
+          membership = await this.batchRepo.findMemberInBatch(requestedBatchId, actor.id);
+        }
+
         if (!membership || membership.memberRole !== BatchMemberRole.MENTOR) {
           throw new ForbiddenError(
             'Access denied: You are not an active mentor in the specified batch',
           );
         }
 
-        // Find mentees mapped to this mentor in this specific batch
-        const mappings = await this.mentorMenteeRepo.findActiveMappingsForMentor(
+        // Find mentees mapped to this mentor in this specific batch (fallback to historical if archived)
+        let mappings = await this.mentorMenteeRepo.findActiveMappingsForMentor(
           actor.id,
           requestedBatchId,
         );
+        if (mappings.length === 0) {
+          const allBatchMappings =
+            await this.mentorMenteeRepo.findAllMappingsByBatch(requestedBatchId);
+          mappings = allBatchMappings.filter((m) => m.mentorId === actor.id);
+        }
         const mappedMenteeIds = mappings.map((m) => m.menteeId);
 
         return {

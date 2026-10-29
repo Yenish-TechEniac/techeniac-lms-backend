@@ -134,6 +134,16 @@ void describe('Submissions API Integration Tests (Module 9)', () => {
           tokenVersion: 1,
         } as User);
       }
+      if (id === '99999999-9999-4999-a999-999999999999') {
+        return Promise.resolve({
+          id: '99999999-9999-4999-a999-999999999999',
+          email: 'admin@techeniac.com',
+          name: 'Super Admin',
+          role: UserRole.SUPER_ADMIN,
+          isActive: true,
+          tokenVersion: 1,
+        } as User);
+      }
       return Promise.resolve(null);
     };
 
@@ -670,8 +680,8 @@ void describe('Submissions API Integration Tests (Module 9)', () => {
         headers: { Authorization: `Bearer ${tokenSuperAdmin}` },
       });
       assert.equal(res.status, 400);
-      const json = (await res.json()) as { error: { message: string } };
-      assert.match(json.error.message, /fromDate must be a valid date/);
+      const json = (await res.json()) as { error: unknown };
+      assert.match(JSON.stringify(json.error), /fromDate must be a valid date/);
     });
 
     void it('rejects invalid toDate string with 400 Bad Request', async () => {
@@ -679,8 +689,8 @@ void describe('Submissions API Integration Tests (Module 9)', () => {
         headers: { Authorization: `Bearer ${tokenSuperAdmin}` },
       });
       assert.equal(res.status, 400);
-      const json = (await res.json()) as { error: { message: string } };
-      assert.match(json.error.message, /toDate must be a valid date/);
+      const json = (await res.json()) as { error: unknown };
+      assert.match(JSON.stringify(json.error), /toDate must be a valid date/);
     });
 
     void it('returns 200 with standard pagination envelope for submission queue', async () => {

@@ -57,7 +57,8 @@ export class GradingService {
     query: SubmissionQueueQuery,
     actor: AuthenticatedUser,
   ): Promise<PaginatedQueueResult> {
-    if (actor.role === 'MENTOR') {
+    const role = actor.role as UserRole;
+    if (role === UserRole.MENTOR) {
       const mappings = await gradingRepository.findActiveMappingsForMentor(actor.id);
       if (mappings.length === 0) {
         const page = query.page ?? 1;
@@ -74,7 +75,7 @@ export class GradingService {
       return gradingRepository.getSubmissionQueue(query, UserRole.MENTOR, actor.id, allowedPairs);
     }
 
-    return gradingRepository.getSubmissionQueue(query, actor.role as unknown as UserRole, actor.id);
+    return gradingRepository.getSubmissionQueue(query, role, actor.id);
   }
 
   async getReviewDetails(
@@ -211,17 +212,19 @@ export class GradingService {
     );
 
     // Dispatch graded notification email to mentee (non-blocking)
-    const menteeName = safeAllocation.user?.name || safeAllocation.user?.email || 'Mentee';
-    void emailService.sendAssignmentGradedEmail({
-      to: safeAllocation.user!.email,
-      recipientName: menteeName,
-      assignmentTitle: safeSubmission.assignment?.title || 'Assignment',
-      courseTitle: safeSubmission.assignment?.course?.title || 'Course',
-      marks: input.marks,
-      maxMarks,
-      gradeLabel: computedGradeLabel,
-      feedback: input.feedback,
-    });
+    const mentee = safeAllocation.user;
+    if (mentee) {
+      void emailService.sendAssignmentGradedEmail({
+        to: mentee.email,
+        recipientName: mentee.name || mentee.email || 'Mentee',
+        assignmentTitle: safeSubmission.assignment?.title || 'Assignment',
+        courseTitle: safeSubmission.assignment?.course?.title || 'Course',
+        marks: input.marks,
+        maxMarks,
+        gradeLabel: computedGradeLabel,
+        feedback: input.feedback,
+      });
+    }
 
     // Return DTO directly from verified updated data without re-querying
     return this.buildReviewDetailsDto(safeSubmission, safeAllocation);
@@ -316,14 +319,16 @@ export class GradingService {
       'Resubmission requested on submission',
     );
 
-    const menteeName = safeAllocation.user?.name || safeAllocation.user?.email || 'Mentee';
-    void emailService.sendResubmissionRequestedEmail({
-      to: safeAllocation.user!.email,
-      recipientName: menteeName,
-      assignmentTitle: safeSubmission.assignment?.title || 'Assignment',
-      courseTitle: safeSubmission.assignment?.course?.title || 'Course',
-      feedback: input.feedback,
-    });
+    const mentee = safeAllocation.user;
+    if (mentee) {
+      void emailService.sendResubmissionRequestedEmail({
+        to: mentee.email,
+        recipientName: mentee.name || mentee.email || 'Mentee',
+        assignmentTitle: safeSubmission.assignment?.title || 'Assignment',
+        courseTitle: safeSubmission.assignment?.course?.title || 'Course',
+        feedback: input.feedback,
+      });
+    }
 
     return this.buildReviewDetailsDto(safeSubmission, safeAllocation);
   }

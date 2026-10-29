@@ -19,7 +19,7 @@ import type { AssignmentDueOverride } from './assignment-due-override.entity';
 @Index('idx_ca_perf_batch_user', ['batchId', 'userId', 'status'], {
   where: `"deleted_at" IS NULL`,
 })
-@Index('idx_ca_perf_progress_due', ['progressPercent', 'dueDate'], {
+@Index('idx_ca_perf_user_due_status', ['userId', 'dueDate', 'status'], {
   where: `"deleted_at" IS NULL`,
 })
 @Check('chk_ca_due_after_start', `"due_date" >= "start_date"`)

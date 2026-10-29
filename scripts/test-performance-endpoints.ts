@@ -206,7 +206,7 @@ async function runTests(): Promise<void> {
       }
     }
   } catch (error) {
-    logger.error({ error }, 'Fatal error running performance endpoint tests');
+    logger.error({ err: error }, 'Fatal error running performance endpoint tests');
     failures++;
   } finally {
     for (const uid of createdUserIds) {

@@ -1,4 +1,5 @@
 import type { NextFunction, Request, Response } from 'express';
+import { StatusCodes } from 'http-status-codes';
 
 import type { AuthenticatedUser } from '../../core/auth';
 import { UnauthorizedError } from '../../core/errors';
@@ -31,7 +32,14 @@ export class PerformanceController extends BaseController {
       const actor = this.getAuthUser(req);
       const query = req.query as unknown as PerformanceFilterQuery;
       const result = await this.service.getPerformance(actor, query);
-      this.sendSuccess(res, result);
+      res.status(StatusCodes.OK).json({
+        success: true,
+        data: {
+          metrics: result.metrics,
+          mentees: result.mentees,
+        },
+        meta: result.pagination,
+      });
     } catch (error) {
       next(error);
     }

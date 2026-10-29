@@ -22,7 +22,10 @@ export class ExportService {
 
     const escapeCsv = (val: string | number | null | undefined): string => {
       if (val === null || val === undefined) return '""';
-      const str = String(val);
+      let str = String(val);
+      if (/^[=+\-@\t\r]/.test(str)) {
+        str = `'${str}`;
+      }
       return `"${str.replace(/"/g, '""')}"`;
     };
 

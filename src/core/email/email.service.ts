@@ -348,7 +348,7 @@ export class EmailService {
 
     if (!this.transporter) {
       logger.info(
-        { recipientName: options.recipientName, assignmentTitle: options.assignmentTitle },
+        { assignmentTitle: options.assignmentTitle },
         'SMTP not configured in environment. Graded notification skipped in development.',
       );
       return;
@@ -364,7 +364,7 @@ export class EmailService {
       });
 
       logger.info(
-        { recipientName: options.recipientName, assignmentTitle: options.assignmentTitle },
+        { assignmentTitle: options.assignmentTitle },
         'Assignment graded email dispatched successfully via SMTP',
       );
     } catch (error) {
@@ -384,7 +384,7 @@ export class EmailService {
 
     if (!this.transporter) {
       logger.info(
-        { recipientName: options.recipientName, assignmentTitle: options.assignmentTitle },
+        { assignmentTitle: options.assignmentTitle },
         'SMTP not configured in environment. Resubmission request email skipped in development.',
       );
       return;
@@ -400,7 +400,7 @@ export class EmailService {
       });
 
       logger.info(
-        { recipientName: options.recipientName, assignmentTitle: options.assignmentTitle },
+        { assignmentTitle: options.assignmentTitle },
         'Resubmission requested email dispatched successfully via SMTP',
       );
     } catch (error) {

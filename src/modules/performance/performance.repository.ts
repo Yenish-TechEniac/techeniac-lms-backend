@@ -18,6 +18,13 @@ import type {
   PerformanceOverviewMetrics,
 } from './schemas/performance.schemas';
 
+function normalizeEndDate(dateStr: string): Date {
+  if (/^\d{4}-\d{2}-\d{2}$/.test(dateStr)) {
+    return new Date(`${dateStr}T23:59:59.999Z`);
+  }
+  return new Date(dateStr);
+}
+
 export class PerformanceRepository {
   private readonly db: DataSource;
 
@@ -99,7 +106,7 @@ export class PerformanceRepository {
     }
 
     if (filter.endDate) {
-      subQb.andWhere('sub.submitted_at <= :endDate', { endDate: new Date(filter.endDate) });
+      subQb.andWhere('sub.submitted_at <= :endDate', { endDate: normalizeEndDate(filter.endDate) });
     }
 
     if (filter.gradeRange && filter.gradeRange !== 'ALL') {
@@ -122,10 +129,10 @@ export class PerformanceRepository {
     const totalSubmissions = parseInt(subStats?.total_submissions ?? '0', 10);
     const averageMarks = subStats?.avg_marks
       ? parseFloat(parseFloat(subStats.avg_marks).toFixed(2))
-      : 0;
+      : null;
     const onTimeCount = parseInt(subStats?.on_time_count ?? '0', 10);
     const onTimeRate =
-      totalSubmissions > 0 ? parseFloat(((onTimeCount / totalSubmissions) * 100).toFixed(2)) : 100;
+      totalSubmissions > 0 ? parseFloat(((onTimeCount / totalSubmissions) * 100).toFixed(2)) : null;
 
     // 3. Query grade distribution
     const gradeRows = await subQb
@@ -323,11 +330,33 @@ export class PerformanceRepository {
 
     // Enrich each mentee with submission metrics
     const menteeIds = rawRows.map((r) => r.mentee_id);
-    const subAggregates = await this.submissionRepo
+
+    const subAggQb = this.submissionRepo
       .createQueryBuilder('sub')
       .innerJoin(CourseAllocation, 'alloc', 'alloc.id = sub.course_allocation_id')
       .where('alloc.user_id IN (:...menteeIds)', { menteeIds })
-      .andWhere('sub.deleted_at IS NULL')
+      .andWhere('sub.deleted_at IS NULL');
+
+    if (filter.startDate) {
+      subAggQb.andWhere('sub.submitted_at >= :startDate', {
+        startDate: new Date(filter.startDate),
+      });
+    }
+    if (filter.endDate) {
+      subAggQb.andWhere('sub.submitted_at <= :endDate', {
+        endDate: normalizeEndDate(filter.endDate),
+      });
+    }
+    if (filter.courseId) {
+      subAggQb.andWhere('alloc.course_id = :courseId', { courseId: filter.courseId });
+    }
+    if (targetBatchId) {
+      subAggQb.andWhere('(sub.batch_id = :batchId OR alloc.batch_id = :batchId)', {
+        batchId: targetBatchId,
+      });
+    }
+
+    subAggQb
       .select([
         'alloc.user_id as mentee_id',
         'AVG(CASE WHEN sub.status = :gradedStatus THEN sub.marks ELSE NULL END) as avg_marks',
@@ -335,13 +364,71 @@ export class PerformanceRepository {
         'COUNT(CASE WHEN sub.is_late = false THEN 1 ELSE NULL END) as on_time_count',
       ])
       .setParameter('gradedStatus', SubmissionStatus.GRADED)
-      .groupBy('alloc.user_id')
-      .getRawMany<{
+      .groupBy('alloc.user_id');
+
+    // Overdue calculations per mentee
+    const overdueAllocQb = this.allocationRepo
+      .createQueryBuilder('alloc')
+      .where('alloc.user_id IN (:...menteeIds)', { menteeIds })
+      .andWhere('alloc.deleted_at IS NULL')
+      .andWhere('alloc.due_date < NOW()')
+      .andWhere('alloc.status IN (:...openStatuses)', {
+        openStatuses: [CourseAllocationStatus.ASSIGNED, CourseAllocationStatus.IN_PROGRESS],
+      });
+
+    if (targetBatchId) {
+      overdueAllocQb.andWhere('alloc.batch_id = :batchId', { batchId: targetBatchId });
+    }
+    if (filter.courseId) {
+      overdueAllocQb.andWhere('alloc.course_id = :courseId', { courseId: filter.courseId });
+    }
+
+    overdueAllocQb
+      .select(['alloc.user_id as user_id', 'COUNT(alloc.id) as count'])
+      .groupBy('alloc.user_id');
+
+    // Latest grade label per mentee
+    const latestSubsQb = this.submissionRepo
+      .createQueryBuilder('sub')
+      .innerJoin(CourseAllocation, 'alloc', 'alloc.id = sub.course_allocation_id')
+      .where('alloc.user_id IN (:...menteeIds)', { menteeIds })
+      .andWhere('sub.status = :gradedStatus', { gradedStatus: SubmissionStatus.GRADED })
+      .andWhere('sub.deleted_at IS NULL');
+
+    if (filter.startDate) {
+      latestSubsQb.andWhere('sub.submitted_at >= :startDate', {
+        startDate: new Date(filter.startDate),
+      });
+    }
+    if (filter.endDate) {
+      latestSubsQb.andWhere('sub.submitted_at <= :endDate', {
+        endDate: normalizeEndDate(filter.endDate),
+      });
+    }
+    if (filter.courseId) {
+      latestSubsQb.andWhere('alloc.course_id = :courseId', { courseId: filter.courseId });
+    }
+    if (targetBatchId) {
+      latestSubsQb.andWhere('(sub.batch_id = :batchId OR alloc.batch_id = :batchId)', {
+        batchId: targetBatchId,
+      });
+    }
+
+    latestSubsQb
+      .orderBy('sub.submitted_at', 'DESC')
+      .select(['alloc.user_id as user_id', 'sub.grade_label as grade_label']);
+
+    // Concurrently execute all three sub-queries
+    const [subAggregates, overdueAllocList, latestSubs] = await Promise.all([
+      subAggQb.getRawMany<{
         mentee_id: string;
         avg_marks: string | null;
         total_submissions: string;
         on_time_count: string;
-      }>();
+      }>(),
+      overdueAllocQb.getRawMany<{ user_id: string; count: string }>(),
+      latestSubsQb.getRawMany<{ user_id: string; grade_label: string }>(),
+    ]);
 
     const subMap = new Map<
       string,
@@ -355,36 +442,12 @@ export class PerformanceRepository {
       });
     }
 
-    // Overdue calculations per mentee
     const overdueAllocMap = new Map<string, number>();
-    const overdueAllocList = await this.allocationRepo
-      .createQueryBuilder('alloc')
-      .where('alloc.user_id IN (:...menteeIds)', { menteeIds })
-      .andWhere('alloc.deleted_at IS NULL')
-      .andWhere('alloc.due_date < NOW()')
-      .andWhere('alloc.status IN (:...openStatuses)', {
-        openStatuses: [CourseAllocationStatus.ASSIGNED, CourseAllocationStatus.IN_PROGRESS],
-      })
-      .select(['alloc.user_id as user_id', 'COUNT(alloc.id) as count'])
-      .groupBy('alloc.user_id')
-      .getRawMany<{ user_id: string; count: string }>();
-
     for (const oa of overdueAllocList) {
       overdueAllocMap.set(oa.user_id, parseInt(oa.count, 10));
     }
 
-    // Latest grade label per mentee
     const latestGradeMap = new Map<string, string>();
-    const latestSubs = await this.submissionRepo
-      .createQueryBuilder('sub')
-      .innerJoin(CourseAllocation, 'alloc', 'alloc.id = sub.course_allocation_id')
-      .where('alloc.user_id IN (:...menteeIds)', { menteeIds })
-      .andWhere('sub.status = :gradedStatus', { gradedStatus: SubmissionStatus.GRADED })
-      .andWhere('sub.deleted_at IS NULL')
-      .orderBy('sub.submitted_at', 'DESC')
-      .select(['alloc.user_id as user_id', 'sub.grade_label as grade_label'])
-      .getRawMany<{ user_id: string; grade_label: string }>();
-
     for (const ls of latestSubs) {
       if (!latestGradeMap.has(ls.user_id)) {
         latestGradeMap.set(ls.user_id, ls.grade_label);
@@ -538,19 +601,21 @@ export class PerformanceRepository {
     for (const alloc of allocations) {
       const batchId = alloc.batchId ?? 'unbatched';
       const batchName = alloc.batch?.name ?? 'Individual Allocation';
-      const batchStatus = alloc.batch?.status ?? 'ACTIVE';
+      const batchStatus = alloc.batch?.status ?? 'INDIVIDUAL';
       const batchStart = alloc.batch?.startDate ? new Date(alloc.batch.startDate) : alloc.startDate;
       const batchEnd = alloc.batch?.endDate ? new Date(alloc.batch.endDate) : null;
 
-      if (!batchMap.has(batchId)) {
-        batchMap.set(batchId, {
+      let entry = batchMap.get(batchId);
+      if (!entry) {
+        entry = {
           batchId,
           batchName,
           status: batchStatus,
           startDate: batchStart,
           endDate: batchEnd,
           courseAllocations: [],
-        });
+        };
+        batchMap.set(batchId, entry);
       }
 
       const allocAssignments = subsByAlloc.get(alloc.id) ?? [];
@@ -579,7 +644,7 @@ export class PerformanceRepository {
         assignments: allocAssignments,
       };
 
-      batchMap.get(batchId)!.courseAllocations.push(allocItem);
+      entry.courseAllocations.push(allocItem);
     }
 
     const totalAllocations = allocations.length;
@@ -602,7 +667,7 @@ export class PerformanceRepository {
 
   private getEmptyOverview(): PerformanceOverviewMetrics {
     return {
-      averageMarks: 0,
+      averageMarks: null,
       gradeDistribution: {
         'A+': { count: 0, percentage: 0 },
         A: { count: 0, percentage: 0 },
@@ -611,7 +676,7 @@ export class PerformanceRepository {
         D: { count: 0, percentage: 0 },
         F: { count: 0, percentage: 0 },
       },
-      onTimeRate: 100,
+      onTimeRate: null,
       completionPercentage: 0,
       overdueCount: 0,
       totalMentees: 0,

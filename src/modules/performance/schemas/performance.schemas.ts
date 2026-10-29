@@ -1,5 +1,7 @@
 import { z } from 'zod';
 
+import { CourseAllocationStatus } from '../../allocations';
+
 export const performanceFilterSchema = z.object({
   query: z.object({
     batchId: z.string().uuid({ message: 'batchId must be a valid UUID' }).optional(),
@@ -16,7 +18,7 @@ export const performanceFilterSchema = z.object({
       .or(z.string().regex(/^\d{4}-\d{2}-\d{2}$/))
       .optional(),
     gradeRange: z.enum(['A+', 'A', 'B', 'C', 'D', 'F', 'ALL']).optional(),
-    status: z.string().optional(),
+    status: z.nativeEnum(CourseAllocationStatus).optional(),
     search: z.string().trim().optional(),
     page: z.coerce.number().int().positive().default(1),
     limit: z.coerce.number().int().positive().max(100).default(10),
@@ -48,7 +50,7 @@ export const exportPerformanceSchema = z.object({
       .or(z.string().regex(/^\d{4}-\d{2}-\d{2}$/))
       .optional(),
     gradeRange: z.enum(['A+', 'A', 'B', 'C', 'D', 'F', 'ALL']).optional(),
-    status: z.string().optional(),
+    status: z.nativeEnum(CourseAllocationStatus).optional(),
     search: z.string().trim().optional(),
     sortBy: z
       .enum(['averageMarks', 'completionPercentage', 'onTimeRate', 'overdueCount', 'name'])
@@ -59,7 +61,7 @@ export const exportPerformanceSchema = z.object({
       .optional()
       .transform((val) => (val?.toUpperCase() === 'ASC' ? 'ASC' : 'DESC'))
       .default('DESC'),
-    format: z.enum(['csv', 'xlsx']).optional().default('csv'),
+    format: z.literal('csv').default('csv'),
   }),
 });
 
@@ -82,9 +84,9 @@ export interface GradeDistributionBucket {
 }
 
 export interface PerformanceOverviewMetrics {
-  averageMarks: number;
+  averageMarks: number | null;
   gradeDistribution: Record<'A+' | 'A' | 'B' | 'C' | 'D' | 'F', GradeDistributionBucket>;
-  onTimeRate: number;
+  onTimeRate: number | null;
   completionPercentage: number;
   overdueCount: number;
   totalMentees: number;

@@ -12,6 +12,7 @@ import {
   type PerformanceOverviewMetrics,
   PerformancePolicy,
   PerformanceRepository,
+  type PerformanceScopeFilter,
   PerformanceService,
 } from '../../src/modules/performance';
 import { UserRole } from '../../src/modules/users';
@@ -35,9 +36,13 @@ void describe('Module 11: Performance & My Performance Unit Tests (PER-01 to PER
     findActiveMemberInBatch: (
       ...args: unknown[]
     ) => Promise<{ memberRole: BatchMemberRole } | null>;
+    findMemberInBatch: (...args: unknown[]) => Promise<{ memberRole: BatchMemberRole } | null>;
   };
   let mockMentorMenteeRepo: {
     findActiveMappingsForMentor: (...args: unknown[]) => Promise<Array<{ menteeId: string }>>;
+    findAllMappingsByBatch: (
+      ...args: unknown[]
+    ) => Promise<Array<{ menteeId: string; mentorId: string }>>;
   };
 
   const admin = createTestUser({ id: 'admin-1', role: UserRole.SUPER_ADMIN });
@@ -99,10 +104,13 @@ void describe('Module 11: Performance & My Performance Unit Tests (PER-01 to PER
   beforeEach(() => {
     mockBatchRepo = {
       findActiveMemberInBatch: () => Promise.resolve({ memberRole: BatchMemberRole.MENTOR }),
+      findMemberInBatch: () => Promise.resolve({ memberRole: BatchMemberRole.MENTOR }),
     };
 
     mockMentorMenteeRepo = {
       findActiveMappingsForMentor: () => Promise.resolve([{ menteeId: 'mentee-1' }]),
+      findAllMappingsByBatch: () =>
+        Promise.resolve([{ menteeId: 'mentee-1', mentorId: 'mentor-1' }]),
     };
 
     policy = new PerformancePolicy(
@@ -215,6 +223,15 @@ void describe('Module 11: Performance & My Performance Unit Tests (PER-01 to PER
   });
 
   void it('PER-03: Mentor opens Mentees Performance - strictly scoped to mapped mentees in batch', async () => {
+    let capturedScope: PerformanceScopeFilter | undefined;
+    mockRepo.getMenteePerformanceList = (_filter, scope) => {
+      capturedScope = scope;
+      return Promise.resolve({
+        mentees: sampleMentees,
+        total: sampleMentees.length,
+      });
+    };
+
     const filter: PerformanceFilterQuery = {
       batchId: '00000000-0000-0000-0000-000000000001',
       page: 1,
@@ -226,10 +243,13 @@ void describe('Module 11: Performance & My Performance Unit Tests (PER-01 to PER
     const result = await service.getPerformance(mentor, filter);
     assert.ok(result.metrics);
     assert.ok(result.mentees);
+    assert.deepStrictEqual(capturedScope?.allowedMenteeIds, ['mentee-1']);
+    assert.strictEqual(capturedScope?.mentorId, 'mentor-1');
   });
 
   void it('PER-03 (Security): Mentor cannot access batch where he is not a member', async () => {
     mockBatchRepo.findActiveMemberInBatch = () => Promise.resolve(null);
+    mockBatchRepo.findMemberInBatch = () => Promise.resolve(null);
 
     const filter: PerformanceFilterQuery = {
       batchId: '00000000-0000-0000-0000-000000000099',
