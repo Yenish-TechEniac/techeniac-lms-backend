@@ -5,6 +5,11 @@ import { after, before, beforeEach, describe, it } from 'node:test';
 import { app } from '../../src/app';
 import { signAccessToken } from '../../src/core/auth';
 import {
+  allocationsRepository,
+  type CourseAllocation,
+  CourseAllocationStatus,
+} from '../../src/modules/allocations';
+import {
   type Course,
   coursesRepository,
   type Subtopic,
@@ -353,6 +358,7 @@ void describe('Courses API Integration Tests', () => {
       const mockCourse = {
         id: courseId,
         title: 'Mentee Learning Track',
+        isActive: true,
         createdBy: mentorAId,
         creator: { id: mentorAId, name: 'Mentor A' },
         topics: [{ id: topicId, title: 'Introduction' }] as Topic[],
@@ -361,6 +367,18 @@ void describe('Courses API Integration Tests', () => {
       coursesRepository.findCourseById = (_id, includeOutline) => {
         assert.equal(includeOutline, true);
         return Promise.resolve(mockCourse);
+      };
+
+      allocationsRepository.findActiveOrCompletedAllocation = (cId, uId) => {
+        if (cId === courseId && uId === menteeId) {
+          return Promise.resolve({
+            id: 'alloc-1',
+            courseId,
+            userId: menteeId,
+            status: CourseAllocationStatus.IN_PROGRESS,
+          } as CourseAllocation);
+        }
+        return Promise.resolve(null);
       };
 
       const res = await fetch(`${baseUrl}/courses/${courseId}?outline=true`, {

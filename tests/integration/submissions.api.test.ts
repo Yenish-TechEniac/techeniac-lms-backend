@@ -24,6 +24,7 @@ void describe('Submissions API Integration Tests (Module 9)', () => {
   const courseId = '44444444-4444-4444-a444-444444444444';
   const assignmentId = '55555555-5555-4555-a555-555555555555';
   const allocationId = '66666666-6666-4666-a666-666666666666';
+  const superAdminId = '99999999-9999-4999-a999-999999999999';
 
   let tokenMentee: string;
   let tokenNonMentee: string;
@@ -31,7 +32,7 @@ void describe('Submissions API Integration Tests (Module 9)', () => {
 
   before(async () => {
     tokenSuperAdmin = signAccessToken({
-      sub: '99999999-9999-4999-a999-999999999999',
+      sub: superAdminId,
       email: 'admin@techeniac.com',
       role: 'SUPER_ADMIN',
       tokenVersion: 1,
@@ -114,6 +115,16 @@ void describe('Submissions API Integration Tests (Module 9)', () => {
 
     // Stub user resolution
     userRepository.findById = (id: string): Promise<User | null> => {
+      if (id === superAdminId) {
+        return Promise.resolve({
+          id: superAdminId,
+          email: 'admin@techeniac.com',
+          name: 'Super Admin',
+          role: UserRole.SUPER_ADMIN,
+          isActive: true,
+          tokenVersion: 1,
+        } as User);
+      }
       if (id === menteeId) {
         return Promise.resolve({
           id: menteeId,
@@ -670,8 +681,16 @@ void describe('Submissions API Integration Tests (Module 9)', () => {
         headers: { Authorization: `Bearer ${tokenSuperAdmin}` },
       });
       assert.equal(res.status, 400);
-      const json = (await res.json()) as { error: { message: string } };
-      assert.match(json.error.message, /fromDate must be a valid date/);
+      const json = (await res.json()) as {
+        error: {
+          code: string;
+          message: string;
+          details?: Array<{ field: string; message: string }>;
+        };
+      };
+      assert.equal(json.error.code, 'VALIDATION_ERROR');
+      const detail = json.error.details?.find((d) => d.field === 'fromDate');
+      assert.match(detail?.message ?? '', /fromDate must be a valid date/);
     });
 
     void it('rejects invalid toDate string with 400 Bad Request', async () => {
@@ -679,8 +698,16 @@ void describe('Submissions API Integration Tests (Module 9)', () => {
         headers: { Authorization: `Bearer ${tokenSuperAdmin}` },
       });
       assert.equal(res.status, 400);
-      const json = (await res.json()) as { error: { message: string } };
-      assert.match(json.error.message, /toDate must be a valid date/);
+      const json = (await res.json()) as {
+        error: {
+          code: string;
+          message: string;
+          details?: Array<{ field: string; message: string }>;
+        };
+      };
+      assert.equal(json.error.code, 'VALIDATION_ERROR');
+      const detail = json.error.details?.find((d) => d.field === 'toDate');
+      assert.match(detail?.message ?? '', /toDate must be a valid date/);
     });
 
     void it('returns 200 with standard pagination envelope for submission queue', async () => {
