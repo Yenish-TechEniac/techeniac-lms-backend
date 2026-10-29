@@ -162,6 +162,15 @@ export class UsersService {
       throw err;
     }
 
+    await logAudit({
+      actorId: actorId ?? null,
+      type: AuditType.USER,
+      entity: 'User',
+      entityId: user.id,
+      action: 'USER_CREATED',
+      newValue: { name: user.name, email: user.email, role: user.role },
+    });
+
     try {
       await emailService.sendInviteEmail({
         to: user.email,
@@ -177,15 +186,6 @@ export class UsersService {
         { userId: user.id },
       );
     }
-
-    await logAudit({
-      actorId: actorId ?? null,
-      type: AuditType.USER,
-      entity: 'User',
-      entityId: user.id,
-      action: 'USER_CREATED',
-      newValue: { name: user.name, email: user.email, role: user.role },
-    });
 
     return user;
   }
@@ -335,6 +335,12 @@ export class UsersService {
       );
     }
 
+    if (user.isActive === isActive) {
+      return user;
+    }
+
+    const previousIsActive = user.isActive;
+
     const savedUser = await this.repo.transaction(async (manager) => {
       if (!isActive && user.role === UserRole.SUPER_ADMIN) {
         const activeAdmins = await this.repo.lockAndCountActiveSuperAdmins(manager);
@@ -363,7 +369,7 @@ export class UsersService {
       entity: 'User',
       entityId: id,
       action: isActive ? 'USER_ACTIVATED' : 'USER_DEACTIVATED',
-      oldValue: { isActive: !isActive },
+      oldValue: { isActive: previousIsActive },
       newValue: { name: savedUser.name, email: savedUser.email, isActive },
     });
 

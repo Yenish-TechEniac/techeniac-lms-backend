@@ -238,6 +238,17 @@ export class CoursesService {
     if (!updated) {
       throw new NotFoundError('Course not found');
     }
+
+    await logAudit({
+      actorId: user.id,
+      type: AuditType.COURSE,
+      entity: 'Course',
+      entityId: id,
+      action: 'COURSE_STATUS_TOGGLED',
+      oldValue: { isActive: course.isActive },
+      newValue: { isActive },
+    });
+
     return updated;
   }
 

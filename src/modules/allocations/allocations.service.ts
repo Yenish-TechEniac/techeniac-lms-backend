@@ -126,22 +126,24 @@ export class AllocationsService {
       courseId: course.id,
     });
 
-    for (const alloc of savedAllocations) {
-      await logAudit({
-        actorId: actor.id,
-        type: AuditType.COURSE_ALLOCATION,
-        entity: 'CourseAllocation',
-        entityId: alloc.id,
-        action: 'ALLOCATE_COURSE',
-        newValue: {
-          courseId: alloc.courseId,
-          userId: alloc.userId,
-          batchId: alloc.batchId,
-          startDate: alloc.startDate,
-          dueDate: alloc.dueDate,
-        },
-      });
-    }
+    await Promise.all(
+      savedAllocations.map((alloc) =>
+        logAudit({
+          actorId: actor.id,
+          type: AuditType.COURSE_ALLOCATION,
+          entity: 'CourseAllocation',
+          entityId: alloc.id,
+          action: 'ALLOCATE_COURSE',
+          newValue: {
+            courseId: alloc.courseId,
+            userId: alloc.userId,
+            batchId: alloc.batchId,
+            startDate: alloc.startDate,
+            dueDate: alloc.dueDate,
+          },
+        }),
+      ),
+    );
 
     void this.dispatchAllocationEmails(savedAllocations, course.title, input.batchId);
 
@@ -379,6 +381,9 @@ export class AllocationsService {
     await this.policy.assertCanManageAllocation(actor, allocation);
     this.assertAllocationIsMutable(allocation);
 
+    const previousStartDate = allocation.startDate.toISOString();
+    const previousDueDate = allocation.dueDate.toISOString();
+
     if (input.startDate) {
       allocation.startDate = new Date(input.startDate);
     }
@@ -396,6 +401,19 @@ export class AllocationsService {
     eventBus.emitEvent('allocation.deadlineChanged', {
       allocationId: saved.id,
       dueDate: saved.dueDate.toISOString(),
+    });
+
+    await logAudit({
+      actorId: actor.id,
+      type: AuditType.COURSE_ALLOCATION,
+      entity: 'CourseAllocation',
+      entityId: saved.id,
+      action: 'UPDATE_ALLOCATION_DATES',
+      oldValue: { startDate: previousStartDate, dueDate: previousDueDate },
+      newValue: {
+        startDate: saved.startDate.toISOString(),
+        dueDate: saved.dueDate.toISOString(),
+      },
     });
 
     if (input.dueDate && saved.user?.email) {
@@ -468,6 +486,22 @@ export class AllocationsService {
       });
     }
 
+    await Promise.all(
+      updated.map((alloc) =>
+        logAudit({
+          actorId: actor.id,
+          type: AuditType.COURSE_ALLOCATION,
+          entity: 'CourseAllocation',
+          entityId: alloc.id,
+          action: 'UPDATE_ALLOCATION_DATES',
+          newValue: {
+            startDate: alloc.startDate.toISOString(),
+            dueDate: alloc.dueDate.toISOString(),
+          },
+        }),
+      ),
+    );
+
     return { allocations: updated, skipped };
   }
 
@@ -480,6 +514,7 @@ export class AllocationsService {
     await this.policy.assertCanManageAllocation(actor, allocation);
     this.assertAllocationIsMutable(allocation);
 
+    const previousStatus = allocation.status;
     allocation.status = CourseAllocationStatus.REVOKED;
     allocation.updatedBy = actor.id;
 
@@ -491,6 +526,7 @@ export class AllocationsService {
       entity: 'CourseAllocation',
       entityId: id,
       action: 'REVOKE_ALLOCATION',
+      oldValue: { status: previousStatus },
       newValue: { status: CourseAllocationStatus.REVOKED },
     });
 
@@ -540,6 +576,8 @@ export class AllocationsService {
     this.assertAllocationIsMutable(allocation);
 
     let override = await this.repo.findAssignmentOverride(allocationId, input.assignmentId);
+    const previousDueDate = override?.dueDate ? override.dueDate.toISOString() : null;
+
     if (!override) {
       override = new AssignmentDueOverride();
       override.courseAllocationId = allocationId;
@@ -559,6 +597,7 @@ export class AllocationsService {
       entity: 'AssignmentDueOverride',
       entityId: saved.id,
       action: 'OVERRIDE_DUE_DATE',
+      oldValue: previousDueDate ? { dueDate: previousDueDate } : null,
       newValue: {
         courseAllocationId: allocationId,
         assignmentId: input.assignmentId,

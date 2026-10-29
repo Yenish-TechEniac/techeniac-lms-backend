@@ -1,15 +1,16 @@
 import { DataSource, Repository, SelectQueryBuilder } from 'typeorm';
 
 import { AppDataSource } from '../../core/db';
-import { AuditLog, AuditType } from './entities/audit-log.entity';
+import { AuditAction, AuditLogType } from './entities/audit.enums';
+import { AuditLog } from './entities/audit-log.entity';
 import { AuditQueryParams } from './schemas/audit.schemas';
 
 export interface CreateAuditLogData {
   actorId?: string | null;
-  type: AuditType;
+  type: AuditLogType;
   entity: string;
   entityId?: string | null;
-  action: string;
+  action: AuditAction | string;
   oldValue?: Record<string, unknown> | null;
   newValue?: Record<string, unknown> | null;
 }
@@ -39,7 +40,8 @@ export class AuditRepository {
   ): Promise<{ items: AuditLog[]; total: number }> {
     const qb: SelectQueryBuilder<AuditLog> = this.repo
       .createQueryBuilder('audit')
-      .leftJoinAndSelect('audit.actor', 'actor');
+      .leftJoin('audit.actor', 'actor')
+      .addSelect(['actor.id', 'actor.name', 'actor.email']);
 
     if (params.type) {
       qb.andWhere('audit.type = :type', { type: params.type });

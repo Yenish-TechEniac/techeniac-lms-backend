@@ -1,19 +1,35 @@
-import { AuditRepository, auditRepository } from './audit.repository';
+import { AuditRepository, auditRepository, CreateAuditLogData } from './audit.repository';
+import { AuditLog } from './entities/audit-log.entity';
 import { AuditQueryParams } from './schemas/audit.schemas';
 
 export class AuditService {
-  constructor(private readonly repository: AuditRepository = auditRepository) {}
+  private repository: AuditRepository | null;
 
-  async getAuditLogs(params: AuditQueryParams) {
+  constructor(repository?: AuditRepository) {
+    this.repository = repository ?? null;
+  }
+
+  private get repo(): AuditRepository {
+    if (!this.repository) {
+      this.repository = auditRepository;
+    }
+    return this.repository;
+  }
+
+  public async record(data: CreateAuditLogData): Promise<AuditLog> {
+    return this.repo.create(data);
+  }
+
+  public async getAuditLogs(params: AuditQueryParams) {
     const page = Math.max(1, Number(params?.page) || 1);
     const limit = Math.max(1, Math.min(100, Number(params?.limit) || 20));
 
-    const { items, total } = await this.repository.findWithFilters({
+    const { items, total } = await this.repo.findWithFilters({
       ...params,
       page,
       limit,
     });
-    const totalPages = Math.ceil(total / limit) || 1;
+    const totalPages = Math.ceil(total / limit);
 
     return {
       items,

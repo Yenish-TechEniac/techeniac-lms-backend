@@ -36,6 +36,10 @@ export class CreateAuditLogsTable1792650500000 implements MigrationInterface {
         "old_value" jsonb,
         "new_value" jsonb,
         "created_at" TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT now(),
+        "updated_at" TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT now(),
+        "deleted_at" TIMESTAMP WITH TIME ZONE,
+        "created_by" uuid,
+        "updated_by" uuid,
         CONSTRAINT "PK_audit_logs_id" PRIMARY KEY ("id")
       )
     `);
@@ -53,7 +57,9 @@ export class CreateAuditLogsTable1792650500000 implements MigrationInterface {
       END $$;
     `);
 
-    await queryRunner.query(`CREATE INDEX IF NOT EXISTS "idx_audit_type" ON "audit_logs" ("type")`);
+    await queryRunner.query(
+      `CREATE INDEX IF NOT EXISTS "idx_audit_type_time" ON "audit_logs" ("type", "created_at")`,
+    );
     await queryRunner.query(
       `CREATE INDEX IF NOT EXISTS "idx_audit_entity" ON "audit_logs" ("entity", "entity_id")`,
     );
@@ -69,6 +75,7 @@ export class CreateAuditLogsTable1792650500000 implements MigrationInterface {
     await queryRunner.query(`DROP INDEX IF EXISTS "public"."idx_audit_time"`);
     await queryRunner.query(`DROP INDEX IF EXISTS "public"."idx_audit_actor_time"`);
     await queryRunner.query(`DROP INDEX IF EXISTS "public"."idx_audit_entity"`);
+    await queryRunner.query(`DROP INDEX IF EXISTS "public"."idx_audit_type_time"`);
     await queryRunner.query(`DROP INDEX IF EXISTS "public"."idx_audit_type"`);
     await queryRunner.query(`DROP TABLE IF EXISTS "audit_logs"`);
     await queryRunner.query(`DROP TYPE IF EXISTS "public"."audit_logs_type_enum"`);

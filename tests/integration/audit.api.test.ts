@@ -6,38 +6,18 @@ import { app } from '../../src/app';
 import { signAccessToken } from '../../src/core/auth';
 import { AuditLog, auditRepository, AuditType } from '../../src/modules/audit';
 import { type User, userRepository, UserRole } from '../../src/modules/users';
+import { createMockAuditLog } from '../fixtures/audit.fixture';
 
 interface AuditResponseBody {
   success: boolean;
   data: AuditLog[];
-  pagination: {
+  meta: {
     page: number;
     limit: number;
     total: number;
     totalPages: number;
   };
 }
-
-const createMockAuditLog = (overrides: Partial<AuditLog>): AuditLog => {
-  const log = new AuditLog();
-  Object.assign(
-    log,
-    {
-      id: '00000000-0000-0000-0000-000000000001',
-      actorId: null,
-      actor: null,
-      type: AuditType.AUTH,
-      entity: 'User',
-      entityId: null,
-      action: 'LOGIN',
-      oldValue: null,
-      newValue: null,
-      createdAt: new Date(),
-    },
-    overrides,
-  );
-  return log;
-};
 
 void describe('Audit Log API Integration Tests (Module 14: AUD-01 to AUD-05)', () => {
   let server: Server;
@@ -178,7 +158,7 @@ void describe('Audit Log API Integration Tests (Module 14: AUD-01 to AUD-05)', (
     assert.equal(body.success, true);
     assert.equal(body.data.length, 1);
     assert.equal(body.data[0]?.action, 'ROLE_CHANGE');
-    assert.equal(body.pagination.total, 1);
+    assert.equal(body.meta.total, 1);
   });
 
   void it('AUD-02: Super Admin can filter by type=COURSE to view course live edits', async () => {
@@ -309,9 +289,38 @@ void describe('Audit Log API Integration Tests (Module 14: AUD-01 to AUD-05)', (
 
     assert.equal(res.status, 200);
     const body = (await res.json()) as AuditResponseBody;
-    assert.equal(body.pagination.page, 3);
-    assert.equal(body.pagination.limit, 15);
-    assert.equal(body.pagination.total, 42);
-    assert.equal(body.pagination.totalPages, 3);
+    assert.equal(body.meta.page, 3);
+    assert.equal(body.meta.limit, 15);
+    assert.equal(body.meta.total, 42);
+    assert.equal(body.meta.totalPages, 3);
+  });
+
+  void it('returns 400 Bad Request if startDate is after endDate', async () => {
+    const res = await fetch(`${baseUrl}?startDate=2026-03-10&endDate=2026-03-01`, {
+      headers: { Authorization: `Bearer ${tokenAdmin}` },
+    });
+    assert.equal(res.status, 400);
+  });
+
+  void it('accepts valid date range filtering', async () => {
+    let capturedStartDate: string | undefined;
+    let capturedEndDate: string | undefined;
+
+    auditRepository.findWithFilters = (params) => {
+      capturedStartDate = params.startDate;
+      capturedEndDate = params.endDate;
+      return Promise.resolve({
+        items: [],
+        total: 0,
+      });
+    };
+
+    const res = await fetch(`${baseUrl}?startDate=2026-03-01&endDate=2026-03-10`, {
+      headers: { Authorization: `Bearer ${tokenAdmin}` },
+    });
+
+    assert.equal(res.status, 200);
+    assert.equal(capturedStartDate, '2026-03-01');
+    assert.equal(capturedEndDate, '2026-03-10');
   });
 });

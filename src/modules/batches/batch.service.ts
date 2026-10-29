@@ -589,20 +589,22 @@ export class BatchService {
         return { created: createdRecords, mappedMenteeUsers: mappedUsers };
       });
 
-      for (const mapping of created) {
-        await logAudit({
-          actorId,
-          type: AuditType.MENTOR_MAPPING,
-          entity: 'MentorMentee',
-          entityId: mapping.id,
-          action: 'MAP_MENTEE',
-          newValue: {
-            batchId,
-            mentorId: input.mentorId,
-            menteeId: mapping.menteeId,
-          },
-        });
-      }
+      await Promise.all(
+        created.map((mapping) =>
+          logAudit({
+            actorId,
+            type: AuditType.MENTOR_MAPPING,
+            entity: 'MentorMentee',
+            entityId: mapping.id,
+            action: 'MAP_MENTEE',
+            newValue: {
+              batchId,
+              mentorId: input.mentorId,
+              menteeId: mapping.menteeId,
+            },
+          }),
+        ),
+      );
 
       // Post-commit notifications (PRD Section 7.2)
       for (const menteeUser of mappedMenteeUsers) {

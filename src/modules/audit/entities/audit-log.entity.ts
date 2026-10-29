@@ -1,35 +1,25 @@
-import {
-  Column,
-  CreateDateColumn,
-  Entity,
-  Index,
-  JoinColumn,
-  ManyToOne,
-  PrimaryGeneratedColumn,
-} from 'typeorm';
+import { Column, Entity, Index, JoinColumn, ManyToOne } from 'typeorm';
 
+import { AuditableEntity } from '../../../core/db/auditable.entity';
 import { User } from '../../users';
+import { AuditAction, AuditLogType, AuditType } from './audit.enums';
 
-export enum AuditType {
-  AUTH = 'AUTH',
-  USER = 'USER',
-  MENTOR_MAPPING = 'MENTOR_MAPPING',
-  COURSE = 'COURSE',
-  BATCH = 'BATCH',
-  COURSE_ALLOCATION = 'COURSE_ALLOCATION',
-  SUBMISSION = 'SUBMISSION',
-  GRADING = 'GRADING',
-}
+export { AuditAction, AuditLogType, AuditType };
 
+/**
+ * AuditLog Entity
+ *
+ * Implements M14 Audit Log per LMS DBML specification.
+ * Extends AuditableEntity for standard tracking fields (id, created_at, updated_at, deleted_at, created_by, updated_by).
+ * Note: Audit logs are strictly read-only and append-only. updated_at and deleted_at exist
+ * for base entity compliance but are never mutated in practice.
+ */
 @Entity({ name: 'audit_logs' })
-@Index('idx_audit_type', ['type'])
+@Index('idx_audit_type_time', ['type', 'createdAt'])
 @Index('idx_audit_entity', ['entity', 'entityId'])
 @Index('idx_audit_actor_time', ['actorId', 'createdAt'])
 @Index('idx_audit_time', ['createdAt'])
-export class AuditLog {
-  @PrimaryGeneratedColumn('uuid')
-  id!: string;
-
+export class AuditLog extends AuditableEntity {
   @Column({ name: 'actor_id', type: 'uuid', nullable: true })
   actorId!: string | null;
 
@@ -40,9 +30,9 @@ export class AuditLog {
   @Column({
     name: 'type',
     type: 'enum',
-    enum: AuditType,
+    enum: AuditLogType,
   })
-  type!: AuditType;
+  type!: AuditLogType;
 
   @Column({ name: 'entity', type: 'varchar', length: 100 })
   entity!: string;
@@ -58,11 +48,4 @@ export class AuditLog {
 
   @Column({ name: 'new_value', type: 'jsonb', nullable: true })
   newValue!: Record<string, unknown> | null;
-
-  @CreateDateColumn({
-    name: 'created_at',
-    type: 'timestamptz',
-    default: () => 'now()',
-  })
-  createdAt!: Date;
 }

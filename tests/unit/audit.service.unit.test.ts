@@ -9,27 +9,7 @@ import {
   AuditService,
   AuditType,
 } from '../../src/modules/audit';
-
-const createMockAuditLog = (overrides: Partial<AuditLog>): AuditLog => {
-  const log = new AuditLog();
-  Object.assign(
-    log,
-    {
-      id: '11111111-1111-4111-8111-111111111111',
-      actorId: 'admin-id',
-      actor: null,
-      type: AuditType.USER,
-      entity: 'User',
-      entityId: null,
-      action: 'TEST_ACTION',
-      oldValue: null,
-      newValue: null,
-      createdAt: new Date('2026-03-01T10:00:00Z'),
-    },
-    overrides,
-  );
-  return log;
-};
+import { createMockAuditLog } from '../fixtures/audit.fixture';
 
 void describe('Module 14: Audit Service Unit Tests (AUD-01 to AUD-05)', () => {
   let auditService: AuditService;
@@ -134,6 +114,37 @@ void describe('Module 14: Audit Service Unit Tests (AUD-01 to AUD-05)', () => {
     assert.equal(receivedType, AuditType.USER);
     assert.equal(receivedAction, 'ROLE_CHANGE');
     assert.equal(result.items.length, 1);
+  });
+
+  void it('returns totalPages: 0 when total is 0', async () => {
+    mockRepository.findWithFilters = () => {
+      return Promise.resolve({ items: [], total: 0 });
+    };
+
+    const result = await auditService.getAuditLogs({ page: 1, limit: 20 });
+    assert.equal(result.pagination.totalPages, 0);
+    assert.equal(result.items.length, 0);
+  });
+
+  void it('record method delegates to repository.create', async () => {
+    let capturedData: unknown = null;
+    mockRepository.create = (data) => {
+      capturedData = data;
+      return Promise.resolve(createMockAuditLog({ id: 'rec-1', action: 'TEST_REC' }));
+    };
+
+    const record = await auditService.record({
+      type: AuditType.USER,
+      entity: 'User',
+      action: 'TEST_REC',
+    });
+
+    assert.equal(record.id, 'rec-1');
+    assert.deepEqual(capturedData, {
+      type: AuditType.USER,
+      entity: 'User',
+      action: 'TEST_REC',
+    });
   });
 
   void it('logAudit catches errors and returns null without crashing callers', async () => {

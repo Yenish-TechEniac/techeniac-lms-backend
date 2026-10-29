@@ -345,3 +345,25 @@
   - Events must be typed in `LifecycleEvents`.
   - Downstream modules can subscribe via `eventBus.onEvent`.
   - Critical tasks requiring delivery guarantees must enqueue to BullMQ rather than rely solely on in-process memory.
+
+---
+
+## ADR-018: Audit Log Architecture, Append-Only Storage, and PII Boundaries
+
+- **Date**: 2026-10-29
+- **Status**: Accepted
+- **Context**: Module 14 provides enterprise-grade compliance auditing across administrative and operational state changes (`audit_logs` table). We must specify architectural layer boundaries, entity inheritance, append-only persistence guarantees, and PII exposure limits.
+- **Options**:
+  1. Have foundational `src/core` manage auditing directly while importing feature entities.
+  2. Maintain `AuditLog` as an independent entity without `AuditableEntity` inheritance.
+  3. Locate `AuditLog` and `logAudit` inside `src/modules/audit`, inherit standard base tracking from `AuditableEntity`, strictly enforce append-only semantics, and isolate PII from logs.
+- **Choice**: Option 3.
+- **Reasons**:
+  - **Layer Inversion Prevention**: Core layers must never depend on feature modules. Locating `audit.writer.ts` in `src/modules/audit` and re-exporting ensures modular boundary integrity.
+  - **Entity Uniformity**: Per DBML, `audit_logs` contains standard `id`, `created_at`, `updated_at`, `deleted_at`, `created_by`, and `updated_by` fields from `AuditableEntity`. The table is strictly append-only; update/delete operations are forbidden at the repository and service layers.
+  - **PII Boundary**: When auditing unauthenticated events (e.g., `FAILED_LOGIN`), raw email is preserved in `old_value` for security analysis per AUD-04. However, logger error telemetry sanitizes `oldValue`/`newValue` to avoid leaking sensitive data to external log aggregators.
+  - **Non-Throwing Resilience**: `logAudit` catches internal database write failures, logs non-PII operational metadata, and returns `null` so business domain mutations are never aborted by audit write failures.
+- **Consequences**:
+  - All domain modules audit changes via `logAudit` imported from `src/modules/audit` (or backward-compatible `src/core/audit`).
+  - Read access to audit logs is restricted to `SUPER_ADMIN` via `requireRole(UserRole.SUPER_ADMIN)`.
+  - Actor relations query only safe public columns (`id`, `name`, `email`) avoiding token version or internal credential exposure.
