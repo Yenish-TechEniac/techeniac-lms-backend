@@ -755,8 +755,11 @@ export class BatchService {
 
     return {
       ...fullBatch,
-      mentors: fullBatch.mentors,
-      mentees: fullBatch.mentees,
+      mentors: fullBatch.mentors.filter((m) => m.userId === mentorId),
+      mentees: fullBatch.mentees.map((m) => ({
+        ...m,
+        mappedToUser: m.mappedToUser?.id === mentorId ? m.mappedToUser : null,
+      })),
     };
   }
 

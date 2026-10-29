@@ -38,6 +38,15 @@ void describe('Batches Mentor Scoping Unit Tests', () => {
     user: { id: mentorId, name: 'Mentor User', email: 'mentor@techeniac.com' },
   } as unknown as BatchMember;
 
+  const mockOtherMentorMember = {
+    id: 'bm-mentor-2',
+    batchId,
+    userId: otherMentorId,
+    memberRole: BatchMemberRole.MENTOR,
+    isActive: true,
+    user: { id: otherMentorId, name: 'Other Mentor', email: 'other_mentor@techeniac.com' },
+  } as unknown as BatchMember;
+
   const mockMenteeMember = {
     id: 'bm-mentee-1',
     batchId,
@@ -80,13 +89,36 @@ void describe('Batches Mentor Scoping Unit Tests', () => {
 
     batchRepository.findMembersByBatchId = (bId: string) => {
       if (bId === batchId) {
-        return Promise.resolve([mockMentorMember, mockMenteeMember, mockUnmappedMenteeMember]);
+        return Promise.resolve([
+          mockMentorMember,
+          mockOtherMentorMember,
+          mockMenteeMember,
+          mockUnmappedMenteeMember,
+        ]);
       }
       return Promise.resolve([]);
     };
 
     batchRepository.getStatusHistory = () => Promise.resolve([]);
-    mentorMenteeRepository.findActiveMappingsByBatch = () => Promise.resolve([]);
+    mentorMenteeRepository.findActiveMappingsByBatch = () =>
+      Promise.resolve([
+        Object.assign(new MentorMentee(), {
+          id: 'mm-1',
+          batchId,
+          mentorId,
+          menteeId: '33333333-3333-4333-a333-333333333333',
+          isActive: true,
+          mentor: { id: mentorId, name: 'Mentor User' },
+        }),
+        Object.assign(new MentorMentee(), {
+          id: 'mm-2',
+          batchId,
+          mentorId: otherMentorId,
+          menteeId: '44444444-4444-4444-a444-444444444444',
+          isActive: true,
+          mentor: { id: otherMentorId, name: 'Other Mentor' },
+        }),
+      ]);
     mentorMenteeRepository.findActiveMappingsForMentor = () =>
       Promise.resolve([
         Object.assign(new MentorMentee(), {
@@ -104,11 +136,16 @@ void describe('Batches Mentor Scoping Unit Tests', () => {
 
     assert.ok(result);
     assert.equal(result.batch.id, batchId);
+    assert.equal(result.mentors.length, 1);
+    assert.equal(result.mentors[0]?.userId, mentorId);
+    assert.equal(result.mentors[0]?.user?.id, mentorId);
     assert.equal(result.mentees.length, 2);
     assert.equal(result.mentees[0]?.user?.id, '33333333-3333-4333-a333-333333333333');
     assert.equal(result.mentees[0]?.user?.name, 'Mentee User');
+    assert.deepEqual(result.mentees[0]?.mappedToUser, { id: mentorId, name: 'Mentor User' });
     assert.equal(result.mentees[1]?.user?.id, '44444444-4444-4444-a444-444444444444');
     assert.equal(result.mentees[1]?.user?.name, 'Second Mentee');
+    assert.equal(result.mentees[1]?.mappedToUser, null);
   });
 
   void it('denies mentor access with ForbiddenError when mentor is not a member of the batch', async () => {
