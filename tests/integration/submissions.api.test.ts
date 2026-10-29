@@ -7,7 +7,12 @@ import { signAccessToken } from '../../src/core/auth';
 import { CourseAllocation, CourseAllocationStatus } from '../../src/modules/allocations';
 import { Batch, BatchMember, BatchStatus } from '../../src/modules/batches';
 import { Assignment, AssignmentScope, Course, SubmissionMode } from '../../src/modules/courses';
-import { Submission, submissionsRepository, SubmissionStatus } from '../../src/modules/submissions';
+import {
+  gradingRepository,
+  Submission,
+  submissionsRepository,
+  SubmissionStatus,
+} from '../../src/modules/submissions';
 import { User, userRepository, UserRole } from '../../src/modules/users';
 
 void describe('Submissions API Integration Tests (Module 9)', () => {
@@ -19,11 +24,19 @@ void describe('Submissions API Integration Tests (Module 9)', () => {
   const courseId = '44444444-4444-4444-a444-444444444444';
   const assignmentId = '55555555-5555-4555-a555-555555555555';
   const allocationId = '66666666-6666-4666-a666-666666666666';
+  const superAdminId = '99999999-9999-4999-a999-999999999999';
 
   let tokenMentee: string;
   let tokenNonMentee: string;
+  let tokenSuperAdmin: string;
 
   before(async () => {
+    tokenSuperAdmin = signAccessToken({
+      sub: superAdminId,
+      email: 'admin@techeniac.com',
+      role: 'SUPER_ADMIN',
+      tokenVersion: 1,
+    });
     tokenMentee = signAccessToken({
       sub: menteeId,
       email: 'mentee@techeniac.com',
@@ -102,6 +115,16 @@ void describe('Submissions API Integration Tests (Module 9)', () => {
 
     // Stub user resolution
     userRepository.findById = (id: string): Promise<User | null> => {
+      if (id === superAdminId) {
+        return Promise.resolve({
+          id: superAdminId,
+          email: 'admin@techeniac.com',
+          name: 'Super Admin',
+          role: UserRole.SUPER_ADMIN,
+          isActive: true,
+          tokenVersion: 1,
+        } as User);
+      }
       if (id === menteeId) {
         return Promise.resolve({
           id: menteeId,
@@ -642,6 +665,128 @@ void describe('Submissions API Integration Tests (Module 9)', () => {
       const firstVersion = json.data.versions[0];
       assert(firstVersion);
       assert.equal(firstVersion.version, 1);
+    });
+  });
+
+  void describe('Submission Queue & Grading Endpoints (Module 10)', () => {
+    void it('blocks MENTEE from accessing submission queue with 403 Forbidden', async () => {
+      const res = await fetch(`${baseUrl}/submissions/queue`, {
+        headers: { Authorization: `Bearer ${tokenMentee}` },
+      });
+      assert.equal(res.status, 403);
+    });
+
+    void it('rejects invalid fromDate string with 400 Bad Request', async () => {
+      const res = await fetch(`${baseUrl}/submissions/queue?fromDate=not-a-valid-date`, {
+        headers: { Authorization: `Bearer ${tokenSuperAdmin}` },
+      });
+      assert.equal(res.status, 400);
+      const json = (await res.json()) as {
+        error: {
+          code: string;
+          message: string;
+          details?: Array<{ field: string; message: string }>;
+        };
+      };
+      assert.equal(json.error.code, 'VALIDATION_ERROR');
+      const detail = json.error.details?.find((d) => d.field === 'fromDate');
+      assert.match(detail?.message ?? '', /fromDate must be a valid date/);
+    });
+
+    void it('rejects invalid toDate string with 400 Bad Request', async () => {
+      const res = await fetch(`${baseUrl}/submissions/queue?toDate=invalid`, {
+        headers: { Authorization: `Bearer ${tokenSuperAdmin}` },
+      });
+      assert.equal(res.status, 400);
+      const json = (await res.json()) as {
+        error: {
+          code: string;
+          message: string;
+          details?: Array<{ field: string; message: string }>;
+        };
+      };
+      assert.equal(json.error.code, 'VALIDATION_ERROR');
+      const detail = json.error.details?.find((d) => d.field === 'toDate');
+      assert.match(detail?.message ?? '', /toDate must be a valid date/);
+    });
+
+    void it('returns 200 with standard pagination envelope for submission queue', async () => {
+      const originalQueue = gradingRepository.getSubmissionQueue.bind(gradingRepository);
+      try {
+        gradingRepository.getSubmissionQueue = () =>
+          Promise.resolve({
+            items: [
+              {
+                id: 'sub-queue-1',
+                courseAllocationId: allocationId,
+                assignmentId,
+                assignmentTitle: 'Project 1',
+                maxMarks: 100,
+                passMarks: 50,
+                courseId,
+                courseTitle: 'TypeScript Master',
+                topicId: null,
+                topicTitle: null,
+                batchId: null,
+                batchName: null,
+                version: 1,
+                submittedAt: new Date(),
+                isLate: false,
+                status: SubmissionStatus.SUBMITTED,
+                marks: null,
+                gradeLabel: null,
+                feedback: null,
+                gradedBy: null,
+                gradedAt: null,
+                mentee: { id: menteeId, name: 'Alice', email: 'alice@techeniac.com' },
+              },
+            ],
+            total: 1,
+            page: 1,
+            limit: 20,
+            totalPages: 1,
+          });
+
+        const res = await fetch(`${baseUrl}/submissions/queue?sort=latest`, {
+          headers: { Authorization: `Bearer ${tokenSuperAdmin}` },
+        });
+
+        assert.equal(res.status, 200);
+        const json = (await res.json()) as {
+          success: boolean;
+          data: unknown[];
+          meta: { page: number; limit: number; total: number; totalPages: number };
+        };
+        assert.equal(json.success, true);
+        assert.equal(json.data.length, 1);
+        assert.equal(json.meta.total, 1);
+      } finally {
+        gradingRepository.getSubmissionQueue = originalQueue;
+      }
+    });
+
+    void it('rejects grading when marks are negative or missing with 400 Bad Request', async () => {
+      const res = await fetch(`${baseUrl}/submissions/sub-1/grade`, {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${tokenSuperAdmin}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ marks: -5 }),
+      });
+      assert.equal(res.status, 400);
+    });
+
+    void it('rejects resubmission request when feedback is empty with 400 Bad Request', async () => {
+      const res = await fetch(`${baseUrl}/submissions/sub-1/resubmit-request`, {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${tokenSuperAdmin}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ feedback: '' }),
+      });
+      assert.equal(res.status, 400);
     });
   });
 });

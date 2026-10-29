@@ -5,12 +5,14 @@ import { logger } from '../logging';
 import {
   MenteeReassignRecipientRole,
   renderAllocationCompletedEmail,
+  renderAssignmentGradedEmail,
   renderCourseAllocatedEmail,
   renderCourseDeadlineChangedEmail,
   renderInviteEmail,
   renderMenteeReassignedEmail,
   renderMentorMappedEmail,
   renderPasswordResetEmail,
+  renderResubmissionRequestedEmail,
   renderSubmissionReceivedEmail,
   renderTopicDeadlineChangedEmail,
 } from './templates';
@@ -72,6 +74,25 @@ export interface SendSubmissionReceivedOptions {
   courseTitle: string;
   version: number;
   submittedAt: Date;
+}
+
+export interface SendAssignmentGradedOptions {
+  to: string;
+  recipientName: string;
+  assignmentTitle: string;
+  courseTitle: string;
+  marks: number;
+  maxMarks: number;
+  gradeLabel: string;
+  feedback?: string | null;
+}
+
+export interface SendResubmissionRequestedOptions {
+  to: string;
+  recipientName: string;
+  assignmentTitle: string;
+  courseTitle: string;
+  feedback: string;
 }
 
 export interface SendAllocationCompletedOptions {
@@ -314,6 +335,78 @@ export class EmailService {
       logger.error(
         { err: error, event: 'EMAIL_DISPATCH_FAILURE', service: 'smtp' },
         'Failed to dispatch submission received email',
+      );
+    }
+  }
+
+  async sendAssignmentGradedEmail(options: SendAssignmentGradedOptions): Promise<void> {
+    const portalUrl = `${env.FRONTEND_URL}/mentee/assignments`;
+    const { subject, text, html } = renderAssignmentGradedEmail({
+      ...options,
+      portalUrl,
+    });
+
+    if (!this.transporter) {
+      logger.info(
+        { recipientName: options.recipientName, assignmentTitle: options.assignmentTitle },
+        'SMTP not configured in environment. Graded notification skipped in development.',
+      );
+      return;
+    }
+
+    try {
+      await this.transporter.sendMail({
+        from: env.SMTP_FROM,
+        to: options.to,
+        subject,
+        text,
+        html,
+      });
+
+      logger.info(
+        { recipientName: options.recipientName, assignmentTitle: options.assignmentTitle },
+        'Assignment graded email dispatched successfully via SMTP',
+      );
+    } catch (error) {
+      logger.error(
+        { err: error, event: 'EMAIL_DISPATCH_FAILURE', service: 'smtp' },
+        'Failed to dispatch assignment graded email',
+      );
+    }
+  }
+
+  async sendResubmissionRequestedEmail(options: SendResubmissionRequestedOptions): Promise<void> {
+    const portalUrl = `${env.FRONTEND_URL}/mentee/assignments`;
+    const { subject, text, html } = renderResubmissionRequestedEmail({
+      ...options,
+      portalUrl,
+    });
+
+    if (!this.transporter) {
+      logger.info(
+        { recipientName: options.recipientName, assignmentTitle: options.assignmentTitle },
+        'SMTP not configured in environment. Resubmission request email skipped in development.',
+      );
+      return;
+    }
+
+    try {
+      await this.transporter.sendMail({
+        from: env.SMTP_FROM,
+        to: options.to,
+        subject,
+        text,
+        html,
+      });
+
+      logger.info(
+        { recipientName: options.recipientName, assignmentTitle: options.assignmentTitle },
+        'Resubmission requested email dispatched successfully via SMTP',
+      );
+    } catch (error) {
+      logger.error(
+        { err: error, event: 'EMAIL_DISPATCH_FAILURE', service: 'smtp' },
+        'Failed to dispatch resubmission requested email',
       );
     }
   }

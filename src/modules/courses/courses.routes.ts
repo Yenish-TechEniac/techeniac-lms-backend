@@ -21,13 +21,18 @@ import {
 
 export const coursesRouter = Router();
 
-// All course builder endpoints require authentication and SUPER_ADMIN or MENTOR role
-coursesRouter.use(requireAuth, requireRole('SUPER_ADMIN', 'MENTOR'));
+// All course endpoints require authentication
+coursesRouter.use(requireAuth);
+
+// Course detail & outline is readable by any authenticated user (SUPER_ADMIN, MENTOR, MENTEE)
+coursesRouter.get('/:id', validate(courseIdParamSchema), coursesController.getCourseById);
+
+// All course builder endpoints require SUPER_ADMIN or MENTOR role
+coursesRouter.use(requireRole('SUPER_ADMIN', 'MENTOR'));
 
 // --- Course Routes ---
 coursesRouter.get('/', validate(listCoursesQuerySchema), coursesController.listCourses);
 coursesRouter.post('/', validate(createCourseSchema), coursesController.createCourse);
-coursesRouter.get('/:id', validate(courseIdParamSchema), coursesController.getCourseById);
 coursesRouter.put('/:id', validate(updateCourseSchema), coursesController.updateCourse);
 coursesRouter.patch(
   '/:id/status',

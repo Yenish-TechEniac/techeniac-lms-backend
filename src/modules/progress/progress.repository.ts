@@ -118,10 +118,18 @@ export class ProgressRepository {
   ): Promise<CourseAllocation | null> {
     const repo = manager ? manager.getRepository(CourseAllocation) : this.allocationRepo;
     if (lock && manager) {
+      // In PostgreSQL, FOR UPDATE cannot be applied to queries with outer joins (relations).
+      // First, lock the allocation row exclusively within the transaction.
+      const locked = await repo.findOne({
+        where: { id: allocationId, deletedAt: IsNull() },
+        lock: { mode: 'pessimistic_write' },
+      });
+      if (!locked) return null;
+
+      // Then load relations for policy checks and notifications.
       return await repo.findOne({
         where: { id: allocationId, deletedAt: IsNull() },
         relations: ['batch', 'course', 'user'],
-        lock: { mode: 'pessimistic_write' },
       });
     }
     return await repo.findOne({
