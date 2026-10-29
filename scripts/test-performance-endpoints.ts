@@ -38,7 +38,9 @@ async function runTests(): Promise<void> {
     const uniqueSuffix = Date.now().toString().slice(-6);
 
     // 1. Create dedicated test users
-    let adminUser = await userRepo.findOne({ where: { role: UserRole.SUPER_ADMIN, isActive: true } });
+    let adminUser = await userRepo.findOne({
+      where: { role: UserRole.SUPER_ADMIN, isActive: true },
+    });
     if (!adminUser) {
       adminUser = await userRepo.save(
         userRepo.create({
