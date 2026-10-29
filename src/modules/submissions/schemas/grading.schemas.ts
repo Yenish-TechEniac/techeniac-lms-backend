@@ -2,6 +2,12 @@ import { z } from 'zod';
 
 import { SubmissionStatus } from '../entities/submission.entity';
 
+export const submissionIdParamSchema = z.object({
+  params: z.object({
+    submissionId: z.string().uuid({ message: 'submissionId must be a valid UUID' }),
+  }),
+});
+
 export const submissionQueueQuerySchema = z.object({
   query: z.object({
     status: z
@@ -18,24 +24,24 @@ export const submissionQueueQuerySchema = z.object({
       .transform((v) => v === 'true')
       .optional(),
     search: z.string().trim().optional(),
-    fromDate: z.string().optional(),
-    toDate: z.string().optional(),
+    fromDate: z
+      .string()
+      .refine((v) => !Number.isNaN(Date.parse(v)), { message: 'fromDate must be a valid date' })
+      .optional(),
+    toDate: z
+      .string()
+      .refine((v) => !Number.isNaN(Date.parse(v)), { message: 'toDate must be a valid date' })
+      .optional(),
+    // Standard LMS sort convention and backward-compatible sort preset
     sort: z.enum(['latest', 'oldest']).optional().default('latest'),
+    sortBy: z.enum(['submittedAt']).optional(),
+    sortOrder: z.enum(['asc', 'desc', 'ASC', 'DESC']).optional(),
     page: z.coerce.number().int().positive().default(1),
     limit: z.coerce.number().int().positive().max(100).default(20),
   }),
 });
 
-export const submissionIdParamSchema = z.object({
-  params: z.object({
-    submissionId: z.string().uuid({ message: 'submissionId must be a valid UUID' }),
-  }),
-});
-
-export const gradeSubmissionSchema = z.object({
-  params: z.object({
-    submissionId: z.string().uuid({ message: 'submissionId must be a valid UUID' }),
-  }),
+export const gradeSubmissionSchema = submissionIdParamSchema.extend({
   body: z.object({
     marks: z
       .number({ required_error: 'Marks are required' })
@@ -44,10 +50,7 @@ export const gradeSubmissionSchema = z.object({
   }),
 });
 
-export const requestResubmissionSchema = z.object({
-  params: z.object({
-    submissionId: z.string().uuid({ message: 'submissionId must be a valid UUID' }),
-  }),
+export const requestResubmissionSchema = submissionIdParamSchema.extend({
   body: z.object({
     feedback: z
       .string({ required_error: 'Feedback is required when requesting resubmission' })

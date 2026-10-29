@@ -9,6 +9,7 @@ import {
   batchRepository,
   batchService,
   BatchStatus,
+  MentorMentee,
   mentorMenteeRepository,
 } from '../../src/modules/batches';
 
@@ -73,6 +74,16 @@ void describe('Batches Mentor Scoping Unit Tests', () => {
 
     batchRepository.getStatusHistory = () => Promise.resolve([]);
     mentorMenteeRepository.findActiveMappingsByBatch = () => Promise.resolve([]);
+    mentorMenteeRepository.findActiveMappingsForMentor = () =>
+      Promise.resolve([
+        Object.assign(new MentorMentee(), {
+          id: 'mm-1',
+          batchId,
+          mentorId,
+          menteeId: '33333333-3333-4333-a333-333333333333',
+          isActive: true,
+        }),
+      ]);
   });
 
   void it('allows mentor to retrieve batch details when mentor is an active member in batch', async () => {

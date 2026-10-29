@@ -31,7 +31,7 @@ batchRouter.post(
 batchRouter.get(
   '/',
   requireAuth,
-  requireRole(UserRole.SUPER_ADMIN, UserRole.MENTOR),
+  requireRole(UserRole.SUPER_ADMIN),
   validate(batchQuerySchema),
   batchController.getBatches,
 );
@@ -39,7 +39,7 @@ batchRouter.get(
 batchRouter.get(
   '/:id',
   requireAuth,
-  requireRole(UserRole.SUPER_ADMIN, UserRole.MENTOR),
+  requireRole(UserRole.SUPER_ADMIN),
   validate(getBatchByIdSchema),
   batchController.getBatchById,
 );

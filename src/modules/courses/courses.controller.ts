@@ -50,8 +50,9 @@ export class CoursesController extends BaseController {
   };
 
   public getCourseById = async (req: Request, res: Response): Promise<void> => {
+    const user = getAuthUser(req);
     const includeOutline = req.query.outline === 'true';
-    const course = await this.service.getCourseById(String(req.params.id), includeOutline);
+    const course = await this.service.getCourseById(String(req.params.id), includeOutline, user);
     this.sendSuccess(res, toSafeCourse(course));
   };
 

@@ -30,36 +30,28 @@ submissionsRouter.get(
   '/queue',
   gradingAuth,
   validate(submissionQueueQuerySchema),
-  (req, res, next) => {
-    void gradingController.getSubmissionQueue(req, res, next);
-  },
+  gradingController.getSubmissionQueue,
 );
 
 submissionsRouter.get(
   '/:submissionId/review',
   gradingAuth,
   validate(submissionIdParamSchema),
-  (req, res, next) => {
-    void gradingController.getReviewDetails(req, res, next);
-  },
+  gradingController.getReviewDetails,
 );
 
 submissionsRouter.post(
   '/:submissionId/grade',
   gradingAuth,
   validate(gradeSubmissionSchema),
-  (req, res, next) => {
-    void gradingController.gradeSubmission(req, res, next);
-  },
+  gradingController.gradeSubmission,
 );
 
 submissionsRouter.post(
   '/:submissionId/resubmit-request',
   gradingAuth,
   validate(requestResubmissionSchema),
-  (req, res, next) => {
-    void gradingController.requestResubmission(req, res, next);
-  },
+  gradingController.requestResubmission,
 );
 
 /* -------------------------------------------------------------------------- */

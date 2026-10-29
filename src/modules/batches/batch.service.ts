@@ -6,7 +6,7 @@ import { BadRequestError, ConflictError, NotFoundError } from '../../core/errors
 import { eventBus } from '../../core/lifecycle';
 import { User, UserRepository, userRepository, UserRole } from '../users';
 import { BatchRepository, batchRepository } from './batch.repository';
-import { BatchMember, BatchMemberRole, BatchReasonToLeave, BatchStatus } from './entities';
+import { Batch, BatchMember, BatchMemberRole, BatchReasonToLeave, BatchStatus } from './entities';
 import { MentorMenteeRepository, mentorMenteeRepository } from './mentor-mentee.repository';
 import { MentorScopeAction, MentorScopeHelper, mentorScopeHelper } from './mentor-scope.helper';
 import {
@@ -80,6 +80,19 @@ export class BatchService {
     }
   }
 
+  private sanitizeBatchSummary(batch: Batch) {
+    return {
+      ...batch,
+      creator: batch.creator
+        ? {
+            id: batch.creator.id,
+            name: batch.creator.name,
+            email: batch.creator.email,
+          }
+        : undefined,
+    };
+  }
+
   public async getBatches(params: BatchQueryParams) {
     const { items, total } = await this.batchRepo.findWithFilters(params);
     const page = params.page ?? 1;
@@ -87,7 +100,7 @@ export class BatchService {
     const totalPages = Math.ceil(total / limit) || 1;
 
     return {
-      items,
+      items: items.map((b) => this.sanitizeBatchSummary(b)),
       pagination: {
         page,
         limit,
@@ -722,7 +735,7 @@ export class BatchService {
     const totalPages = Math.ceil(total / limit) || 1;
 
     return {
-      items,
+      items: items.map((b) => this.sanitizeBatchSummary(b)),
       pagination: {
         page,
         limit,
@@ -738,7 +751,18 @@ export class BatchService {
       batchId,
     });
 
-    return await this.getBatchById(batchId);
+    const fullBatch = await this.getBatchById(batchId);
+    const activeMappings = await this.mentorMenteeRepo.findActiveMappingsForMentor(
+      mentorId,
+      batchId,
+    );
+    const mappedMenteeIds = new Set(activeMappings.map((m) => m.menteeId));
+
+    return {
+      ...fullBatch,
+      mentors: fullBatch.mentors.filter((m) => m.userId === mentorId),
+      mentees: fullBatch.mentees.filter((m) => mappedMenteeIds.has(m.userId)),
+    };
   }
 
   public async getMenteesForMentor(mentorId: string, batchId?: string) {

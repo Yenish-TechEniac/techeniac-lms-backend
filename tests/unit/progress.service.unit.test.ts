@@ -510,6 +510,35 @@ void describe('ProgressService Unit Tests (PRD M8: PRG-01 to PRG-20)', () => {
         (err: unknown) => err instanceof NotFoundError,
       );
     });
+
+    void it('findAllocationById executes two-step query to prevent FOR UPDATE outer join collision when lock is requested', async () => {
+      const repo = new ProgressRepository();
+      const findOneCalls: unknown[] = [];
+
+      const mockManager = {
+        getRepository: () => ({
+          findOne: (options: unknown) => {
+            findOneCalls.push(options);
+            return Promise.resolve({ id: 'alloc-lock-1' } as CourseAllocation);
+          },
+        }),
+      } as unknown as EntityManager;
+
+      const result = await repo.findAllocationById('alloc-lock-1', mockManager, true);
+
+      assert.equal(findOneCalls.length, 2);
+      // First call acquires row-level lock without outer join relations
+      assert.deepEqual((findOneCalls[0] as { lock: unknown }).lock, { mode: 'pessimistic_write' });
+      assert.equal((findOneCalls[0] as { relations?: unknown }).relations, undefined);
+      // Second call loads outer join relations without lock
+      assert.deepEqual((findOneCalls[1] as { relations: unknown }).relations, [
+        'batch',
+        'course',
+        'user',
+      ]);
+      assert.equal((findOneCalls[1] as { lock?: unknown }).lock, undefined);
+      assert.equal(result?.id, 'alloc-lock-1');
+    });
   });
 
   void describe('updateTopicDeadline & Validation (FR-8.6, PRG-17, PRG-18)', () => {
