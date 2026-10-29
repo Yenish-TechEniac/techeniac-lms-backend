@@ -211,15 +211,39 @@ void describe('Module 11: Performance & My Performance Unit Tests (PER-01 to PER
     assert.strictEqual(result.pagination.total, 2);
   });
 
-  void it('PER-02: Sorting mentees by average score and completion %', () => {
-    const list = [...sampleMentees];
-    list.sort((a, b) => (b.averageMarks ?? 0) - (a.averageMarks ?? 0));
-    assert.strictEqual(list[0].menteeName, 'Bob');
-    assert.strictEqual(list[1].menteeName, 'Alice');
+  void it('PER-02: Sorting mentees by average score and completion %', async () => {
+    let capturedFilter: PerformanceFilterQuery | undefined;
+    mockRepo.getMenteePerformanceList = (filter) => {
+      capturedFilter = filter;
+      const sorted = [...sampleMentees].sort((a, b) => {
+        if (filter.sortBy === 'averageMarks') {
+          return (b.averageMarks ?? 0) - (a.averageMarks ?? 0);
+        }
+        return a.completionPercentage - b.completionPercentage;
+      });
+      return Promise.resolve({ mentees: sorted, total: sorted.length });
+    };
 
-    list.sort((a, b) => a.completionPercentage - b.completionPercentage);
-    assert.strictEqual(list[0].menteeName, 'Alice');
-    assert.strictEqual(list[1].menteeName, 'Bob');
+    const resAvg = await service.getPerformance(admin, {
+      page: 1,
+      limit: 10,
+      sortBy: 'averageMarks',
+      sortOrder: 'DESC',
+    });
+    assert.strictEqual(capturedFilter?.sortBy, 'averageMarks');
+    assert.strictEqual(capturedFilter?.sortOrder, 'DESC');
+    assert.strictEqual(resAvg.mentees[0].menteeName, 'Bob');
+    assert.strictEqual(resAvg.mentees[1].menteeName, 'Alice');
+
+    const resComp = await service.getPerformance(admin, {
+      page: 1,
+      limit: 10,
+      sortBy: 'completionPercentage',
+      sortOrder: 'ASC',
+    });
+    assert.strictEqual(capturedFilter?.sortBy, 'completionPercentage');
+    assert.strictEqual(resComp.mentees[0].menteeName, 'Alice');
+    assert.strictEqual(resComp.mentees[1].menteeName, 'Bob');
   });
 
   void it('PER-03: Mentor opens Mentees Performance - strictly scoped to mapped mentees in batch', async () => {
@@ -365,9 +389,24 @@ void describe('Module 11: Performance & My Performance Unit Tests (PER-01 to PER
     assert.strictEqual(myPerf.user.id, mentor.id);
   });
 
-  void it('PER-13: Completion % and overdue count calculations', () => {
-    assert.strictEqual(sampleOverviewMetrics.completionPercentage, 75);
-    assert.strictEqual(sampleOverviewMetrics.overdueCount, 2);
-    assert.strictEqual(sampleOverviewMetrics.onTimeRate, 90);
+  void it('PER-13: Completion % and overdue count calculations', async () => {
+    mockRepo.getPerformanceOverview = () =>
+      Promise.resolve({
+        ...sampleOverviewMetrics,
+        completionPercentage: 82.5,
+        overdueCount: 5,
+        onTimeRate: 94.2,
+      });
+
+    const result = await service.getPerformance(admin, {
+      page: 1,
+      limit: 10,
+      sortBy: 'name',
+      sortOrder: 'DESC',
+    });
+
+    assert.strictEqual(result.metrics.completionPercentage, 82.5);
+    assert.strictEqual(result.metrics.overdueCount, 5);
+    assert.strictEqual(result.metrics.onTimeRate, 94.2);
   });
 });
