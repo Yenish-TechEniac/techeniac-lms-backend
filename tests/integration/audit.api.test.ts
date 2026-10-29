@@ -18,6 +18,27 @@ interface AuditResponseBody {
   };
 }
 
+const createMockAuditLog = (overrides: Partial<AuditLog>): AuditLog => {
+  const log = new AuditLog();
+  Object.assign(
+    log,
+    {
+      id: '00000000-0000-0000-0000-000000000001',
+      actorId: null,
+      actor: null,
+      type: AuditType.AUTH,
+      entity: 'User',
+      entityId: null,
+      action: 'LOGIN',
+      oldValue: null,
+      newValue: null,
+      createdAt: new Date(),
+    },
+    overrides,
+  );
+  return log;
+};
+
 void describe('Audit Log API Integration Tests (Module 14: AUD-01 to AUD-05)', () => {
   let server: Server;
   let baseUrl: string;
@@ -133,7 +154,7 @@ void describe('Audit Log API Integration Tests (Module 14: AUD-01 to AUD-05)', (
       assert.equal(params.action, 'ROLE_CHANGE');
       return Promise.resolve({
         items: [
-          {
+          createMockAuditLog({
             id: 'audit-1',
             actorId: adminId,
             type: AuditType.USER,
@@ -142,8 +163,7 @@ void describe('Audit Log API Integration Tests (Module 14: AUD-01 to AUD-05)', (
             action: 'ROLE_CHANGE',
             oldValue: { role: 'MENTEE' },
             newValue: { role: 'MENTOR', reason: 'Promotion' },
-            createdAt: new Date(),
-          } as AuditLog,
+          }),
         ],
         total: 1,
       });
@@ -166,7 +186,7 @@ void describe('Audit Log API Integration Tests (Module 14: AUD-01 to AUD-05)', (
       assert.equal(params.type, AuditType.COURSE);
       return Promise.resolve({
         items: [
-          {
+          createMockAuditLog({
             id: 'audit-course-1',
             actorId: adminId,
             type: AuditType.COURSE,
@@ -175,8 +195,7 @@ void describe('Audit Log API Integration Tests (Module 14: AUD-01 to AUD-05)', (
             action: 'LIVE_EDIT',
             oldValue: { title: 'Old Title' },
             newValue: { title: 'New Title' },
-            createdAt: new Date(),
-          } as AuditLog,
+          }),
         ],
         total: 1,
       });
@@ -198,7 +217,7 @@ void describe('Audit Log API Integration Tests (Module 14: AUD-01 to AUD-05)', (
       assert.equal(params.type, AuditType.BATCH);
       return Promise.resolve({
         items: [
-          {
+          createMockAuditLog({
             id: 'audit-batch-1',
             actorId: adminId,
             type: AuditType.BATCH,
@@ -207,8 +226,7 @@ void describe('Audit Log API Integration Tests (Module 14: AUD-01 to AUD-05)', (
             action: 'STATUS_CHANGE',
             oldValue: { status: 'DRAFT' },
             newValue: { status: 'LIVE' },
-            createdAt: new Date(),
-          } as AuditLog,
+          }),
         ],
         total: 1,
       });
@@ -230,15 +248,14 @@ void describe('Audit Log API Integration Tests (Module 14: AUD-01 to AUD-05)', (
       assert.equal(params.type, AuditType.AUTH);
       return Promise.resolve({
         items: [
-          {
+          createMockAuditLog({
             id: 'audit-auth-1',
             actorId: null,
             type: AuditType.AUTH,
             entity: 'User',
             action: 'FAILED_LOGIN',
             oldValue: { email: 'bad@external.com' },
-            createdAt: new Date(),
-          } as AuditLog,
+          }),
         ],
         total: 1,
       });

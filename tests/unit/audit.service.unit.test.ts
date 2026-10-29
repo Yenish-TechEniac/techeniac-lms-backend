@@ -10,12 +10,33 @@ import {
   AuditType,
 } from '../../src/modules/audit';
 
+const createMockAuditLog = (overrides: Partial<AuditLog>): AuditLog => {
+  const log = new AuditLog();
+  Object.assign(
+    log,
+    {
+      id: '11111111-1111-4111-8111-111111111111',
+      actorId: 'admin-id',
+      actor: null,
+      type: AuditType.USER,
+      entity: 'User',
+      entityId: null,
+      action: 'TEST_ACTION',
+      oldValue: null,
+      newValue: null,
+      createdAt: new Date('2026-03-01T10:00:00Z'),
+    },
+    overrides,
+  );
+  return log;
+};
+
 void describe('Module 14: Audit Service Unit Tests (AUD-01 to AUD-05)', () => {
   let auditService: AuditService;
   let mockRepository: Partial<AuditRepository>;
 
   const sampleAuditLogs: AuditLog[] = [
-    {
+    createMockAuditLog({
       id: '11111111-1111-4111-8111-111111111111',
       actorId: 'admin-id',
       type: AuditType.USER,
@@ -24,9 +45,8 @@ void describe('Module 14: Audit Service Unit Tests (AUD-01 to AUD-05)', () => {
       action: 'ROLE_CHANGE',
       oldValue: { role: 'MENTEE' },
       newValue: { role: 'MENTOR', reason: 'Promotion' },
-      createdAt: new Date('2026-03-01T10:00:00Z'),
-    } as AuditLog,
-    {
+    }),
+    createMockAuditLog({
       id: '22222222-2222-4222-8222-222222222222',
       actorId: 'admin-id',
       type: AuditType.COURSE,
@@ -36,7 +56,7 @@ void describe('Module 14: Audit Service Unit Tests (AUD-01 to AUD-05)', () => {
       oldValue: { title: 'Old Title' },
       newValue: { title: 'New Title' },
       createdAt: new Date('2026-03-01T11:00:00Z'),
-    } as AuditLog,
+    }),
   ];
 
   beforeEach(() => {
