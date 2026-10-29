@@ -39,7 +39,7 @@ batchRouter.get(
 batchRouter.get(
   '/:id',
   requireAuth,
-  requireRole(UserRole.SUPER_ADMIN),
+  requireRole(UserRole.SUPER_ADMIN, UserRole.MENTOR),
   validate(getBatchByIdSchema),
   batchController.getBatchById,
 );
