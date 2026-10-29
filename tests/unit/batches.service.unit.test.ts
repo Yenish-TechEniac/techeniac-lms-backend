@@ -163,4 +163,50 @@ void describe('Batches Mentor Scoping Unit Tests', () => {
       },
     );
   });
+
+  void it('denies mentor access with ForbiddenError when batch is ARCHIVED', async () => {
+    batchRepository.findById = (id: string) => {
+      if (id === batchId) {
+        return Promise.resolve({ ...mockBatch, status: BatchStatus.ARCHIVED });
+      }
+      return Promise.resolve(null);
+    };
+
+    await assert.rejects(
+      async () => {
+        await batchService.getBatchByIdForMentor(batchId, mentorId);
+      },
+      (err: unknown) => {
+        assert.ok(err instanceof ForbiddenError);
+        assert.match(
+          err.message,
+          /Operation denied: mentors cannot access archived or completed batches/i,
+        );
+        return true;
+      },
+    );
+  });
+
+  void it('denies mentor access with ForbiddenError when batch is COMPLETED', async () => {
+    batchRepository.findById = (id: string) => {
+      if (id === batchId) {
+        return Promise.resolve({ ...mockBatch, status: BatchStatus.COMPLETED });
+      }
+      return Promise.resolve(null);
+    };
+
+    await assert.rejects(
+      async () => {
+        await batchService.getBatchByIdForMentor(batchId, mentorId);
+      },
+      (err: unknown) => {
+        assert.ok(err instanceof ForbiddenError);
+        assert.match(
+          err.message,
+          /Operation denied: mentors cannot access archived or completed batches/i,
+        );
+        return true;
+      },
+    );
+  });
 });

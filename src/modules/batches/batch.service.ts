@@ -2,7 +2,7 @@ import type { EntityManager } from 'typeorm';
 
 import { AppDataSource, isUniqueViolation } from '../../core/db';
 import { EmailService, emailService, MenteeReassignRecipientRole } from '../../core/email';
-import { BadRequestError, ConflictError, NotFoundError } from '../../core/errors';
+import { BadRequestError, ConflictError, ForbiddenError, NotFoundError } from '../../core/errors';
 import { eventBus } from '../../core/lifecycle';
 import { User, UserRepository, userRepository, UserRole } from '../users';
 import { BatchRepository, batchRepository } from './batch.repository';
@@ -752,6 +752,15 @@ export class BatchService {
     });
 
     const fullBatch = await this.getBatchById(batchId);
+
+    if (
+      fullBatch.batch.status === BatchStatus.ARCHIVED ||
+      fullBatch.batch.status === BatchStatus.COMPLETED
+    ) {
+      throw new ForbiddenError(
+        'Operation denied: mentors cannot access archived or completed batches',
+      );
+    }
 
     return {
       ...fullBatch,
