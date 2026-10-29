@@ -280,6 +280,22 @@ export class BatchRepository {
     });
   }
 
+  public async findMemberInBatch(
+    batchId: string,
+    userId: string,
+    manager?: EntityManager,
+  ): Promise<BatchMember | null> {
+    return this.getMemberRepo(manager).findOne({
+      where: {
+        batchId,
+        userId,
+      },
+      relations: {
+        user: true,
+      },
+    });
+  }
+
   public async findMembersByBatchId(
     batchId: string,
     manager?: EntityManager,

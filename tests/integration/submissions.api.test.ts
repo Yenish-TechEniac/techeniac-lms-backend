@@ -145,6 +145,16 @@ void describe('Submissions API Integration Tests (Module 9)', () => {
           tokenVersion: 1,
         } as User);
       }
+      if (id === '99999999-9999-4999-a999-999999999999') {
+        return Promise.resolve({
+          id: '99999999-9999-4999-a999-999999999999',
+          email: 'admin@techeniac.com',
+          name: 'Super Admin',
+          role: UserRole.SUPER_ADMIN,
+          isActive: true,
+          tokenVersion: 1,
+        } as User);
+      }
       return Promise.resolve(null);
     };
 

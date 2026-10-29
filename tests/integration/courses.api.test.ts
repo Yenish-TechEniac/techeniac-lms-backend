@@ -361,8 +361,15 @@ void describe('Courses API Integration Tests', () => {
         isActive: true,
         createdBy: mentorAId,
         creator: { id: mentorAId, name: 'Mentor A' },
-        topics: [{ id: topicId, title: 'Introduction' }] as Topic[],
+        isActive: true,
+        topics: [
+          { id: topicId, title: 'Introduction', isActive: true, subtopics: [] } as unknown as Topic,
+        ],
       } as unknown as Course;
+
+      const origFindCourse = coursesRepository.findCourseById.bind(coursesRepository);
+      const origFindAlloc =
+        allocationsRepository.findActiveOrCompletedAllocation.bind(allocationsRepository);
 
       coursesRepository.findCourseById = (_id, includeOutline) => {
         assert.equal(includeOutline, true);
@@ -381,18 +388,23 @@ void describe('Courses API Integration Tests', () => {
         return Promise.resolve(null);
       };
 
-      const res = await fetch(`${baseUrl}/courses/${courseId}?outline=true`, {
-        method: 'GET',
-        headers: {
-          Authorization: `Bearer ${tokenMentee}`,
-        },
-      });
+      try {
+        const res = await fetch(`${baseUrl}/courses/${courseId}?outline=true`, {
+          method: 'GET',
+          headers: {
+            Authorization: `Bearer ${tokenMentee}`,
+          },
+        });
 
-      assert.equal(res.status, 200);
-      const data = (await res.json()) as { success: boolean; data?: Course };
-      assert.equal(data.success, true);
-      assert.equal(data.data?.id, courseId);
-      assert.equal(data.data?.title, 'Mentee Learning Track');
+        assert.equal(res.status, 200);
+        const data = (await res.json()) as { success: boolean; data?: Course };
+        assert.equal(data.success, true);
+        assert.equal(data.data?.id, courseId);
+        assert.equal(data.data?.title, 'Mentee Learning Track');
+      } finally {
+        coursesRepository.findCourseById = origFindCourse;
+        allocationsRepository.findActiveOrCompletedAllocation = origFindAlloc;
+      }
     });
 
     void it('rejects MENTEE with 403 Forbidden when trying to list courses in builder library', async () => {

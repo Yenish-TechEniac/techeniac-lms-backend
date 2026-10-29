@@ -24,6 +24,12 @@ export interface SubmissionData {
 @Index('idx_sub_status_time', ['status', 'submittedAt'])
 @Index('idx_sub_allocation_assignment', ['courseAllocationId', 'assignmentId'])
 @Index('idx_sub_grader', ['gradedBy'])
+@Index('idx_submissions_perf_metrics', ['status', 'marks', 'isLate'], {
+  where: `"deleted_at" IS NULL`,
+})
+@Index('idx_submissions_perf_batch_status', ['batchId', 'status'], {
+  where: `"deleted_at" IS NULL`,
+})
 @Check('chk_sub_has_data', `submission_data <> '{}'::jsonb`)
 @Check('chk_sub_marks', `marks IS NULL OR marks >= 0`)
 @Check(
