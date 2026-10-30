@@ -13,7 +13,7 @@ import { userRepository, UserRole } from '../src/modules/users';
 interface AuditApiResponse {
   success: boolean;
   data: AuditLog[];
-  pagination: {
+  meta: {
     page: number;
     limit: number;
     total: number;
@@ -339,9 +339,9 @@ async function runAuditTests(): Promise<void> {
     if (
       pageRes.status === 200 &&
       pageData.data?.length <= 2 &&
-      pageData.pagination?.page === 1 &&
-      pageData.pagination?.limit === 2 &&
-      pageData.pagination?.total >= 9
+      pageData.meta?.page === 1 &&
+      pageData.meta?.limit === 2 &&
+      pageData.meta?.total >= 9
     ) {
       console.log('✔ PASS: Audit log pagination works correctly');
     } else {
