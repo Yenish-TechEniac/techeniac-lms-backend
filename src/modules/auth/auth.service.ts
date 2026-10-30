@@ -37,6 +37,8 @@ export interface AuthUserPayload {
   email: string;
   role: UserRole;
   mustChangePassword: boolean;
+  isActive?: boolean;
+  createdAt?: Date | string;
 }
 
 export interface AuthTokens {
@@ -81,6 +83,8 @@ export class AuthService implements IAuthService {
       email: user.email,
       role: user.role,
       mustChangePassword: user.mustChangePassword,
+      isActive: user.isActive,
+      createdAt: user.createdAt,
     };
   }
 
@@ -137,6 +141,8 @@ export class AuthService implements IAuthService {
         email: user.email,
         role: user.role,
         mustChangePassword: user.mustChangePassword,
+        isActive: user.isActive,
+        createdAt: user.createdAt,
       },
       tokens: {
         accessToken,
@@ -259,6 +265,8 @@ export class AuthService implements IAuthService {
           email: user.email,
           role: user.role,
           mustChangePassword: user.mustChangePassword,
+          isActive: user.isActive,
+          createdAt: user.createdAt,
         },
         tokens: {
           accessToken,
@@ -458,6 +466,8 @@ export class AuthService implements IAuthService {
           email: user.email,
           role: user.role,
           mustChangePassword: false,
+          isActive: user.isActive,
+          createdAt: user.createdAt,
         },
         tokens: {
           accessToken,
