@@ -145,13 +145,31 @@ export class User360Service {
     }
 
     const safeUser = toSafeUser(user);
+    const tab = query.tab ?? 'all';
+
+    // Fast-path: profile tab requires no historical relationship queries
+    if (tab === 'profile') {
+      return { user: safeUser, tabs: { profile: safeUser } };
+    }
+
+    const needsRoleHistory = true;
+    const needsBatchMemberships = tab === 'all' || tab === 'batch-history' || tab === 'audit';
+    const needsMentorMappings = tab === 'all' || tab === 'mentor-mapping-history';
+    const needsCourseAllocations =
+      tab === 'all' || tab === 'course-history' || tab === 'performance-summary';
+    const needsSubmissions =
+      tab === 'all' ||
+      tab === 'assignment-grade-history' ||
+      tab === 'performance-summary' ||
+      tab === 'audit';
+
     const [roleHistory, batchMemberships, mentorMappings, courseAllocations, submissions] =
       await Promise.all([
-        this.repository.getRoleHistory(userId),
-        this.repository.getBatchMemberships(userId),
-        this.repository.getMentorMappings(userId),
-        this.repository.getCourseAllocations(userId),
-        this.repository.getSubmissions(userId),
+        needsRoleHistory ? this.repository.getRoleHistory(userId) : Promise.resolve([]),
+        needsBatchMemberships ? this.repository.getBatchMemberships(userId) : Promise.resolve([]),
+        needsMentorMappings ? this.repository.getMentorMappings(userId) : Promise.resolve([]),
+        needsCourseAllocations ? this.repository.getCourseAllocations(userId) : Promise.resolve([]),
+        needsSubmissions ? this.repository.getSubmissions(userId) : Promise.resolve([]),
       ]);
 
     const fullProfile = this.aggregateProfile(

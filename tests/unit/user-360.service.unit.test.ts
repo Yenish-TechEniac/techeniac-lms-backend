@@ -399,6 +399,30 @@ void describe('Module 3: User 360 Profile Unit Tests (HIS-01 to HIS-09)', () => 
     }
   });
 
+  void it('Skips relationship repository calls when requesting tab=profile', async () => {
+    let submissionsQueried = false;
+    let allocationsQueried = false;
+
+    const spyRepo = {
+      ...mockRepository,
+      getSubmissions: () => {
+        submissionsQueried = true;
+        return Promise.resolve([]);
+      },
+      getCourseAllocations: () => {
+        allocationsQueried = true;
+        return Promise.resolve([]);
+      },
+    };
+
+    const spyService = new User360Service(spyRepo as unknown as User360Repository);
+    const result = await spyService.getUser360('user-uuid-1', { tab: 'profile' });
+
+    assert.equal(submissionsQueried, false);
+    assert.equal(allocationsQueried, false);
+    assert.equal(result.user.id, 'user-uuid-1');
+  });
+
   void it('Throws NotFoundError when user does not exist', async () => {
     await assert.rejects(
       async () => {
