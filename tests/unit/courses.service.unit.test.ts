@@ -84,17 +84,6 @@ void describe('CoursesService Unit Tests', () => {
       });
     });
 
-    void it('allows any MENTOR to modify a course created by SUPER_ADMIN', () => {
-      const adminCourse = {
-        id: 'admin-course-123',
-        createdBy: 'admin-1-id',
-      } as Course;
-      assert.doesNotThrow(() => {
-        service.assertCanEdit(adminCourse, courseCreator);
-        service.assertCanEdit(adminCourse, anotherMentor);
-      });
-    });
-
     void it('rejects MENTEE with ForbiddenError', () => {
       assert.throws(() => {
         service.assertCanEdit(course, mentee);

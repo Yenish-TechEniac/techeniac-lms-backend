@@ -65,8 +65,11 @@ function assertFloorBudget(params: {
 
 export class CoursesService {
   // Permission helper (CRS-18 / Collaborative Course Editing)
+  // Defense-in-depth: mirrors the route-level role guard (SUPER_ADMIN or MENTOR);
+  // collaborative editing permits any mentor without per-resource creator checks.
   private assertCanEdit(_course: Course, user: AuthenticatedUser): void {
-    if (user.role === 'SUPER_ADMIN' || user.role === 'MENTOR') {
+    const userRole = user.role as UserRole;
+    if (userRole === UserRole.SUPER_ADMIN || userRole === UserRole.MENTOR) {
       return;
     }
     throw new ForbiddenError('You do not have permission to modify this course');
