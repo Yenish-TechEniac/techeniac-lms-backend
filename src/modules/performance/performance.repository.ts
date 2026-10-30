@@ -328,8 +328,31 @@ export class PerformanceRepository {
       return { mentees: [], total: 0 };
     }
 
-    // Enrich each mentee with submission metrics
-    const menteeIds = rawRows.map((r) => r.mentee_id);
+    const canPrePaginate =
+      (!filter.gradeRange || filter.gradeRange === 'ALL') &&
+      (!filter.sortBy || filter.sortBy === 'name' || filter.sortBy === 'completionPercentage');
+
+    const totalRaw = rawRows.length;
+    let targetRows = rawRows;
+
+    if (canPrePaginate) {
+      const order = filter.sortOrder === 'ASC' ? 1 : -1;
+      if (filter.sortBy === 'completionPercentage') {
+        targetRows.sort(
+          (a, b) =>
+            ((parseFloat(a.avg_progress ?? '0') || 0) - (parseFloat(b.avg_progress ?? '0') || 0)) *
+            order,
+        );
+      } else {
+        targetRows.sort((a, b) => a.mentee_name.localeCompare(b.mentee_name) * order);
+      }
+
+      const startIndex = (filter.page - 1) * filter.limit;
+      targetRows = targetRows.slice(startIndex, startIndex + filter.limit);
+    }
+
+    // Enrich target mentees with submission metrics
+    const menteeIds = targetRows.map((r) => r.mentee_id);
 
     const subAggQb = this.submissionRepo
       .createQueryBuilder('sub')
@@ -455,7 +478,7 @@ export class PerformanceRepository {
     }
 
     // Compile rows
-    let enrichedRows: MenteePerformanceRow[] = rawRows.map((r) => {
+    let enrichedRows: MenteePerformanceRow[] = targetRows.map((r) => {
       const subInfo = subMap.get(r.mentee_id);
       const totalSubs = subInfo?.totalSub ?? 0;
       const onTimeSubs = subInfo?.onTimeSub ?? 0;
@@ -481,6 +504,10 @@ export class PerformanceRepository {
         latestGrade: latestGradeMap.get(r.mentee_id) ?? null,
       };
     });
+
+    if (canPrePaginate) {
+      return { mentees: enrichedRows, total: totalRaw };
+    }
 
     // Grade range filter check
     if (filter.gradeRange && filter.gradeRange !== 'ALL') {

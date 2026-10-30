@@ -1,4 +1,4 @@
-import { EntityManager, In, Repository } from 'typeorm';
+import { EntityManager, In, IsNull, Repository } from 'typeorm';
 
 import { AppDataSource } from '../../core/db';
 import { CourseAllocation, CourseAllocationStatus } from '../allocations';
@@ -149,6 +149,7 @@ export class SubmissionsRepository {
       where: {
         courseAllocationId: In(allocationIds),
         assignmentId: In(assignmentIds),
+        deletedAt: IsNull(),
       },
       order: { version: 'DESC' },
     });
