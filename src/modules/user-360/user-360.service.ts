@@ -152,7 +152,6 @@ export class User360Service {
       return { user: safeUser, tabs: { profile: safeUser } };
     }
 
-    const needsRoleHistory = true;
     const needsBatchMemberships = tab === 'all' || tab === 'batch-history' || tab === 'audit';
     const needsMentorMappings = tab === 'all' || tab === 'mentor-mapping-history';
     const needsCourseAllocations =
@@ -163,9 +162,10 @@ export class User360Service {
       tab === 'performance-summary' ||
       tab === 'audit';
 
+    // roleHistory is unconditionally required across all tab builders to derive role period labels
     const [roleHistory, batchMemberships, mentorMappings, courseAllocations, submissions] =
       await Promise.all([
-        needsRoleHistory ? this.repository.getRoleHistory(userId) : Promise.resolve([]),
+        this.repository.getRoleHistory(userId),
         needsBatchMemberships ? this.repository.getBatchMemberships(userId) : Promise.resolve([]),
         needsMentorMappings ? this.repository.getMentorMappings(userId) : Promise.resolve([]),
         needsCourseAllocations ? this.repository.getCourseAllocations(userId) : Promise.resolve([]),

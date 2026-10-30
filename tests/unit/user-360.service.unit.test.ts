@@ -12,7 +12,12 @@ import {
 } from '../../src/modules/batches';
 import { Assignment } from '../../src/modules/courses';
 import { Submission, SubmissionStatus } from '../../src/modules/submissions';
-import { User360Profile, User360Repository, User360Service } from '../../src/modules/user-360';
+import {
+  User360Profile,
+  User360Repository,
+  User360Service,
+  User360Tab,
+} from '../../src/modules/user-360';
 import { User, UserRole, UserRoleHistory } from '../../src/modules/users';
 
 void describe('Module 3: User 360 Profile Unit Tests (HIS-01 to HIS-09)', () => {
@@ -399,29 +404,163 @@ void describe('Module 3: User 360 Profile Unit Tests (HIS-01 to HIS-09)', () => 
     }
   });
 
-  void it('Skips relationship repository calls when requesting tab=profile', async () => {
-    let submissionsQueried = false;
-    let allocationsQueried = false;
-
-    const spyRepo = {
-      ...mockRepository,
-      getSubmissions: () => {
-        submissionsQueried = true;
-        return Promise.resolve([]);
-      },
-      getCourseAllocations: () => {
-        allocationsQueried = true;
-        return Promise.resolve([]);
-      },
+  const tabHydrationMatrix: Array<{
+    tab: User360Tab;
+    expected: {
+      roleHistory: boolean;
+      batchMemberships: boolean;
+      mentorMappings: boolean;
+      courseAllocations: boolean;
+      submissions: boolean;
     };
+  }> = [
+    {
+      tab: 'profile',
+      expected: {
+        roleHistory: false,
+        batchMemberships: false,
+        mentorMappings: false,
+        courseAllocations: false,
+        submissions: false,
+      },
+    },
+    {
+      tab: 'all',
+      expected: {
+        roleHistory: true,
+        batchMemberships: true,
+        mentorMappings: true,
+        courseAllocations: true,
+        submissions: true,
+      },
+    },
+    {
+      tab: 'role-history',
+      expected: {
+        roleHistory: true,
+        batchMemberships: false,
+        mentorMappings: false,
+        courseAllocations: false,
+        submissions: false,
+      },
+    },
+    {
+      tab: 'batch-history',
+      expected: {
+        roleHistory: true,
+        batchMemberships: true,
+        mentorMappings: false,
+        courseAllocations: false,
+        submissions: false,
+      },
+    },
+    {
+      tab: 'mentor-mapping-history',
+      expected: {
+        roleHistory: true,
+        batchMemberships: false,
+        mentorMappings: true,
+        courseAllocations: false,
+        submissions: false,
+      },
+    },
+    {
+      tab: 'course-history',
+      expected: {
+        roleHistory: true,
+        batchMemberships: false,
+        mentorMappings: false,
+        courseAllocations: true,
+        submissions: false,
+      },
+    },
+    {
+      tab: 'assignment-grade-history',
+      expected: {
+        roleHistory: true,
+        batchMemberships: false,
+        mentorMappings: false,
+        courseAllocations: false,
+        submissions: true,
+      },
+    },
+    {
+      tab: 'performance-summary',
+      expected: {
+        roleHistory: true,
+        batchMemberships: false,
+        mentorMappings: false,
+        courseAllocations: true,
+        submissions: true,
+      },
+    },
+    {
+      tab: 'audit',
+      expected: {
+        roleHistory: true,
+        batchMemberships: true,
+        mentorMappings: false,
+        courseAllocations: false,
+        submissions: true,
+      },
+    },
+  ];
 
-    const spyService = new User360Service(spyRepo as unknown as User360Repository);
-    const result = await spyService.getUser360('user-uuid-1', { tab: 'profile' });
+  for (const { tab, expected } of tabHydrationMatrix) {
+    void it(`Selectively hydrates repositories according to query matrix (tab=${tab})`, async () => {
+      let roleHistoryQueried = false;
+      let batchMembershipsQueried = false;
+      let mentorMappingsQueried = false;
+      let allocationsQueried = false;
+      let submissionsQueried = false;
 
-    assert.equal(submissionsQueried, false);
-    assert.equal(allocationsQueried, false);
-    assert.equal(result.user.id, 'user-uuid-1');
-  });
+      const spyRepo = {
+        ...mockRepository,
+        getRoleHistory: () => {
+          roleHistoryQueried = true;
+          return Promise.resolve([]);
+        },
+        getBatchMemberships: () => {
+          batchMembershipsQueried = true;
+          return Promise.resolve([]);
+        },
+        getMentorMappings: () => {
+          mentorMappingsQueried = true;
+          return Promise.resolve([]);
+        },
+        getCourseAllocations: () => {
+          allocationsQueried = true;
+          return Promise.resolve([]);
+        },
+        getSubmissions: () => {
+          submissionsQueried = true;
+          return Promise.resolve([]);
+        },
+      };
+
+      const spyService = new User360Service(spyRepo as unknown as User360Repository);
+      const result = await spyService.getUser360('user-uuid-1', { tab });
+
+      assert.equal(roleHistoryQueried, expected.roleHistory, `roleHistory mismatch for tab=${tab}`);
+      assert.equal(
+        batchMembershipsQueried,
+        expected.batchMemberships,
+        `batchMemberships mismatch for tab=${tab}`,
+      );
+      assert.equal(
+        mentorMappingsQueried,
+        expected.mentorMappings,
+        `mentorMappings mismatch for tab=${tab}`,
+      );
+      assert.equal(
+        allocationsQueried,
+        expected.courseAllocations,
+        `courseAllocations mismatch for tab=${tab}`,
+      );
+      assert.equal(submissionsQueried, expected.submissions, `submissions mismatch for tab=${tab}`);
+      assert.equal(result.user.id, 'user-uuid-1');
+    });
+  }
 
   void it('Throws NotFoundError when user does not exist', async () => {
     await assert.rejects(
