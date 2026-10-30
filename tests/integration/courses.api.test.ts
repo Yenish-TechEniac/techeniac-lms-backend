@@ -118,8 +118,8 @@ void describe('Courses API Integration Tests', () => {
     };
   });
 
-  void describe('Authorization across Mentors (Mentor A vs Mentor B) (CRS-18)', () => {
-    void it('returns 403 Forbidden when Mentor B tries to update Mentor A course', async () => {
+  void describe('Collaborative Editing across Mentors & Admins (CRS-18)', () => {
+    void it('allows Mentor B to update Mentor A course (collaborative editing)', async () => {
       const mockCourse = {
         id: courseId,
         title: "Mentor A's Course",
@@ -128,6 +128,8 @@ void describe('Courses API Integration Tests', () => {
       } as Course;
 
       coursesRepository.findCourseById = () => Promise.resolve(mockCourse);
+      coursesRepository.updateCourse = (_id, payload) =>
+        Promise.resolve({ ...mockCourse, ...payload });
 
       const res = await fetch(`${baseUrl}/courses/${courseId}`, {
         method: 'PUT',
@@ -136,17 +138,18 @@ void describe('Courses API Integration Tests', () => {
           Authorization: `Bearer ${tokenMentorB}`,
         },
         body: JSON.stringify({
-          title: 'Hacked by Mentor B',
+          title: 'Updated collaboratively by Mentor B',
           expectedUpdatedAt: mockCourse.updatedAt.toISOString(),
         }),
       });
 
-      assert.equal(res.status, 403);
-      const data = (await res.json()) as { error?: { code: string; message: string } };
-      assert.equal(data.error?.code, 'FORBIDDEN');
+      assert.equal(res.status, 200);
+      const data = (await res.json()) as { success: boolean; data?: { title: string } };
+      assert.equal(data.success, true);
+      assert.equal(data.data?.title, 'Updated collaboratively by Mentor B');
     });
 
-    void it('returns 403 Forbidden when Mentor B tries to delete Mentor A course', async () => {
+    void it('allows Mentor B to delete Mentor A course when there are no open allocations', async () => {
       const mockCourse = {
         id: courseId,
         title: "Mentor A's Course",
@@ -154,6 +157,9 @@ void describe('Courses API Integration Tests', () => {
       } as Course;
 
       coursesRepository.findCourseById = () => Promise.resolve(mockCourse);
+      coursesRepository.getCourseImpact = () =>
+        Promise.resolve({ courseId, openAllocationsCount: 0, affectedMenteesCount: 0 });
+      coursesRepository.softDeleteCourse = () => Promise.resolve();
 
       const res = await fetch(`${baseUrl}/courses/${courseId}`, {
         method: 'DELETE',
@@ -162,9 +168,9 @@ void describe('Courses API Integration Tests', () => {
         },
       });
 
-      assert.equal(res.status, 403);
-      const data = (await res.json()) as { error?: { code: string } };
-      assert.equal(data.error?.code, 'FORBIDDEN');
+      assert.equal(res.status, 200);
+      const data = (await res.json()) as { success: boolean };
+      assert.equal(data.success, true);
     });
 
     void it('allows SUPER_ADMIN to update Mentor A course', async () => {
@@ -198,6 +204,33 @@ void describe('Courses API Integration Tests', () => {
       };
       assert.equal(data.success, true);
       assert.equal(data.data?.title, 'Admin Updated Title');
+    });
+
+    void it('returns 403 Forbidden when MENTEE tries to update a course', async () => {
+      const mockCourse = {
+        id: courseId,
+        title: "Mentor A's Course",
+        createdBy: mentorAId,
+        updatedAt: new Date(),
+      } as Course;
+
+      coursesRepository.findCourseById = () => Promise.resolve(mockCourse);
+
+      const res = await fetch(`${baseUrl}/courses/${courseId}`, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${tokenMentee}`,
+        },
+        body: JSON.stringify({
+          title: 'Hacked by Mentee',
+          expectedUpdatedAt: mockCourse.updatedAt.toISOString(),
+        }),
+      });
+
+      assert.equal(res.status, 403);
+      const data = (await res.json()) as { error?: { code: string; message: string } };
+      assert.equal(data.error?.code, 'FORBIDDEN');
     });
   });
 

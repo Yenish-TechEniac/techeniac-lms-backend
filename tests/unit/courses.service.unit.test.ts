@@ -78,10 +78,21 @@ void describe('CoursesService Unit Tests', () => {
       });
     });
 
-    void it('rejects MENTOR who did not create the course with ForbiddenError', () => {
-      assert.throws(() => {
+    void it('allows another MENTOR who did not create the course to modify it (collaborative editing)', () => {
+      assert.doesNotThrow(() => {
         service.assertCanEdit(course, anotherMentor);
-      }, ForbiddenError);
+      });
+    });
+
+    void it('allows any MENTOR to modify a course created by SUPER_ADMIN', () => {
+      const adminCourse = {
+        id: 'admin-course-123',
+        createdBy: 'admin-1-id',
+      } as Course;
+      assert.doesNotThrow(() => {
+        service.assertCanEdit(adminCourse, courseCreator);
+        service.assertCanEdit(adminCourse, anotherMentor);
+      });
     });
 
     void it('rejects MENTEE with ForbiddenError', () => {
