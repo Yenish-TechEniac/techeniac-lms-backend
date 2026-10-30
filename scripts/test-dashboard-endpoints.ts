@@ -74,7 +74,6 @@ async function runDashboardTests(): Promise<void> {
 
     const admin = await createTestUser(UserRole.SUPER_ADMIN);
     const mentor = await createTestUser(UserRole.MENTOR);
-    const mentee = await createTestUser(UserRole.MENTOR); // change to mentee
     const actualMentee = await createTestUser(UserRole.MENTEE);
 
     // DSH-01: Admin Dashboard Endpoint
@@ -102,17 +101,15 @@ async function runDashboardTests(): Promise<void> {
       assignedBatchesCount: number;
       activeMenteesCount: number;
       latestSubmissions: unknown[];
-      hasGuidance: boolean;
+      isZeroState: boolean;
     }>;
     if (
       mentorRes.status === 200 &&
       mentorData.success &&
       mentorData.data?.latestSubmissions !== undefined &&
-      mentorData.data.hasGuidance === true // New mentor has 0 batches and 0 mentees (DSH-08)
+      mentorData.data.isZeroState === true // New mentor has 0 batches and 0 mentees (DSH-08)
     ) {
-      logger.info(
-        'PASS: Mentor dashboard returned 200 with guidance state for new mentor (DSH-08)',
-      );
+      logger.info('PASS: Mentor dashboard returned 200 with zero state for new mentor (DSH-08)');
     } else {
       logger.error({ status: mentorRes.status, body: mentorData }, 'FAIL: Mentor dashboard');
       failures++;

@@ -1,4 +1,4 @@
-import { DataSource, In, IsNull, Repository } from 'typeorm';
+import { DataSource, In, IsNull, Repository, SelectQueryBuilder } from 'typeorm';
 
 import { AppDataSource } from '../../core/db';
 import { CourseAllocation, CourseAllocationStatus } from '../allocations';
@@ -19,6 +19,7 @@ export class DashboardRepository {
   private readonly batchMemberRepo: Repository<BatchMember>;
   private readonly mentorMenteeRepo: Repository<MentorMentee>;
   private readonly courseRepo: Repository<Course>;
+  private readonly assignmentRepo: Repository<Assignment>;
   private readonly allocationRepo: Repository<CourseAllocation>;
   private readonly submissionRepo: Repository<Submission>;
 
@@ -28,6 +29,7 @@ export class DashboardRepository {
     this.batchMemberRepo = dataSource.getRepository(BatchMember);
     this.mentorMenteeRepo = dataSource.getRepository(MentorMentee);
     this.courseRepo = dataSource.getRepository(Course);
+    this.assignmentRepo = dataSource.getRepository(Assignment);
     this.allocationRepo = dataSource.getRepository(CourseAllocation);
     this.submissionRepo = dataSource.getRepository(Submission);
   }
@@ -91,7 +93,10 @@ export class DashboardRepository {
     const liveBatches = batchMap.get(BatchStatus.LIVE) ?? 0;
     const draftBatches = batchMap.get(BatchStatus.DRAFT) ?? 0;
     const completedBatches = batchMap.get(BatchStatus.COMPLETED) ?? 0;
-    const totalBatches = Array.from(batchMap.values()).reduce((a, b) => a + b, 0);
+    const onHoldBatches = batchMap.get(BatchStatus.ON_HOLD) ?? 0;
+    const archivedBatches = batchMap.get(BatchStatus.ARCHIVED) ?? 0;
+    const totalBatches =
+      liveBatches + draftBatches + completedBatches + onHoldBatches + archivedBatches;
 
     const activeAllocations =
       (allocMap.get(CourseAllocationStatus.ASSIGNED) ?? 0) +
@@ -114,6 +119,8 @@ export class DashboardRepository {
         liveBatches,
         draftBatches,
         completedBatches,
+        onHoldBatches,
+        archivedBatches,
       },
       courses: {
         totalCourses,
@@ -134,7 +141,12 @@ export class DashboardRepository {
   public async getMentorAssignedBatchesCount(mentorId: string): Promise<number> {
     const raw = await this.batchMemberRepo
       .createQueryBuilder('bm')
-      .innerJoin(Batch, 'b', 'b.id = bm.batch_id AND b.deleted_at IS NULL')
+      .innerJoin(
+        Batch,
+        'b',
+        'b.id = bm.batch_id AND b.deleted_at IS NULL AND b.status NOT IN (:...terminalStatuses)',
+        { terminalStatuses: [BatchStatus.COMPLETED, BatchStatus.ARCHIVED] },
+      )
       .where('bm.userId = :mentorId', { mentorId })
       .andWhere('bm.memberRole = :role', { role: BatchMemberRole.MENTOR })
       .andWhere('bm.isActive = true')
@@ -146,17 +158,45 @@ export class DashboardRepository {
   }
 
   public async getMentorActiveMappings(mentorId: string): Promise<MentorMentee[]> {
-    return this.mentorMenteeRepo.find({
-      where: {
-        mentorId,
-        isActive: true,
-        deletedAt: IsNull(),
-      },
+    return this.mentorMenteeRepo
+      .createQueryBuilder('mm')
+      .innerJoin(
+        Batch,
+        'b',
+        'b.id = mm.batch_id AND b.deleted_at IS NULL AND b.status NOT IN (:...terminalStatuses)',
+        { terminalStatuses: [BatchStatus.COMPLETED, BatchStatus.ARCHIVED] },
+      )
+      .where('mm.mentorId = :mentorId', { mentorId })
+      .andWhere('mm.isActive = true')
+      .andWhere('mm.deletedAt IS NULL')
+      .getMany();
+  }
+
+  private applyAllowedPairsFilter(
+    qb: SelectQueryBuilder<Submission>,
+    allowedPairs: Array<{ batchId: string; menteeId: string; startDate?: Date }>,
+    paramPrefix: string = 'p',
+  ): void {
+    const pairClauses = allowedPairs.map((p, idx) => {
+      const bKey = `${paramPrefix}_b_${idx}`;
+      const mKey = `${paramPrefix}_m_${idx}`;
+      qb.setParameter(bKey, p.batchId);
+      qb.setParameter(mKey, p.menteeId);
+
+      if (p.startDate) {
+        const sKey = `${paramPrefix}_s_${idx}`;
+        qb.setParameter(sKey, p.startDate);
+        return `(s.batchId = :${bKey} AND ca.userId = :${mKey} AND s.submitted_at >= :${sKey})`;
+      }
+
+      return `(s.batchId = :${bKey} AND ca.userId = :${mKey})`;
     });
+
+    qb.andWhere(`(${pairClauses.join(' OR ')})`);
   }
 
   public async getMentorSubmissionsStats(
-    allowedPairs: Array<{ batchId: string; menteeId: string }>,
+    allowedPairs: Array<{ batchId: string; menteeId: string; startDate?: Date }>,
   ): Promise<{ pendingReviewCount: number; gradedCount: number }> {
     if (allowedPairs.length === 0) {
       return { pendingReviewCount: 0, gradedCount: 0 };
@@ -170,12 +210,7 @@ export class DashboardRepository {
       .where('s.deletedAt IS NULL')
       .andWhere('s.batchId IS NOT NULL');
 
-    const pairClauses = allowedPairs.map((p, idx) => {
-      qb.setParameter(`mb_${idx}`, p.batchId);
-      qb.setParameter(`mm_${idx}`, p.menteeId);
-      return `(s.batchId = :mb_${idx} AND ca.userId = :mm_${idx})`;
-    });
-    qb.andWhere(`(${pairClauses.join(' OR ')})`);
+    this.applyAllowedPairsFilter(qb, allowedPairs, 'ms');
     qb.groupBy('s.status');
 
     const results = await qb.getRawMany<{ status: string; count: string }>();
@@ -188,7 +223,7 @@ export class DashboardRepository {
   }
 
   public async getMentorLatestSubmissions(
-    allowedPairs: Array<{ batchId: string; menteeId: string }>,
+    allowedPairs: Array<{ batchId: string; menteeId: string; startDate?: Date }>,
     limit: number = 10,
   ): Promise<LatestSubmissionItem[]> {
     if (allowedPairs.length === 0) {
@@ -221,12 +256,7 @@ export class DashboardRepository {
       .where('s.deletedAt IS NULL')
       .andWhere('s.batchId IS NOT NULL');
 
-    const pairClauses = allowedPairs.map((p, idx) => {
-      qb.setParameter(`lb_${idx}`, p.batchId);
-      qb.setParameter(`lm_${idx}`, p.menteeId);
-      return `(s.batchId = :lb_${idx} AND ca.userId = :lm_${idx})`;
-    });
-    qb.andWhere(`(${pairClauses.join(' OR ')})`);
+    this.applyAllowedPairsFilter(qb, allowedPairs, 'ls');
     qb.orderBy('s.submitted_at', 'DESC');
     qb.limit(limit);
 
@@ -270,12 +300,12 @@ export class DashboardRepository {
     completedCoursesCount: number;
     overallProgressPercent: number;
   }> {
-    const allocations = await this.allocationRepo.find({
-      where: {
-        userId: menteeId,
-        deletedAt: IsNull(),
-      },
-    });
+    const allocations = await this.allocationRepo
+      .createQueryBuilder('ca')
+      .innerJoin(Course, 'c', 'c.id = ca.course_id AND c.deleted_at IS NULL AND c.is_active = true')
+      .where('ca.userId = :menteeId', { menteeId })
+      .andWhere('ca.deletedAt IS NULL')
+      .getMany();
 
     const activeAllocations = allocations.filter(
       (a) =>
@@ -300,18 +330,94 @@ export class DashboardRepository {
   }
 
   public async getMenteePendingAssignmentsCount(menteeId: string): Promise<number> {
-    const raw = await this.submissionRepo
-      .createQueryBuilder('s')
-      .innerJoin(CourseAllocation, 'ca', 'ca.id = s.course_allocation_id AND ca.deleted_at IS NULL')
+    const allocations = await this.allocationRepo
+      .createQueryBuilder('ca')
+      .innerJoin(Course, 'c', 'c.id = ca.course_id AND c.deleted_at IS NULL AND c.is_active = true')
+      .leftJoin(Batch, 'b', 'b.id = ca.batch_id AND b.deleted_at IS NULL')
       .where('ca.userId = :menteeId', { menteeId })
-      .andWhere('s.deletedAt IS NULL')
-      .andWhere('s.status IN (:...statuses)', {
-        statuses: [SubmissionStatus.SUBMITTED, SubmissionStatus.RESUBMIT_REQUESTED],
+      .andWhere('ca.deletedAt IS NULL')
+      .andWhere('ca.status IN (:...statuses)', {
+        statuses: [CourseAllocationStatus.ASSIGNED, CourseAllocationStatus.IN_PROGRESS],
       })
-      .select('COUNT(*)', 'count')
-      .getRawOne<{ count: string }>();
+      .andWhere('(ca.batch_id IS NULL OR b.status NOT IN (:...terminalStatuses))', {
+        terminalStatuses: [BatchStatus.ON_HOLD, BatchStatus.COMPLETED, BatchStatus.ARCHIVED],
+      })
+      .select([
+        'ca.id AS "allocationId"',
+        'ca.course_id AS "courseId"',
+        'ca.due_date AS "dueDate"',
+        'ca.assignment_overrides AS "assignmentOverrides"',
+      ])
+      .getRawMany<{
+        allocationId: string;
+        courseId: string;
+        dueDate: Date;
+        assignmentOverrides: Record<string, string> | null;
+      }>();
 
-    return raw ? Number(raw.count) : 0;
+    if (allocations.length === 0) {
+      return 0;
+    }
+
+    const courseIds = [...new Set(allocations.map((a) => a.courseId))];
+    const assignments = await this.assignmentRepo.find({
+      where: {
+        courseId: In(courseIds),
+        deletedAt: IsNull(),
+      },
+      select: ['id', 'courseId'],
+    });
+
+    if (assignments.length === 0) {
+      return 0;
+    }
+
+    const allocationIds = allocations.map((a) => a.allocationId);
+    const assignmentIds = assignments.map((a) => a.id);
+
+    const submissions = await this.submissionRepo.find({
+      where: {
+        courseAllocationId: In(allocationIds),
+        assignmentId: In(assignmentIds),
+        deletedAt: IsNull(),
+      },
+      order: { version: 'DESC' },
+    });
+
+    const latestSubmissionMap = new Map<string, Submission>();
+    for (const sub of submissions) {
+      const key = `${sub.courseAllocationId}:${sub.assignmentId}`;
+      if (!latestSubmissionMap.has(key)) {
+        latestSubmissionMap.set(key, sub);
+      }
+    }
+
+    const now = new Date();
+    let pendingCount = 0;
+
+    for (const alloc of allocations) {
+      const allocAssignments = assignments.filter((a) => a.courseId === alloc.courseId);
+      for (const assignment of allocAssignments) {
+        const key = `${alloc.allocationId}:${assignment.id}`;
+        const latestSub = latestSubmissionMap.get(key);
+
+        if (latestSub) {
+          if (latestSub.status === SubmissionStatus.RESUBMIT_REQUESTED) {
+            pendingCount++;
+          }
+        } else {
+          const overrideDueDateStr = alloc.assignmentOverrides?.[assignment.id];
+          const effectiveDueDate = overrideDueDateStr
+            ? new Date(overrideDueDateStr)
+            : alloc.dueDate;
+          if (new Date(effectiveDueDate) >= now) {
+            pendingCount++;
+          }
+        }
+      }
+    }
+
+    return pendingCount;
   }
 
   public async getMenteeRecentSubmissions(
@@ -366,27 +472,26 @@ export class DashboardRepository {
   public async getMenteeUpcomingDeadlines(
     menteeId: string,
     limit: number = 5,
-  ): Promise<MenteeUpcomingDeadlineItem[]> {
-    const allocations = await this.allocationRepo.find({
-      where: {
-        userId: menteeId,
-        status: In([CourseAllocationStatus.ASSIGNED, CourseAllocationStatus.IN_PROGRESS]),
-        deletedAt: IsNull(),
-      },
-      relations: ['course'],
-      order: {
-        dueDate: 'ASC',
-      },
-      take: limit,
-    });
-
+  ): Promise<Array<Omit<MenteeUpcomingDeadlineItem, 'isOverdue'>>> {
     const now = new Date();
+    const allocations = await this.allocationRepo
+      .createQueryBuilder('ca')
+      .innerJoinAndSelect('ca.course', 'c', 'c.deleted_at IS NULL AND c.is_active = true')
+      .where('ca.userId = :menteeId', { menteeId })
+      .andWhere('ca.deletedAt IS NULL')
+      .andWhere('ca.status IN (:...statuses)', {
+        statuses: [CourseAllocationStatus.ASSIGNED, CourseAllocationStatus.IN_PROGRESS],
+      })
+      .andWhere('ca.dueDate >= :now', { now })
+      .orderBy('ca.dueDate', 'ASC')
+      .take(limit)
+      .getMany();
+
     return allocations.map((a) => ({
       allocationId: a.id,
       courseName: a.course?.title ?? 'Assigned Course',
       dueDate: new Date(a.dueDate).toISOString(),
       progressPercent: Number(a.progressPercent || 0),
-      isOverdue: new Date(a.dueDate) < now,
     }));
   }
 }

@@ -12,6 +12,8 @@ export const adminDashboardSchema = z.object({
     liveBatches: z.number().int().nonnegative(),
     draftBatches: z.number().int().nonnegative(),
     completedBatches: z.number().int().nonnegative(),
+    onHoldBatches: z.number().int().nonnegative(),
+    archivedBatches: z.number().int().nonnegative(),
   }),
   courses: z.object({
     totalCourses: z.number().int().nonnegative(),
@@ -50,7 +52,7 @@ export const mentorDashboardSchema = z.object({
   activeMenteesCount: z.number().int().nonnegative(),
   pendingReviewCount: z.number().int().nonnegative(),
   gradedCount: z.number().int().nonnegative(),
-  hasGuidance: z.boolean(),
+  isZeroState: z.boolean(),
   latestSubmissions: z.array(latestSubmissionItemSchema),
 });
 

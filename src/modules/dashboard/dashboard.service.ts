@@ -1,15 +1,23 @@
 import { DashboardRepository, dashboardRepository } from './dashboard.repository';
-import type {
-  AdminDashboardResponse,
-  MenteeDashboardResponse,
-  MentorDashboardResponse,
+import {
+  type AdminDashboardResponse,
+  adminDashboardSchema,
+  type MenteeDashboardResponse,
+  menteeDashboardSchema,
+  type MentorDashboardResponse,
+  mentorDashboardSchema,
 } from './schemas/dashboard.schemas';
+
+export const DEFAULT_LATEST_SUBMISSIONS_LIMIT = 10;
+export const DEFAULT_RECENT_SUBMISSIONS_LIMIT = 5;
+export const DEFAULT_UPCOMING_DEADLINES_LIMIT = 5;
 
 export class DashboardService {
   constructor(private readonly repository: DashboardRepository = dashboardRepository) {}
 
   public async getAdminDashboard(): Promise<AdminDashboardResponse> {
-    return this.repository.getAdminMetrics();
+    const metrics = await this.repository.getAdminMetrics();
+    return adminDashboardSchema.parse(metrics);
   }
 
   public async getMentorDashboard(mentorId: string): Promise<MentorDashboardResponse> {
@@ -22,23 +30,26 @@ export class DashboardService {
     const allowedPairs = mappings.map((m) => ({
       batchId: m.batchId,
       menteeId: m.menteeId,
+      startDate: m.startDate,
     }));
 
     const [stats, latestSubmissions] = await Promise.all([
       this.repository.getMentorSubmissionsStats(allowedPairs),
-      this.repository.getMentorLatestSubmissions(allowedPairs, 10),
+      this.repository.getMentorLatestSubmissions(allowedPairs, DEFAULT_LATEST_SUBMISSIONS_LIMIT),
     ]);
 
-    const hasGuidance = assignedBatchesCount === 0 && activeMenteesCount === 0;
+    const isZeroState = assignedBatchesCount === 0 && activeMenteesCount === 0;
 
-    return {
+    const response = {
       assignedBatchesCount,
       activeMenteesCount,
       pendingReviewCount: stats.pendingReviewCount,
       gradedCount: stats.gradedCount,
-      hasGuidance,
+      isZeroState,
       latestSubmissions,
     };
+
+    return mentorDashboardSchema.parse(response);
   }
 
   public async getMenteeDashboard(menteeId: string): Promise<MenteeDashboardResponse> {
@@ -46,18 +57,24 @@ export class DashboardService {
       await Promise.all([
         this.repository.getMenteeAllocationsSummary(menteeId),
         this.repository.getMenteePendingAssignmentsCount(menteeId),
-        this.repository.getMenteeRecentSubmissions(menteeId, 5),
-        this.repository.getMenteeUpcomingDeadlines(menteeId, 5),
+        this.repository.getMenteeRecentSubmissions(menteeId, DEFAULT_RECENT_SUBMISSIONS_LIMIT),
+        this.repository.getMenteeUpcomingDeadlines(menteeId, DEFAULT_UPCOMING_DEADLINES_LIMIT),
       ]);
 
-    return {
+    const now = new Date();
+    const response = {
       activeCoursesCount: allocSummary.activeCoursesCount,
       completedCoursesCount: allocSummary.completedCoursesCount,
       overallProgressPercent: allocSummary.overallProgressPercent,
       pendingAssignmentsCount,
       recentSubmissions,
-      upcomingDeadlines,
+      upcomingDeadlines: upcomingDeadlines.map((d) => ({
+        ...d,
+        isOverdue: new Date(d.dueDate) < now,
+      })),
     };
+
+    return menteeDashboardSchema.parse(response);
   }
 }
 
