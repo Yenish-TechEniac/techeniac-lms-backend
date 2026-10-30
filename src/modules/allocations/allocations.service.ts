@@ -1,9 +1,11 @@
+import { logAudit } from '../../core/audit';
 import type { AuthenticatedUser } from '../../core/auth';
 import { isUniqueViolation } from '../../core/db';
 import { emailService } from '../../core/email';
 import { ConflictError, ForbiddenError, NotFoundError, ValidationError } from '../../core/errors';
 import { eventBus } from '../../core/lifecycle';
 import { logger } from '../../core/logging';
+import { AuditType } from '../audit';
 import { BatchStatus } from '../batches';
 import { UserRole } from '../users';
 import { AllocationsPolicy, allocationsPolicy } from './allocations.policy';
@@ -123,6 +125,25 @@ export class AllocationsService {
       allocationIds: savedAllocations.map((a) => a.id),
       courseId: course.id,
     });
+
+    await Promise.all(
+      savedAllocations.map((alloc) =>
+        logAudit({
+          actorId: actor.id,
+          type: AuditType.COURSE_ALLOCATION,
+          entity: 'CourseAllocation',
+          entityId: alloc.id,
+          action: 'ALLOCATE_COURSE',
+          newValue: {
+            courseId: alloc.courseId,
+            userId: alloc.userId,
+            batchId: alloc.batchId,
+            startDate: alloc.startDate,
+            dueDate: alloc.dueDate,
+          },
+        }),
+      ),
+    );
 
     void this.dispatchAllocationEmails(savedAllocations, course.title, input.batchId);
 
@@ -360,6 +381,9 @@ export class AllocationsService {
     await this.policy.assertCanManageAllocation(actor, allocation);
     this.assertAllocationIsMutable(allocation);
 
+    const previousStartDate = allocation.startDate.toISOString();
+    const previousDueDate = allocation.dueDate.toISOString();
+
     if (input.startDate) {
       allocation.startDate = new Date(input.startDate);
     }
@@ -377,6 +401,19 @@ export class AllocationsService {
     eventBus.emitEvent('allocation.deadlineChanged', {
       allocationId: saved.id,
       dueDate: saved.dueDate.toISOString(),
+    });
+
+    await logAudit({
+      actorId: actor.id,
+      type: AuditType.COURSE_ALLOCATION,
+      entity: 'CourseAllocation',
+      entityId: saved.id,
+      action: 'UPDATE_ALLOCATION_DATES',
+      oldValue: { startDate: previousStartDate, dueDate: previousDueDate },
+      newValue: {
+        startDate: saved.startDate.toISOString(),
+        dueDate: saved.dueDate.toISOString(),
+      },
     });
 
     if (input.dueDate && saved.user?.email) {
@@ -449,6 +486,22 @@ export class AllocationsService {
       });
     }
 
+    await Promise.all(
+      updated.map((alloc) =>
+        logAudit({
+          actorId: actor.id,
+          type: AuditType.COURSE_ALLOCATION,
+          entity: 'CourseAllocation',
+          entityId: alloc.id,
+          action: 'UPDATE_ALLOCATION_DATES',
+          newValue: {
+            startDate: alloc.startDate.toISOString(),
+            dueDate: alloc.dueDate.toISOString(),
+          },
+        }),
+      ),
+    );
+
     return { allocations: updated, skipped };
   }
 
@@ -461,10 +514,23 @@ export class AllocationsService {
     await this.policy.assertCanManageAllocation(actor, allocation);
     this.assertAllocationIsMutable(allocation);
 
+    const previousStatus = allocation.status;
     allocation.status = CourseAllocationStatus.REVOKED;
     allocation.updatedBy = actor.id;
 
-    return await this.repo.saveAllocation(allocation);
+    const saved = await this.repo.saveAllocation(allocation);
+
+    await logAudit({
+      actorId: actor.id,
+      type: AuditType.COURSE_ALLOCATION,
+      entity: 'CourseAllocation',
+      entityId: id,
+      action: 'REVOKE_ALLOCATION',
+      oldValue: { status: previousStatus },
+      newValue: { status: CourseAllocationStatus.REVOKED },
+    });
+
+    return saved;
   }
 
   async addMenteesToBatchAllocation(
@@ -510,6 +576,8 @@ export class AllocationsService {
     this.assertAllocationIsMutable(allocation);
 
     let override = await this.repo.findAssignmentOverride(allocationId, input.assignmentId);
+    const previousDueDate = override?.dueDate ? override.dueDate.toISOString() : null;
+
     if (!override) {
       override = new AssignmentDueOverride();
       override.courseAllocationId = allocationId;
@@ -521,7 +589,23 @@ export class AllocationsService {
     override.setBy = actor.id;
     override.updatedBy = actor.id;
 
-    return await this.repo.saveAssignmentOverride(override);
+    const saved = await this.repo.saveAssignmentOverride(override);
+
+    await logAudit({
+      actorId: actor.id,
+      type: AuditType.COURSE_ALLOCATION,
+      entity: 'AssignmentDueOverride',
+      entityId: saved.id,
+      action: 'OVERRIDE_DUE_DATE',
+      oldValue: previousDueDate ? { dueDate: previousDueDate } : null,
+      newValue: {
+        courseAllocationId: allocationId,
+        assignmentId: input.assignmentId,
+        dueDate: input.dueDate,
+      },
+    });
+
+    return saved;
   }
 
   async bulkSetAssignmentDueOverrides(

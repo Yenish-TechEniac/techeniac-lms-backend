@@ -1,3 +1,4 @@
+import { logAudit } from '../../core/audit';
 import { emailService } from '../../core/email/email.service';
 import {
   ConflictError,
@@ -8,6 +9,7 @@ import {
 import { logger } from '../../core/logging';
 import { safeUrl } from '../../core/utils/sanitizer';
 import { CourseAllocation } from '../allocations';
+import { AuditType } from '../audit';
 import { BatchStatus } from '../batches';
 import { Assignment, SubmissionMode } from '../courses';
 import { User, UserRole } from '../users';
@@ -378,6 +380,20 @@ export class SubmissionsService {
 
     // 9. Send "submission received" email (FR-13.1, SUB-02)
     this.sendSubmissionEmailAsync(user, assignment, savedSubmission, alloc.batchId).catch(() => {});
+
+    await logAudit({
+      actorId: menteeId,
+      type: AuditType.SUBMISSION,
+      entity: 'Submission',
+      entityId: savedSubmission.id,
+      action: 'SUBMIT_ASSIGNMENT',
+      newValue: {
+        courseAllocationId: alloc.allocationId,
+        assignmentId: assignment.id,
+        version: savedSubmission.version,
+        isLate: savedSubmission.isLate,
+      },
+    });
 
     return savedSubmission;
   }
