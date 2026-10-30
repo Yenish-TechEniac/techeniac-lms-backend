@@ -43,6 +43,7 @@ void describe('User Role Transition Rules Unit Tests', () => {
       if (id === superAdminUser.id) return Promise.resolve(superAdminUser);
       return Promise.resolve(null);
     };
+    batchService.getActiveMappingsForMentor = (): Promise<MentorMentee[]> => Promise.resolve([]);
   });
 
   void describe('Transition Matrix Verification', () => {
@@ -65,12 +66,16 @@ void describe('User Role Transition Rules Unit Tests', () => {
       assert.equal(impact.isBlocked, false);
       assert.equal(impact.blockReason, null);
       assert.equal(impact.newRole, UserRole.MENTOR);
+      assert.equal(impact.willRevokeSessions, true);
+      assert.ok(impact.impactPoints.length > 0);
     });
 
     void it('blocks Mentee from transitioning directly to Super Admin', async () => {
       const impact = await usersService.getRoleImpact(menteeUser.id, UserRole.SUPER_ADMIN);
       assert.equal(impact.isBlocked, true);
       assert.equal(impact.blockReason, 'INVALID_ROLE_TRANSITION');
+      assert.equal(impact.willRevokeSessions, false);
+      assert.deepEqual(impact.impactPoints, [impact.impactSummary]);
       assert.match(impact.impactSummary, /MENTEE can only be transitioned to MENTOR/);
     });
 
@@ -78,6 +83,8 @@ void describe('User Role Transition Rules Unit Tests', () => {
       const impact = await usersService.getRoleImpact(mentorUser.id, UserRole.MENTEE);
       assert.equal(impact.isBlocked, true);
       assert.equal(impact.blockReason, 'INVALID_ROLE_TRANSITION');
+      assert.equal(impact.willRevokeSessions, false);
+      assert.deepEqual(impact.impactPoints, [impact.impactSummary]);
       assert.match(impact.impactSummary, /MENTOR can only be transitioned to SUPER_ADMIN/);
     });
 
@@ -86,6 +93,8 @@ void describe('User Role Transition Rules Unit Tests', () => {
       const impact = await usersService.getRoleImpact(mentorUser.id, UserRole.SUPER_ADMIN);
       assert.equal(impact.isBlocked, false);
       assert.equal(impact.blockReason, null);
+      assert.equal(impact.willRevokeSessions, true);
+      assert.ok(impact.impactPoints.length > 0);
     });
 
     void it('blocks Mentor from transitioning to Super Admin when having active mentees', async () => {
@@ -103,6 +112,8 @@ void describe('User Role Transition Rules Unit Tests', () => {
       const impact = await usersService.getRoleImpact(mentorUser.id, UserRole.SUPER_ADMIN);
       assert.equal(impact.isBlocked, true);
       assert.equal(impact.blockReason, 'ACTIVE_MENTEES');
+      assert.equal(impact.willRevokeSessions, false);
+      assert.deepEqual(impact.impactPoints, [impact.impactSummary]);
     });
 
     void it('blocks Super Admin role from being changed to Mentor or Mentee', async () => {
@@ -110,10 +121,14 @@ void describe('User Role Transition Rules Unit Tests', () => {
       assert.equal(impactMentor.isBlocked, true);
       assert.equal(impactMentor.blockReason, 'SUPER_ADMIN_ROLE_IMMUTABLE');
       assert.equal(impactMentor.impactSummary, 'Super Admin role cannot be changed.');
+      assert.equal(impactMentor.willRevokeSessions, false);
+      assert.deepEqual(impactMentor.impactPoints, [impactMentor.impactSummary]);
 
       const impactMentee = await usersService.getRoleImpact(superAdminUser.id, UserRole.MENTEE);
       assert.equal(impactMentee.isBlocked, true);
       assert.equal(impactMentee.blockReason, 'SUPER_ADMIN_ROLE_IMMUTABLE');
+      assert.equal(impactMentee.willRevokeSessions, false);
+      assert.deepEqual(impactMentee.impactPoints, [impactMentee.impactSummary]);
     });
   });
 

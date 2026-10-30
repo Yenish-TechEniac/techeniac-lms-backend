@@ -26,17 +26,14 @@ import type {
 } from './users.schemas';
 
 export type RoleChangeBlockReason =
-  | 'SAME_ROLE'
-  | 'LAST_SUPER_ADMIN'
-  | 'ACTIVE_MENTEES'
-  | 'INVALID_ROLE_TRANSITION'
-  | 'SUPER_ADMIN_ROLE_IMMUTABLE';
+  'SAME_ROLE' | 'ACTIVE_MENTEES' | 'INVALID_ROLE_TRANSITION' | 'SUPER_ADMIN_ROLE_IMMUTABLE';
 
-export const ALLOWED_ROLE_TRANSITIONS: Record<UserRole, readonly UserRole[]> = {
-  [UserRole.MENTEE]: [UserRole.MENTOR],
-  [UserRole.MENTOR]: [UserRole.SUPER_ADMIN],
-  [UserRole.SUPER_ADMIN]: [],
-};
+export const ALLOWED_ROLE_TRANSITIONS: Readonly<Record<UserRole, readonly UserRole[]>> =
+  Object.freeze({
+    [UserRole.MENTEE]: Object.freeze([UserRole.MENTOR]),
+    [UserRole.MENTOR]: Object.freeze([UserRole.SUPER_ADMIN]),
+    [UserRole.SUPER_ADMIN]: Object.freeze([]),
+  });
 
 export interface SafeUser {
   id: string;
@@ -450,37 +447,6 @@ export class UsersService {
       }
     }
 
-    const impactPoints: string[] = [];
-    if (isSameRole) {
-      impactPoints.push(`User already holds the role ${newRole}. No modifications will be made.`);
-    } else {
-      if (user.role === UserRole.MENTEE) {
-        impactPoints.push('Learner batch pairings and active course submission access will end');
-        impactPoints.push('Active batch membership will be closed with reason: ROLE_CHANGE');
-        impactPoints.push(
-          'Prior grades, learning history, and submitted assignments remain preserved',
-        );
-      } else if (user.role === UserRole.MENTOR) {
-        impactPoints.push('Batch mentor memberships and mappings in those batches will end');
-        impactPoints.push(
-          'Created courses remain preserved in the library under creator attribution',
-        );
-        if (newRole === UserRole.MENTEE) {
-          impactPoints.push(
-            'User will become eligible to be added to a new batch and mapped to a mentor',
-          );
-        }
-      } else if (user.role === UserRole.SUPER_ADMIN) {
-        impactPoints.push(
-          'Administrative configuration and global management permissions will be revoked',
-        );
-        impactPoints.push('Created courses remain preserved in the library');
-      }
-      impactPoints.push(
-        'All active user sessions will be immediately terminated (tokenVersion incremented)',
-      );
-    }
-
     let impactSummary = '';
     if (isSameRole) {
       impactSummary = `User already has the role ${newRole}. No changes will be applied.`;
@@ -495,6 +461,29 @@ export class UsersService {
       impactSummary = `Changing role from ${user.role} to ${newRole} will invalidate all active sessions and reassign permissions immediately.`;
     }
 
+    const impactPoints: string[] = [];
+    if (isSameRole) {
+      impactPoints.push(`User already holds the role ${newRole}. No modifications will be made.`);
+    } else if (isBlocked) {
+      impactPoints.push(impactSummary);
+    } else {
+      if (user.role === UserRole.MENTEE) {
+        impactPoints.push('Learner batch pairings and active course submission access will end');
+        impactPoints.push('Active batch membership will be closed with reason: ROLE_CHANGE');
+        impactPoints.push(
+          'Prior grades, learning history, and submitted assignments remain preserved',
+        );
+      } else if (user.role === UserRole.MENTOR) {
+        impactPoints.push('Batch mentor memberships and mappings in those batches will end');
+        impactPoints.push(
+          'Created courses remain preserved in the library under creator attribution',
+        );
+      }
+      impactPoints.push(
+        'All active user sessions will be immediately terminated (tokenVersion incremented)',
+      );
+    }
+
     return {
       userId: user.id,
       name: user.name,
@@ -502,7 +491,7 @@ export class UsersService {
       currentRole: user.role,
       newRole,
       isSameRole,
-      willRevokeSessions: !isSameRole,
+      willRevokeSessions: !isSameRole && !isBlocked,
       isBlocked,
       blockReason,
       activeMenteesCount: activeMentees.length,

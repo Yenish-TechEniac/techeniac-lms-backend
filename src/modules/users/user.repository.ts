@@ -226,15 +226,6 @@ export class UserRepository {
     };
   }
 
-  public async countActiveSuperAdmins(manager?: EntityManager): Promise<number> {
-    return await this.getRepo(manager).count({
-      where: {
-        role: UserRole.SUPER_ADMIN,
-        isActive: true,
-      },
-    });
-  }
-
   public async lockAndCountActiveSuperAdmins(manager?: EntityManager): Promise<number> {
     const rows = await this.getRepo(manager)
       .createQueryBuilder('user')
