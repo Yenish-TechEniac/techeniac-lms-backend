@@ -1,5 +1,6 @@
 import crypto from 'node:crypto';
 
+import { logAudit } from '../../core/audit';
 import { hashPassword } from '../../core/auth/password';
 import { isUniqueViolation } from '../../core/db';
 import { emailService } from '../../core/email';
@@ -12,6 +13,7 @@ import {
 } from '../../core/errors';
 import { eventBus } from '../../core/lifecycle';
 import { logger } from '../../core/logging';
+import { AuditType } from '../audit';
 import { batchService } from '../batches';
 import { type User, UserRole } from './entities/user.entity';
 import type { UserRoleHistory } from './entities/user-role-history.entity';
@@ -160,6 +162,15 @@ export class UsersService {
       throw err;
     }
 
+    await logAudit({
+      actorId: actorId ?? null,
+      type: AuditType.USER,
+      entity: 'User',
+      entityId: user.id,
+      action: 'USER_CREATED',
+      newValue: { name: user.name, email: user.email, role: user.role },
+    });
+
     try {
       await emailService.sendInviteEmail({
         to: user.email,
@@ -283,6 +294,21 @@ export class UsersService {
         actorId,
       });
 
+      await logAudit({
+        actorId,
+        type: AuditType.USER,
+        entity: 'User',
+        entityId: id,
+        action: 'ROLE_CHANGE',
+        oldValue: { role: previousRole },
+        newValue: {
+          name: result.user.name,
+          email: result.user.email,
+          role: input.newRole,
+          reason: input.reason,
+        },
+      });
+
       return result;
     } catch (err) {
       if (isUniqueViolation(err)) {
@@ -309,7 +335,13 @@ export class UsersService {
       );
     }
 
-    return await this.repo.transaction(async (manager) => {
+    if (user.isActive === isActive) {
+      return user;
+    }
+
+    const previousIsActive = user.isActive;
+
+    const savedUser = await this.repo.transaction(async (manager) => {
       if (!isActive && user.role === UserRole.SUPER_ADMIN) {
         const activeAdmins = await this.repo.lockAndCountActiveSuperAdmins(manager);
         if (activeAdmins <= 1) {
@@ -321,15 +353,27 @@ export class UsersService {
       }
 
       user.isActive = isActive;
-      const savedUser = await this.repo.save(user, manager);
+      const updatedUser = await this.repo.save(user, manager);
 
       if (!isActive) {
         await this.repo.incrementTokenVersion(user.id, manager);
-        savedUser.tokenVersion += 1;
+        updatedUser.tokenVersion += 1;
       }
 
-      return savedUser;
+      return updatedUser;
     });
+
+    await logAudit({
+      actorId,
+      type: AuditType.USER,
+      entity: 'User',
+      entityId: id,
+      action: isActive ? 'USER_ACTIVATED' : 'USER_DEACTIVATED',
+      oldValue: { isActive: previousIsActive },
+      newValue: { name: savedUser.name, email: savedUser.email, isActive },
+    });
+
+    return savedUser;
   }
 
   public async getRoleImpact(

@@ -7,6 +7,7 @@ import { env } from './core/config';
 import { healthRouter } from './core/health';
 import { corsMiddleware, errorMiddleware, notFoundMiddleware } from './core/http';
 import { allocationsRouter, registerAllocationLifecycleListeners } from './modules/allocations';
+import { auditRouter } from './modules/audit';
 import { authRouter } from './modules/auth';
 import { batchRouter, menteeRouter, mentorRouter } from './modules/batches';
 import { coursesRouter } from './modules/courses';
@@ -46,6 +47,7 @@ export function createApp(): Express {
   });
 
   app.use('/api/v1/auth', authRouter);
+  app.use('/api/v1/audit-logs', auditRouter);
   app.use('/api/v1/users', user360Router);
   app.use('/api/v1/users', usersRouter);
   app.use('/api/v1/courses', coursesRouter);

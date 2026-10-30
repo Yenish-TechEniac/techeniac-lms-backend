@@ -1,9 +1,11 @@
 import type { EntityManager } from 'typeorm';
 
+import { logAudit } from '../../core/audit';
 import { AppDataSource, isUniqueViolation } from '../../core/db';
 import { EmailService, emailService, MenteeReassignRecipientRole } from '../../core/email';
 import { BadRequestError, ConflictError, ForbiddenError, NotFoundError } from '../../core/errors';
 import { eventBus } from '../../core/lifecycle';
+import { AuditType } from '../audit';
 import { User, UserRepository, userRepository, UserRole } from '../users';
 import { BatchRepository, batchRepository } from './batch.repository';
 import { Batch, BatchMember, BatchMemberRole, BatchReasonToLeave, BatchStatus } from './entities';
@@ -223,7 +225,7 @@ export class BatchService {
       }
     }
 
-    return await AppDataSource.transaction(async (manager) => {
+    const updatedBatch = await AppDataSource.transaction(async (manager) => {
       // Auto-closeout if ARCHIVED
       if (targetStatus === BatchStatus.ARCHIVED) {
         await this.batchRepo.closeoutActiveMentees(id, actorId, manager);
@@ -252,6 +254,18 @@ export class BatchService {
 
       return updated;
     });
+
+    await logAudit({
+      actorId,
+      type: AuditType.BATCH,
+      entity: 'Batch',
+      entityId: id,
+      action: 'STATUS_CHANGE',
+      oldValue: { status: currentStatus },
+      newValue: { name: updatedBatch.name, status: targetStatus, reason: input.reason },
+    });
+
+    return updatedBatch;
   }
 
   private async validateMemberCandidate(
@@ -575,6 +589,23 @@ export class BatchService {
         return { created: createdRecords, mappedMenteeUsers: mappedUsers };
       });
 
+      await Promise.all(
+        created.map((mapping) =>
+          logAudit({
+            actorId,
+            type: AuditType.MENTOR_MAPPING,
+            entity: 'MentorMentee',
+            entityId: mapping.id,
+            action: 'MAP_MENTEE',
+            newValue: {
+              batchId,
+              mentorId: input.mentorId,
+              menteeId: mapping.menteeId,
+            },
+          }),
+        ),
+      );
+
       // Post-commit notifications (PRD Section 7.2)
       for (const menteeUser of mappedMenteeUsers) {
         void this.emailSvc.sendMentorMappedEmail({
@@ -708,6 +739,21 @@ export class BatchService {
           reason: input.reason ?? undefined,
         });
       }
+
+      await logAudit({
+        actorId,
+        type: AuditType.MENTOR_MAPPING,
+        entity: 'MentorMentee',
+        entityId: result.id,
+        action: 'REASSIGN_MENTEE',
+        oldValue: { mentorId: existingMapping?.mentorId ?? null },
+        newValue: {
+          batchId,
+          mentorId: input.newMentorId,
+          menteeId: input.menteeId,
+          reason: input.reason ?? null,
+        },
+      });
 
       return result;
     } catch (err) {
