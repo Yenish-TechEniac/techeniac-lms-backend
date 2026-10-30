@@ -367,3 +367,27 @@
   - All domain modules audit changes via `logAudit` imported from `src/modules/audit` (or backward-compatible `src/core/audit`).
   - Read access to audit logs is restricted to `SUPER_ADMIN` via `requireRole(UserRole.SUPER_ADMIN)`.
   - Actor relations query only safe public columns (`id`, `name`, `email`) avoiding token version or internal credential exposure.
+
+---
+
+## ADR-019: Strict Role Transition State Machine and Super Admin Immutability
+
+- **Date**: 2026-10-30
+- **Status**: Accepted
+- **Context**: User role changes (`PATCH /api/v1/users/:id/role`) originally allowed transitions across all three platform roles (`SUPER_ADMIN`, `MENTOR`, `MENTEE`), constrained only by the last Super Admin demotion guard and mentor active mentee reassignment. To enforce a structured organizational progression and protect administrative accounts, explicit role transition constraints were mandated: Mentees may only become Mentors, Mentors may only become Super Admins, and Super Admin roles cannot be changed.
+- **Options**:
+  1. Unrestricted transitions with client-side UI filtering only.
+  2. Backend-enforced strict state machine (`ALLOWED_ROLE_TRANSITIONS`) in `users.service.ts` with explicit domain error codes and preflight impact validation.
+- **Choice**: Option 2 (Server-enforced transition state machine).
+- **Reasons**:
+  - **Security & Authorization Safety**: Precludes direct jumps from Mentee to Super Admin and prevents arbitrary role modification of Super Admin accounts.
+  - **Single Source of Truth**: The transition matrix in `users.service.ts` governs both the mutation endpoint (`changeRole`) and impact preflight (`getRoleImpact`).
+  - **Actionable Error Feedback**: Disallowed transitions throw `400 Bad Request` with structured codes: `INVALID_ROLE_TRANSITION` or `SUPER_ADMIN_ROLE_IMMUTABLE`.
+  - **Preserved Safety Invariants**: The prerequisite that active mentor mappings must be reassigned before promotion to Super Admin is fully retained.
+- **Consequences**:
+  - `ALLOWED_ROLE_TRANSITIONS` dictates valid target roles:
+    - `MENTEE` $\rightarrow$ `['MENTOR']` only.
+    - `MENTOR` $\rightarrow$ `['SUPER_ADMIN']` only (active mentees must be reassigned first).
+    - `SUPER_ADMIN` $\rightarrow$ `[]` (immutable role; no modifications permitted).
+  - Preflight `getRoleImpact` flags invalid or immutable queries with `isBlocked: true` and appropriate `blockReason` values.
+  - Frontend consumers must align UI dropdowns and action buttons with these rules.
