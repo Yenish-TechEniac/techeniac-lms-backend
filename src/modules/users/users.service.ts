@@ -25,7 +25,18 @@ import type {
   UserQueryParams,
 } from './users.schemas';
 
-export type RoleChangeBlockReason = 'SAME_ROLE' | 'LAST_SUPER_ADMIN' | 'ACTIVE_MENTEES';
+export type RoleChangeBlockReason =
+  | 'SAME_ROLE'
+  | 'LAST_SUPER_ADMIN'
+  | 'ACTIVE_MENTEES'
+  | 'INVALID_ROLE_TRANSITION'
+  | 'SUPER_ADMIN_ROLE_IMMUTABLE';
+
+export const ALLOWED_ROLE_TRANSITIONS: Record<UserRole, readonly UserRole[]> = {
+  [UserRole.MENTEE]: [UserRole.MENTOR],
+  [UserRole.MENTOR]: [UserRole.SUPER_ADMIN],
+  [UserRole.SUPER_ADMIN]: [],
+};
 
 export interface SafeUser {
   id: string;
@@ -234,10 +245,19 @@ export class UsersService {
       throw new ForbiddenError('Super Admin cannot change own role', 'CANNOT_CHANGE_OWN_ROLE');
     }
 
-    if (
-      user.role === UserRole.MENTOR &&
-      (input.newRole === UserRole.MENTEE || input.newRole === UserRole.SUPER_ADMIN)
-    ) {
+    if (user.role === UserRole.SUPER_ADMIN) {
+      throw new BadRequestError('Super Admin role cannot be changed', 'SUPER_ADMIN_ROLE_IMMUTABLE');
+    }
+
+    const allowedTargets = ALLOWED_ROLE_TRANSITIONS[user.role] ?? [];
+    if (!allowedTargets.includes(input.newRole)) {
+      throw new BadRequestError(
+        `Invalid role transition: ${user.role} can only be transitioned to ${allowedTargets.join(', ') || 'no other roles'}`,
+        'INVALID_ROLE_TRANSITION',
+      );
+    }
+
+    if (user.role === UserRole.MENTOR && input.newRole === UserRole.SUPER_ADMIN) {
       const activeMappings = await batchService.getActiveMappingsForMentor(user.id);
       if (activeMappings.length > 0) {
         throw new BadRequestError(
@@ -252,16 +272,6 @@ export class UsersService {
 
     try {
       const result = await this.repo.transaction(async (manager) => {
-        if (previousRole === UserRole.SUPER_ADMIN && input.newRole !== UserRole.SUPER_ADMIN) {
-          const activeAdmins = await this.repo.lockAndCountActiveSuperAdmins(manager);
-          if (activeAdmins <= 1) {
-            throw new BadRequestError(
-              'Cannot demote the last active Super Admin',
-              'CANNOT_DEMOTE_LAST_SUPER_ADMIN',
-            );
-          }
-        }
-
         const savedUser = await this.repo.save(user, manager);
 
         await this.repo.incrementTokenVersion(user.id, manager);
@@ -416,27 +426,27 @@ export class UsersService {
     if (isSameRole) {
       isBlocked = true;
       blockReason = 'SAME_ROLE';
-    } else if (user.role === UserRole.SUPER_ADMIN && newRole !== UserRole.SUPER_ADMIN) {
-      const activeAdmins = await this.repo.countActiveSuperAdmins();
-      if (activeAdmins <= 1) {
+    } else if (user.role === UserRole.SUPER_ADMIN) {
+      isBlocked = true;
+      blockReason = 'SUPER_ADMIN_ROLE_IMMUTABLE';
+    } else {
+      const allowedTargets = ALLOWED_ROLE_TRANSITIONS[user.role] ?? [];
+      if (!allowedTargets.includes(newRole)) {
         isBlocked = true;
-        blockReason = 'LAST_SUPER_ADMIN';
-      }
-    } else if (
-      user.role === UserRole.MENTOR &&
-      (newRole === UserRole.MENTEE || newRole === UserRole.SUPER_ADMIN)
-    ) {
-      const mappings = await batchService.getActiveMappingsForMentor(user.id);
-      if (mappings.length > 0) {
-        isBlocked = true;
-        blockReason = 'ACTIVE_MENTEES';
-        activeMentees = mappings.map((m) => ({
-          id: m.mentee ? m.mentee.id : m.menteeId,
-          name: m.mentee ? m.mentee.name : 'Unknown Mentee',
-          email: m.mentee ? m.mentee.email : '',
-          batchId: m.batchId,
-          batchName: m.batch ? m.batch.name : 'Active Batch',
-        }));
+        blockReason = 'INVALID_ROLE_TRANSITION';
+      } else if (user.role === UserRole.MENTOR && newRole === UserRole.SUPER_ADMIN) {
+        const mappings = await batchService.getActiveMappingsForMentor(user.id);
+        if (mappings.length > 0) {
+          isBlocked = true;
+          blockReason = 'ACTIVE_MENTEES';
+          activeMentees = mappings.map((m) => ({
+            id: m.mentee ? m.mentee.id : m.menteeId,
+            name: m.mentee ? m.mentee.name : 'Unknown Mentee',
+            email: m.mentee ? m.mentee.email : '',
+            batchId: m.batchId,
+            batchName: m.batch ? m.batch.name : 'Active Batch',
+          }));
+        }
       }
     }
 
@@ -474,10 +484,13 @@ export class UsersService {
     let impactSummary = '';
     if (isSameRole) {
       impactSummary = `User already has the role ${newRole}. No changes will be applied.`;
+    } else if (isBlocked && blockReason === 'SUPER_ADMIN_ROLE_IMMUTABLE') {
+      impactSummary = 'Super Admin role cannot be changed.';
+    } else if (isBlocked && blockReason === 'INVALID_ROLE_TRANSITION') {
+      const allowed = ALLOWED_ROLE_TRANSITIONS[user.role] ?? [];
+      impactSummary = `${user.role} can only be transitioned to ${allowed.join(', ') || 'no other roles'}.`;
     } else if (isBlocked && blockReason === 'ACTIVE_MENTEES') {
       impactSummary = `Mentor has ${activeMentees.length} active mentee(s). All mentees must be reassigned before changing role.`;
-    } else if (isBlocked && blockReason === 'LAST_SUPER_ADMIN') {
-      impactSummary = 'Cannot demote the last active Super Admin in the system.';
     } else {
       impactSummary = `Changing role from ${user.role} to ${newRole} will invalidate all active sessions and reassign permissions immediately.`;
     }
