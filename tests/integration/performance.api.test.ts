@@ -514,4 +514,53 @@ void describe('Performance API & Aggregation Integration Tests (Module 11)', () 
     });
     assert.equal(res.status, 403);
   });
+
+  void it('exercises multi-page pagination boundary (page=2, limit=1)', async () => {
+    const res = await fetch(
+      `${baseUrl}/performance?batchId=${testBatch.id}&page=2&limit=1&sortBy=name&sortOrder=ASC`,
+      { headers: { Authorization: `Bearer ${tokenAdmin}` } },
+    );
+    assert.equal(res.status, 200);
+    const json = (await res.json()) as {
+      data: { mentees: Array<{ menteeId: string; menteeName: string }> };
+      meta: { page: number; limit: number; total: number; totalPages: number };
+    };
+    assert.equal(json.meta.page, 2);
+    assert.equal(json.meta.limit, 1);
+    assert.equal(json.meta.total, 2);
+    assert.equal(json.meta.totalPages, 2);
+    assert.equal(json.data.mentees.length, 1);
+  });
+
+  void it('handles page requested beyond available mentees without 500 error', async () => {
+    const res = await fetch(`${baseUrl}/performance?batchId=${testBatch.id}&page=2&limit=10`, {
+      headers: { Authorization: `Bearer ${tokenAdmin}` },
+    });
+    assert.equal(res.status, 200);
+    const json = (await res.json()) as {
+      data: { mentees: Array<{ menteeId: string }> };
+      meta: { page: number; limit: number; total: number; totalPages: number };
+    };
+    assert.equal(json.meta.page, 2);
+    assert.equal(json.meta.limit, 10);
+    assert.equal(json.meta.total, 2);
+    assert.equal(json.data.mentees.length, 0);
+  });
+
+  void it('exercises gradeRange filter bypassing pre-pagination (fallback path)', async () => {
+    const res = await fetch(`${baseUrl}/performance?batchId=${testBatch.id}&gradeRange=A%2B`, {
+      headers: { Authorization: `Bearer ${tokenAdmin}` },
+    });
+    assert.equal(res.status, 200);
+    const json = (await res.json()) as {
+      data: {
+        mentees: Array<{ menteeId: string; latestGrade: string | null }>;
+      };
+      meta: { total: number };
+    };
+    assert.equal(json.data.mentees.length, 1);
+    assert.equal(json.data.mentees[0].menteeId, mentee1.id);
+    assert.equal(json.data.mentees[0].latestGrade, 'A+');
+    assert.equal(json.meta.total, 1);
+  });
 });

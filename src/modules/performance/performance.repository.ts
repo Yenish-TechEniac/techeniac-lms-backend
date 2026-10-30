@@ -332,11 +332,11 @@ export class PerformanceRepository {
       (!filter.gradeRange || filter.gradeRange === 'ALL') &&
       (!filter.sortBy || filter.sortBy === 'name' || filter.sortBy === 'completionPercentage');
 
+    const order = filter.sortOrder === 'ASC' ? 1 : -1;
     const totalRaw = rawRows.length;
-    let targetRows = rawRows;
+    let targetRows = [...rawRows];
 
     if (canPrePaginate) {
-      const order = filter.sortOrder === 'ASC' ? 1 : -1;
       if (filter.sortBy === 'completionPercentage') {
         targetRows.sort(
           (a, b) =>
@@ -353,6 +353,10 @@ export class PerformanceRepository {
 
     // Enrich target mentees with submission metrics
     const menteeIds = targetRows.map((r) => r.mentee_id);
+
+    if (menteeIds.length === 0) {
+      return { mentees: [], total: totalRaw };
+    }
 
     const subAggQb = this.submissionRepo
       .createQueryBuilder('sub')
@@ -516,7 +520,6 @@ export class PerformanceRepository {
 
     // Sorting (PER-02)
     enrichedRows.sort((a, b) => {
-      const order = filter.sortOrder === 'ASC' ? 1 : -1;
       switch (filter.sortBy) {
         case 'averageMarks':
           return ((a.averageMarks ?? 0) - (b.averageMarks ?? 0)) * order;
