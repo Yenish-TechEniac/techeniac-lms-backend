@@ -198,6 +198,23 @@ export class UserRepository {
       );
     }
 
+    if (params.withoutActiveBatch !== undefined) {
+      const activeBatchSubquery = `
+        SELECT 1 FROM batch_members bm
+        INNER JOIN batches b ON b.id = bm.batch_id
+        WHERE bm.user_id = "user"."id"
+          AND bm.is_active = true
+          AND bm.deleted_at IS NULL
+          AND b.status IN ('DRAFT', 'LIVE', 'ON_HOLD')
+          AND b.deleted_at IS NULL
+      `;
+      if (params.withoutActiveBatch) {
+        query.andWhere(`NOT EXISTS (${activeBatchSubquery})`);
+      } else {
+        query.andWhere(`EXISTS (${activeBatchSubquery})`);
+      }
+    }
+
     const page = Math.max(1, Number(params.page) || 1);
     const limit = Math.max(1, Math.min(100, Number(params.limit) || 10));
 
