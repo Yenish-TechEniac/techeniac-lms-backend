@@ -78,10 +78,10 @@ void describe('CoursesService Unit Tests', () => {
       });
     });
 
-    void it('rejects MENTOR who did not create the course with ForbiddenError', () => {
-      assert.throws(() => {
+    void it('allows another MENTOR who did not create the course to modify it (collaborative editing)', () => {
+      assert.doesNotThrow(() => {
         service.assertCanEdit(course, anotherMentor);
-      }, ForbiddenError);
+      });
     });
 
     void it('rejects MENTEE with ForbiddenError', () => {
