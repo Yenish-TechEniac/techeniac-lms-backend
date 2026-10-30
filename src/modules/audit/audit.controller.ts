@@ -1,4 +1,5 @@
 import type { NextFunction, Request, Response } from 'express';
+import { StatusCodes } from 'http-status-codes';
 
 import { BaseController } from '../../core/http/base.controller';
 import { AuditService, auditService } from './audit.service';
@@ -14,13 +15,12 @@ export class AuditController extends BaseController {
       const query = req.query as unknown as AuditQueryParams;
       const result = await this.service.getAuditLogs(query);
 
-      this.sendPaginated(
-        res,
-        result.items,
-        result.pagination.page,
-        result.pagination.limit,
-        result.pagination.total,
-      );
+      res.status(StatusCodes.OK).json({
+        success: true,
+        data: result.items,
+        meta: result.pagination,
+        pagination: result.pagination,
+      });
     } catch (error) {
       next(error);
     }
