@@ -44,15 +44,6 @@ export class CreateAuditLogsTable1792650500000 implements MigrationInterface {
       )
     `);
 
-    // Ensure all auditable columns exist if table was pre-created
-    await queryRunner.query(`
-      ALTER TABLE "audit_logs" 
-      ADD COLUMN IF NOT EXISTS "updated_at" TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT now(),
-      ADD COLUMN IF NOT EXISTS "deleted_at" TIMESTAMP WITH TIME ZONE,
-      ADD COLUMN IF NOT EXISTS "created_by" uuid,
-      ADD COLUMN IF NOT EXISTS "updated_by" uuid;
-    `);
-
     // Ensure FK exists safely
     await queryRunner.query(`
       DO $$ BEGIN
@@ -86,7 +77,7 @@ export class CreateAuditLogsTable1792650500000 implements MigrationInterface {
     await queryRunner.query(`DROP INDEX IF EXISTS "public"."idx_audit_entity"`);
     await queryRunner.query(`DROP INDEX IF EXISTS "public"."idx_audit_type_time"`);
     await queryRunner.query(`DROP INDEX IF EXISTS "public"."idx_audit_type"`);
-    await queryRunner.query(`DROP TABLE IF EXISTS "audit_logs" CASCADE`);
-    await queryRunner.query(`DROP TYPE IF EXISTS "public"."audit_logs_type_enum" CASCADE`);
+    await queryRunner.query(`DROP TABLE IF EXISTS "audit_logs"`);
+    await queryRunner.query(`DROP TYPE IF EXISTS "public"."audit_logs_type_enum"`);
   }
 }
