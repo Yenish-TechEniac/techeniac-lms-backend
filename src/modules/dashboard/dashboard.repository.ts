@@ -1,7 +1,7 @@
 import { DataSource, In, IsNull, Repository, SelectQueryBuilder } from 'typeorm';
 
 import { AppDataSource } from '../../core/db';
-import { CourseAllocation, CourseAllocationStatus } from '../allocations';
+import { AssignmentDueOverride, CourseAllocation, CourseAllocationStatus } from '../allocations';
 import { Batch, BatchMember, BatchMemberRole, BatchStatus, MentorMentee } from '../batches';
 import { Assignment, Course } from '../courses';
 import { Submission, SubmissionStatus } from '../submissions';
@@ -22,6 +22,7 @@ export class DashboardRepository {
   private readonly assignmentRepo: Repository<Assignment>;
   private readonly allocationRepo: Repository<CourseAllocation>;
   private readonly submissionRepo: Repository<Submission>;
+  private readonly overrideRepo: Repository<AssignmentDueOverride>;
 
   constructor(dataSource: DataSource = AppDataSource) {
     this.userRepo = dataSource.getRepository(User);
@@ -32,6 +33,7 @@ export class DashboardRepository {
     this.assignmentRepo = dataSource.getRepository(Assignment);
     this.allocationRepo = dataSource.getRepository(CourseAllocation);
     this.submissionRepo = dataSource.getRepository(Submission);
+    this.overrideRepo = dataSource.getRepository(AssignmentDueOverride);
   }
 
   public async getAdminMetrics(): Promise<AdminDashboardResponse> {
@@ -342,17 +344,11 @@ export class DashboardRepository {
       .andWhere('(ca.batch_id IS NULL OR b.status NOT IN (:...terminalStatuses))', {
         terminalStatuses: [BatchStatus.ON_HOLD, BatchStatus.COMPLETED, BatchStatus.ARCHIVED],
       })
-      .select([
-        'ca.id AS "allocationId"',
-        'ca.course_id AS "courseId"',
-        'ca.due_date AS "dueDate"',
-        'ca.assignment_overrides AS "assignmentOverrides"',
-      ])
+      .select(['ca.id AS "allocationId"', 'ca.course_id AS "courseId"', 'ca.due_date AS "dueDate"'])
       .getRawMany<{
         allocationId: string;
         courseId: string;
         dueDate: Date;
-        assignmentOverrides: Record<string, string> | null;
       }>();
 
     if (allocations.length === 0) {
@@ -375,14 +371,23 @@ export class DashboardRepository {
     const allocationIds = allocations.map((a) => a.allocationId);
     const assignmentIds = assignments.map((a) => a.id);
 
-    const submissions = await this.submissionRepo.find({
-      where: {
-        courseAllocationId: In(allocationIds),
-        assignmentId: In(assignmentIds),
-        deletedAt: IsNull(),
-      },
-      order: { version: 'DESC' },
-    });
+    const [submissions, overrides] = await Promise.all([
+      this.submissionRepo.find({
+        where: {
+          courseAllocationId: In(allocationIds),
+          assignmentId: In(assignmentIds),
+          deletedAt: IsNull(),
+        },
+        order: { version: 'DESC' },
+      }),
+      this.overrideRepo.find({
+        where: {
+          courseAllocationId: In(allocationIds),
+          assignmentId: In(assignmentIds),
+          deletedAt: IsNull(),
+        },
+      }),
+    ]);
 
     const latestSubmissionMap = new Map<string, Submission>();
     for (const sub of submissions) {
@@ -390,6 +395,12 @@ export class DashboardRepository {
       if (!latestSubmissionMap.has(key)) {
         latestSubmissionMap.set(key, sub);
       }
+    }
+
+    const overrideMap = new Map<string, Date>();
+    for (const override of overrides) {
+      const key = `${override.courseAllocationId}:${override.assignmentId}`;
+      overrideMap.set(key, override.dueDate);
     }
 
     const now = new Date();
@@ -406,10 +417,8 @@ export class DashboardRepository {
             pendingCount++;
           }
         } else {
-          const overrideDueDateStr = alloc.assignmentOverrides?.[assignment.id];
-          const effectiveDueDate = overrideDueDateStr
-            ? new Date(overrideDueDateStr)
-            : alloc.dueDate;
+          const overrideDueDate = overrideMap.get(key);
+          const effectiveDueDate = overrideDueDate ?? alloc.dueDate;
           if (new Date(effectiveDueDate) >= now) {
             pendingCount++;
           }
