@@ -39,6 +39,8 @@ export interface AuthUserPayload {
   email: string;
   role: UserRole;
   mustChangePassword: boolean;
+  isActive: boolean;
+  createdAt: Date;
 }
 
 export interface AuthTokens {
@@ -72,18 +74,24 @@ export class AuthService implements IAuthService {
     private readonly tokenRepo: TokenRepository = tokenRepository,
   ) {}
 
-  public async getCurrentUser(userId: string): Promise<AuthUserPayload> {
-    const user = await this.userRepo.findById(userId);
-    if (!user) {
-      throw new NotFoundError('User not found');
-    }
+  private toAuthUserPayload(user: User): AuthUserPayload {
     return {
       id: user.id,
       name: user.name,
       email: user.email,
       role: user.role,
       mustChangePassword: user.mustChangePassword,
+      isActive: user.isActive,
+      createdAt: user.createdAt,
     };
+  }
+
+  public async getCurrentUser(userId: string): Promise<AuthUserPayload> {
+    const user = await this.userRepo.findById(userId);
+    if (!user) {
+      throw new NotFoundError('User not found');
+    }
+    return this.toAuthUserPayload(user);
   }
 
   public async login(input: LoginInput): Promise<AuthResult> {
@@ -157,13 +165,7 @@ export class AuthService implements IAuthService {
     });
 
     return {
-      user: {
-        id: user.id,
-        name: user.name,
-        email: user.email,
-        role: user.role,
-        mustChangePassword: user.mustChangePassword,
-      },
+      user: this.toAuthUserPayload(user),
       tokens: {
         accessToken,
         refreshToken,
@@ -279,13 +281,7 @@ export class AuthService implements IAuthService {
       });
 
       return {
-        user: {
-          id: user.id,
-          name: user.name,
-          email: user.email,
-          role: user.role,
-          mustChangePassword: user.mustChangePassword,
-        },
+        user: this.toAuthUserPayload(user),
         tokens: {
           accessToken,
           refreshToken,
@@ -479,10 +475,7 @@ export class AuthService implements IAuthService {
 
       return {
         user: {
-          id: user.id,
-          name: user.name,
-          email: user.email,
-          role: user.role,
+          ...this.toAuthUserPayload(updatedUser ?? user),
           mustChangePassword: false,
         },
         tokens: {

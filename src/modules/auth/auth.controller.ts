@@ -34,8 +34,15 @@ const refreshCookieOptions: CookieOptions = {
 };
 
 export class AuthController extends BaseController {
-  constructor(private readonly service: AuthService = authService) {
+  private serviceInstance?: AuthService;
+
+  constructor(service?: AuthService) {
     super();
+    this.serviceInstance = service;
+  }
+
+  private get service(): AuthService {
+    return this.serviceInstance ?? authService;
   }
 
   public login = async (req: Request, res: Response): Promise<void> => {
