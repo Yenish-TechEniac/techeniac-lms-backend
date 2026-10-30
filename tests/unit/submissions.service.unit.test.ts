@@ -261,6 +261,40 @@ void describe('SubmissionsService Unit Tests (Module 9)', () => {
 
       assert.equal(result.items[0]?.status, 'SUBMITTED');
     });
+
+    void it('paginates multiple assignments across pages in fast-path (status ALL)', async () => {
+      const assignment2 = {
+        ...baseAssignment,
+        id: 'assign-2',
+        title: 'Assignment 2',
+      };
+      submissionsRepository.findAssignmentsByCourseIds = () =>
+        Promise.resolve([baseAssignment, assignment2]);
+
+      const page1 = await service.getMyAssignments(menteeId, {
+        page: 1,
+        limit: 1,
+        status: 'ALL',
+      });
+
+      assert.equal(page1.items.length, 1);
+      assert.equal(page1.total, 2);
+      assert.equal(page1.totalPages, 2);
+      assert.equal(page1.page, 1);
+      assert.equal(page1.items[0]?.id, assignmentId);
+
+      const page2 = await service.getMyAssignments(menteeId, {
+        page: 2,
+        limit: 1,
+        status: 'ALL',
+      });
+
+      assert.equal(page2.items.length, 1);
+      assert.equal(page2.total, 2);
+      assert.equal(page2.totalPages, 2);
+      assert.equal(page2.page, 2);
+      assert.equal(page2.items[0]?.id, 'assign-2');
+    });
   });
 
   void describe('Submission Creation & Concurrency (submitAssignment)', () => {

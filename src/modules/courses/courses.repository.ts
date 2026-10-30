@@ -45,10 +45,16 @@ export class CoursesRepository {
       return course;
     }
 
-    const topics = await this.topicRepo.find({
-      where: { courseId: id },
-      order: { displayOrder: 'ASC' },
-    });
+    const [topics, assignments] = await Promise.all([
+      this.topicRepo.find({
+        where: { courseId: id },
+        order: { displayOrder: 'ASC' },
+      }),
+      this.assignmentRepo.find({
+        where: { courseId: id },
+        order: { displayOrder: 'ASC' },
+      }),
+    ]);
 
     const topicIds = topics.map((t) => t.id);
     const subtopics =
@@ -58,11 +64,6 @@ export class CoursesRepository {
             order: { displayOrder: 'ASC' },
           })
         : [];
-
-    const assignments = await this.assignmentRepo.find({
-      where: { courseId: id },
-      order: { displayOrder: 'ASC' },
-    });
 
     for (const topic of topics) {
       topic.subtopics = subtopics.filter((s) => s.topicId === topic.id);

@@ -328,8 +328,35 @@ export class PerformanceRepository {
       return { mentees: [], total: 0 };
     }
 
-    // Enrich each mentee with submission metrics
-    const menteeIds = rawRows.map((r) => r.mentee_id);
+    const canPrePaginate =
+      (!filter.gradeRange || filter.gradeRange === 'ALL') &&
+      (!filter.sortBy || filter.sortBy === 'name' || filter.sortBy === 'completionPercentage');
+
+    const order = filter.sortOrder === 'ASC' ? 1 : -1;
+    const totalRaw = rawRows.length;
+    let targetRows = [...rawRows];
+
+    if (canPrePaginate) {
+      if (filter.sortBy === 'completionPercentage') {
+        targetRows.sort(
+          (a, b) =>
+            ((parseFloat(a.avg_progress ?? '0') || 0) - (parseFloat(b.avg_progress ?? '0') || 0)) *
+            order,
+        );
+      } else {
+        targetRows.sort((a, b) => a.mentee_name.localeCompare(b.mentee_name) * order);
+      }
+
+      const startIndex = (filter.page - 1) * filter.limit;
+      targetRows = targetRows.slice(startIndex, startIndex + filter.limit);
+    }
+
+    // Enrich target mentees with submission metrics
+    const menteeIds = targetRows.map((r) => r.mentee_id);
+
+    if (menteeIds.length === 0) {
+      return { mentees: [], total: totalRaw };
+    }
 
     const subAggQb = this.submissionRepo
       .createQueryBuilder('sub')
@@ -455,7 +482,7 @@ export class PerformanceRepository {
     }
 
     // Compile rows
-    let enrichedRows: MenteePerformanceRow[] = rawRows.map((r) => {
+    let enrichedRows: MenteePerformanceRow[] = targetRows.map((r) => {
       const subInfo = subMap.get(r.mentee_id);
       const totalSubs = subInfo?.totalSub ?? 0;
       const onTimeSubs = subInfo?.onTimeSub ?? 0;
@@ -482,6 +509,10 @@ export class PerformanceRepository {
       };
     });
 
+    if (canPrePaginate) {
+      return { mentees: enrichedRows, total: totalRaw };
+    }
+
     // Grade range filter check
     if (filter.gradeRange && filter.gradeRange !== 'ALL') {
       enrichedRows = enrichedRows.filter((r) => r.latestGrade === filter.gradeRange);
@@ -489,7 +520,6 @@ export class PerformanceRepository {
 
     // Sorting (PER-02)
     enrichedRows.sort((a, b) => {
-      const order = filter.sortOrder === 'ASC' ? 1 : -1;
       switch (filter.sortBy) {
         case 'averageMarks':
           return ((a.averageMarks ?? 0) - (b.averageMarks ?? 0)) * order;

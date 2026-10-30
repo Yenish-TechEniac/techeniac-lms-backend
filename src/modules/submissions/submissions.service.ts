@@ -97,9 +97,17 @@ export class SubmissionsService {
       query.topicId,
     );
 
-    // Fetch latest submissions for all these assignments
+    // Fetch submissions for target assignments
     const allocationIds = allocations.map((a) => a.allocationId);
-    const assignmentIds = assignments.map((a) => a.id);
+    const hasStatusFilter = Boolean(query.status && query.status !== 'ALL');
+    const totalAssignmentsCount = assignments.length;
+
+    // Fast-path: When viewing unfiltered assignments (default view), paginate assignments before querying submissions
+    const targetAssignments = hasStatusFilter
+      ? assignments
+      : assignments.slice((query.page - 1) * query.limit, query.page * query.limit);
+
+    const assignmentIds = targetAssignments.map((a) => a.id);
 
     const allSubmissions = await submissionsRepository.findSubmissionsByAllocationsAndAssignments(
       allocationIds,
@@ -117,7 +125,7 @@ export class SubmissionsService {
     const now = new Date();
     const items: AssignmentWithSubmissionStatus[] = [];
 
-    for (const assignment of assignments) {
+    for (const assignment of targetAssignments) {
       const alloc = allocationByCourseId.get(assignment.courseId);
       if (!alloc) continue;
 
@@ -183,6 +191,17 @@ export class SubmissionsService {
             }
           : null,
       });
+    }
+
+    if (!hasStatusFilter) {
+      const totalPages = Math.ceil(totalAssignmentsCount / query.limit);
+      return {
+        items,
+        total: totalAssignmentsCount,
+        page: query.page,
+        limit: query.limit,
+        totalPages,
+      };
     }
 
     const total = items.length;
