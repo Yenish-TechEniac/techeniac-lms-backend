@@ -110,7 +110,9 @@ async function runDashboardTests(): Promise<void> {
       mentorData.data?.latestSubmissions !== undefined &&
       mentorData.data.hasGuidance === true // New mentor has 0 batches and 0 mentees (DSH-08)
     ) {
-      logger.info('PASS: Mentor dashboard returned 200 with guidance state for new mentor (DSH-08)');
+      logger.info(
+        'PASS: Mentor dashboard returned 200 with guidance state for new mentor (DSH-08)',
+      );
     } else {
       logger.error({ status: mentorRes.status, body: mentorData }, 'FAIL: Mentor dashboard');
       failures++;
