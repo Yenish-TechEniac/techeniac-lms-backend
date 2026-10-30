@@ -95,6 +95,7 @@ void describe('AuthService Unit Tests - Payload Shape & Active Status (PR #32 F-
       updateLastLogin: () => Promise.resolve(),
       updatePassword: () => Promise.resolve(),
       incrementTokenVersion: () => Promise.resolve(),
+      save: (user: User) => Promise.resolve(user),
     };
 
     mockTokenRepo = {
@@ -318,6 +319,35 @@ void describe('AuthService Unit Tests - Payload Shape & Active Status (PR #32 F-
           authService.changePassword('00000000-0000-0000-0000-000000000000', {
             currentPassword: validPassword,
             newPassword: 'NewSecurePassword123!',
+          }),
+        (err: Error) => {
+          assert.strictEqual(err instanceof NotFoundError, true);
+          assert.strictEqual(err.message, 'User not found');
+          return true;
+        },
+      );
+    });
+  });
+
+  void describe('updateProfile', () => {
+    void it('updates user name, leaves email untouched, and preserves payload shape', async () => {
+      const updated = await authService.updateProfile(activeMockUser.id, {
+        name: 'New Profile Name',
+      });
+
+      assert.strictEqual(updated.name, 'New Profile Name');
+      assert.strictEqual(updated.email, activeMockUser.email);
+      assertUserPayloadShape(updated, {
+        isActive: true,
+        createdAt: mockCreatedAt,
+      });
+    });
+
+    void it('throws NotFoundError when user does not exist', async () => {
+      await assert.rejects(
+        () =>
+          authService.updateProfile('00000000-0000-0000-0000-000000000000', {
+            name: 'Nonexistent User',
           }),
         (err: Error) => {
           assert.strictEqual(err instanceof NotFoundError, true);

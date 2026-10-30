@@ -163,6 +163,33 @@ export const authOpenApiSpec = {
         },
       },
     },
+    '/auth/profile': {
+      patch: {
+        summary: 'Update authenticated user profile name',
+        security: [{ bearerAuth: [] }, { cookieAuth: [] }],
+        requestBody: {
+          required: true,
+          content: {
+            'application/json': {
+              schema: {
+                type: 'object',
+                required: ['name'],
+                properties: {
+                  name: { type: 'string', minLength: 2, maxLength: 100 },
+                },
+                additionalProperties: false,
+              },
+            },
+          },
+        },
+        responses: {
+          '200': { description: 'Profile updated successfully' },
+          '400': { description: 'Validation error' },
+          '401': { description: 'Unauthorized' },
+          '404': { description: 'User not found' },
+        },
+      },
+    },
   },
   components: {
     securitySchemes: {
