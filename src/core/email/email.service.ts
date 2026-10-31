@@ -1,5 +1,7 @@
 import nodemailer, { Transporter } from 'nodemailer';
 
+import { enqueueEmailJob } from '../../jobs/email.queue';
+import type { EmailJobData } from '../../jobs/email.types';
 import { env } from '../config';
 import { logger } from '../logging';
 import {
@@ -138,51 +140,38 @@ export class EmailService {
     }
   }
 
-  public async sendPasswordResetEmail(options: SendPasswordResetOptions): Promise<void> {
-    const { to, name, resetToken } = options;
-    const resetUrl = `${env.FRONTEND_URL}/reset-password?token=${encodeURIComponent(resetToken)}`;
-    const { subject, text, html } = renderPasswordResetEmail({ name, resetUrl });
-
-    if (!this.transporter) {
-      logger.info(
-        'SMTP not configured in environment. Password reset email skipped in development.',
-      );
+  private async enqueueOrDispatch(job: EmailJobData): Promise<void> {
+    const enqueued = await enqueueEmailJob(job);
+    if (enqueued) {
       return;
     }
 
+    logger.warn(
+      { jobType: job.type },
+      'BullMQ email queue unavailable; falling back to direct SMTP dispatch',
+    );
     try {
-      await this.transporter.sendMail({
-        from: env.SMTP_FROM,
-        to,
-        subject,
-        text,
-        html,
-      });
-
-      logger.info('Password reset email dispatched successfully via SMTP');
+      await this.dispatchDirectly(job);
     } catch (error) {
-      logger.error(
-        { err: error, event: 'EMAIL_DISPATCH_FAILURE', service: 'smtp' },
-        'Failed to dispatch password reset email',
-      );
-      // Do not rethrow in a way that leaks email delivery details to caller
+      logger.error({ err: error, jobType: job.type }, 'Direct SMTP fallback email dispatch failed');
+      if (job.type === 'INVITE') {
+        throw error;
+      }
     }
   }
 
-  public async sendInviteEmail(options: SendInviteEmailOptions): Promise<void> {
-    const { to, name, temporaryPassword, role } = options;
-    const loginUrl = `${env.FRONTEND_URL}/login`;
-    const { subject, text, html } = renderInviteEmail({
-      name,
-      email: to,
-      temporaryPassword,
-      role,
-      loginUrl,
-    });
-
+  private async sendMailInternal(options: {
+    to: string;
+    subject: string;
+    text: string;
+    html: string;
+    description: string;
+    meta?: Record<string, unknown>;
+  }): Promise<void> {
     if (!this.transporter) {
       logger.info(
-        'SMTP not configured in environment. User invitation email skipped in development.',
+        options.meta ?? {},
+        `SMTP not configured in environment. ${options.description} notification skipped in development.`,
       );
       return;
     }
@@ -190,375 +179,278 @@ export class EmailService {
     try {
       await this.transporter.sendMail({
         from: env.SMTP_FROM,
-        to,
-        subject,
-        text,
-        html,
+        to: options.to,
+        subject: options.subject,
+        text: options.text,
+        html: options.html,
       });
 
-      logger.info('User invitation email dispatched successfully via SMTP');
+      logger.info(
+        options.meta ?? {},
+        `${options.description} email dispatched successfully via SMTP`,
+      );
     } catch (error) {
       logger.error(
-        { err: error, event: 'EMAIL_DISPATCH_FAILURE', service: 'smtp' },
-        'Failed to dispatch user invitation email',
+        { err: error, event: 'EMAIL_DISPATCH_FAILURE', service: 'smtp', ...options.meta },
+        `Failed to dispatch ${options.description.toLowerCase()} email`,
       );
       throw error;
     }
   }
 
+  public async dispatchDirectly(job: EmailJobData): Promise<void> {
+    switch (job.type) {
+      case 'PASSWORD_RESET': {
+        const { to, name, resetToken } = job.payload;
+        const resetUrl = `${env.FRONTEND_URL}/reset-password?token=${encodeURIComponent(resetToken)}`;
+        const { subject, text, html } = renderPasswordResetEmail({ name, resetUrl });
+        await this.sendMailInternal({ to, subject, text, html, description: 'Password reset' });
+        break;
+      }
+      case 'INVITE': {
+        const { to, name, temporaryPassword, role } = job.payload;
+        const loginUrl = `${env.FRONTEND_URL}/login`;
+        const { subject, text, html } = renderInviteEmail({
+          name,
+          email: to,
+          temporaryPassword,
+          role,
+          loginUrl,
+        });
+        await this.sendMailInternal({ to, subject, text, html, description: 'User invitation' });
+        break;
+      }
+      case 'MENTOR_MAPPED': {
+        const { to, recipientName, isMentor, otherPartyName, batchName } = job.payload;
+        const portalUrl = isMentor ? `${env.FRONTEND_URL}/mentor` : `${env.FRONTEND_URL}/mentee`;
+        const { subject, text, html } = renderMentorMappedEmail({
+          recipientName,
+          isMentor,
+          otherPartyName,
+          batchName,
+          portalUrl,
+        });
+        await this.sendMailInternal({
+          to,
+          subject,
+          text,
+          html,
+          description: 'Mentor mapping',
+          meta: { batchName },
+        });
+        break;
+      }
+      case 'MENTEE_REASSIGNED': {
+        const { to, recipientName, recipientRole, menteeName, mentorName, batchName, reason } =
+          job.payload;
+        const portalUrl =
+          recipientRole === MenteeReassignRecipientRole.MENTEE
+            ? `${env.FRONTEND_URL}/mentee`
+            : `${env.FRONTEND_URL}/mentor`;
+        const { subject, text, html } = renderMenteeReassignedEmail({
+          recipientName,
+          recipientRole,
+          menteeName,
+          mentorName,
+          batchName,
+          reason,
+          portalUrl,
+        });
+        await this.sendMailInternal({
+          to,
+          subject,
+          text,
+          html,
+          description: 'Mentee reassignment',
+          meta: { role: recipientRole, batchName },
+        });
+        break;
+      }
+      case 'SUBMISSION_RECEIVED': {
+        const {
+          to,
+          recipientName,
+          menteeName,
+          assignmentTitle,
+          courseTitle,
+          version,
+          submittedAt,
+        } = job.payload;
+        const submittedDate = submittedAt instanceof Date ? submittedAt : new Date(submittedAt);
+        const istTimeStr =
+          submittedDate.toLocaleString('en-IN', {
+            timeZone: 'Asia/Kolkata',
+            dateStyle: 'medium',
+            timeStyle: 'medium',
+          }) + ' IST';
+        const { subject, text, html } = renderSubmissionReceivedEmail({
+          recipientName,
+          menteeName,
+          assignmentTitle,
+          courseTitle,
+          version,
+          submittedAtFormatted: istTimeStr,
+          portalUrl: `${env.FRONTEND_URL}/submissions`,
+        });
+        await this.sendMailInternal({
+          to,
+          subject,
+          text,
+          html,
+          description: 'Submission received',
+          meta: { menteeName, assignmentTitle },
+        });
+        break;
+      }
+      case 'ASSIGNMENT_GRADED': {
+        const portalUrl = `${env.FRONTEND_URL}/mentee/assignments`;
+        const { subject, text, html } = renderAssignmentGradedEmail({
+          ...job.payload,
+          portalUrl,
+        });
+        await this.sendMailInternal({
+          to: job.payload.to,
+          subject,
+          text,
+          html,
+          description: 'Assignment graded',
+          meta: { assignmentTitle: job.payload.assignmentTitle },
+        });
+        break;
+      }
+      case 'RESUBMISSION_REQUESTED': {
+        const portalUrl = `${env.FRONTEND_URL}/mentee/assignments`;
+        const { subject, text, html } = renderResubmissionRequestedEmail({
+          ...job.payload,
+          portalUrl,
+        });
+        await this.sendMailInternal({
+          to: job.payload.to,
+          subject,
+          text,
+          html,
+          description: 'Resubmission requested',
+          meta: { assignmentTitle: job.payload.assignmentTitle },
+        });
+        break;
+      }
+      case 'COURSE_ALLOCATED': {
+        const portalUrl = `${env.FRONTEND_URL}/mentee/courses`;
+        const { subject, text, html } = renderCourseAllocatedEmail({
+          ...job.payload,
+          portalUrl,
+        });
+        await this.sendMailInternal({
+          to: job.payload.to,
+          subject,
+          text,
+          html,
+          description: 'Course allocation',
+          meta: { userId: job.payload.userId, courseTitle: job.payload.courseTitle },
+        });
+        break;
+      }
+      case 'COURSE_DEADLINE_CHANGED': {
+        const portalUrl = `${env.FRONTEND_URL}/mentee/courses`;
+        const { subject, text, html } = renderCourseDeadlineChangedEmail({
+          ...job.payload,
+          portalUrl,
+        });
+        await this.sendMailInternal({
+          to: job.payload.to,
+          subject,
+          text,
+          html,
+          description: 'Course deadline change',
+          meta: { userId: job.payload.userId, courseTitle: job.payload.courseTitle },
+        });
+        break;
+      }
+      case 'ALLOCATION_COMPLETED': {
+        const portalUrl = `${env.FRONTEND_URL}/mentor/mentees`;
+        const { subject, text, html } = renderAllocationCompletedEmail({
+          ...job.payload,
+          portalUrl,
+        });
+        await this.sendMailInternal({
+          to: job.payload.to,
+          subject,
+          text,
+          html,
+          description: 'Course completion',
+          meta: { courseTitle: job.payload.courseTitle },
+        });
+        break;
+      }
+      case 'TOPIC_DEADLINE_CHANGED': {
+        const portalUrl = `${env.FRONTEND_URL}/mentee/courses`;
+        const { subject, text, html } = renderTopicDeadlineChangedEmail({
+          ...job.payload,
+          portalUrl,
+        });
+        await this.sendMailInternal({
+          to: job.payload.to,
+          subject,
+          text,
+          html,
+          description: 'Topic deadline change',
+          meta: { courseTitle: job.payload.courseTitle, topicTitle: job.payload.topicTitle },
+        });
+        break;
+      }
+    }
+  }
+
+  public async sendPasswordResetEmail(options: SendPasswordResetOptions): Promise<void> {
+    await this.enqueueOrDispatch({ type: 'PASSWORD_RESET', payload: options });
+  }
+
+  public async sendInviteEmail(options: SendInviteEmailOptions): Promise<void> {
+    await this.enqueueOrDispatch({ type: 'INVITE', payload: options });
+  }
+
   public async sendMentorMappedEmail(options: SendMentorMappedOptions): Promise<void> {
-    const portalUrl = options.isMentor
-      ? `${env.FRONTEND_URL}/mentor`
-      : `${env.FRONTEND_URL}/mentee`;
-
-    const { subject, text, html } = renderMentorMappedEmail({
-      recipientName: options.recipientName,
-      isMentor: options.isMentor,
-      otherPartyName: options.otherPartyName,
-      batchName: options.batchName,
-      portalUrl,
-    });
-
-    if (!this.transporter) {
-      logger.info(
-        { isMentor: options.isMentor, batchName: options.batchName },
-        'SMTP not configured in environment. Mentor mapping notification skipped in development.',
-      );
-      return;
-    }
-
-    try {
-      await this.transporter.sendMail({
-        from: env.SMTP_FROM,
-        to: options.to,
-        subject,
-        text,
-        html,
-      });
-
-      logger.info(
-        { batchName: options.batchName },
-        'Mentor mapping email dispatched successfully via SMTP',
-      );
-    } catch (error) {
-      logger.error(
-        { err: error, event: 'EMAIL_DISPATCH_FAILURE', service: 'smtp' },
-        'Failed to dispatch mentor mapping email',
-      );
-    }
+    await this.enqueueOrDispatch({ type: 'MENTOR_MAPPED', payload: options });
   }
 
   public async sendMenteeReassignedEmail(options: SendMenteeReassignedOptions): Promise<void> {
-    const portalUrl =
-      options.recipientRole === MenteeReassignRecipientRole.MENTEE
-        ? `${env.FRONTEND_URL}/mentee`
-        : `${env.FRONTEND_URL}/mentor`;
-
-    const { subject, text, html } = renderMenteeReassignedEmail({
-      recipientName: options.recipientName,
-      recipientRole: options.recipientRole,
-      menteeName: options.menteeName,
-      mentorName: options.mentorName,
-      batchName: options.batchName,
-      reason: options.reason,
-      portalUrl,
-    });
-
-    if (!this.transporter) {
-      logger.info(
-        { role: options.recipientRole, batchName: options.batchName },
-        'SMTP not configured in environment. Mentee reassignment notification skipped in development.',
-      );
-      return;
-    }
-
-    try {
-      await this.transporter.sendMail({
-        from: env.SMTP_FROM,
-        to: options.to,
-        subject,
-        text,
-        html,
-      });
-
-      logger.info(
-        { role: options.recipientRole, batchName: options.batchName },
-        'Mentee reassignment email dispatched successfully via SMTP',
-      );
-    } catch (error) {
-      logger.error(
-        { err: error, event: 'EMAIL_DISPATCH_FAILURE', service: 'smtp' },
-        'Failed to dispatch mentee reassignment email',
-      );
-    }
+    await this.enqueueOrDispatch({ type: 'MENTEE_REASSIGNED', payload: options });
   }
 
-  async sendSubmissionReceivedEmail(options: SendSubmissionReceivedOptions): Promise<void> {
-    const istTimeStr =
-      options.submittedAt.toLocaleString('en-IN', {
-        timeZone: 'Asia/Kolkata',
-        dateStyle: 'medium',
-        timeStyle: 'medium',
-      }) + ' IST';
-    const { subject, text, html } = renderSubmissionReceivedEmail({
-      recipientName: options.recipientName,
-      menteeName: options.menteeName,
-      assignmentTitle: options.assignmentTitle,
-      courseTitle: options.courseTitle,
-      version: options.version,
-      submittedAtFormatted: istTimeStr,
-      portalUrl: `${env.FRONTEND_URL}/submissions`,
-    });
-
-    if (!this.transporter) {
-      logger.info(
-        { menteeName: options.menteeName, assignmentTitle: options.assignmentTitle },
-        'SMTP not configured in environment. Submission received email skipped in development.',
-      );
-      return;
-    }
-
-    try {
-      await this.transporter.sendMail({
-        from: env.SMTP_FROM,
-        to: options.to,
-        subject,
-        text,
-        html,
-      });
-
-      logger.info(
-        { menteeName: options.menteeName, assignmentTitle: options.assignmentTitle },
-        'Submission received email dispatched successfully via SMTP',
-      );
-    } catch (error) {
-      logger.error(
-        { err: error, event: 'EMAIL_DISPATCH_FAILURE', service: 'smtp' },
-        'Failed to dispatch submission received email',
-      );
-    }
+  public async sendSubmissionReceivedEmail(options: SendSubmissionReceivedOptions): Promise<void> {
+    await this.enqueueOrDispatch({ type: 'SUBMISSION_RECEIVED', payload: options });
   }
 
-  async sendAssignmentGradedEmail(options: SendAssignmentGradedOptions): Promise<void> {
-    const portalUrl = `${env.FRONTEND_URL}/mentee/assignments`;
-    const { subject, text, html } = renderAssignmentGradedEmail({
-      ...options,
-      portalUrl,
-    });
-
-    if (!this.transporter) {
-      logger.info(
-        { assignmentTitle: options.assignmentTitle },
-        'SMTP not configured in environment. Graded notification skipped in development.',
-      );
-      return;
-    }
-
-    try {
-      await this.transporter.sendMail({
-        from: env.SMTP_FROM,
-        to: options.to,
-        subject,
-        text,
-        html,
-      });
-
-      logger.info(
-        { assignmentTitle: options.assignmentTitle },
-        'Assignment graded email dispatched successfully via SMTP',
-      );
-    } catch (error) {
-      logger.error(
-        { err: error, event: 'EMAIL_DISPATCH_FAILURE', service: 'smtp' },
-        'Failed to dispatch assignment graded email',
-      );
-    }
+  public async sendAssignmentGradedEmail(options: SendAssignmentGradedOptions): Promise<void> {
+    await this.enqueueOrDispatch({ type: 'ASSIGNMENT_GRADED', payload: options });
   }
 
-  async sendResubmissionRequestedEmail(options: SendResubmissionRequestedOptions): Promise<void> {
-    const portalUrl = `${env.FRONTEND_URL}/mentee/assignments`;
-    const { subject, text, html } = renderResubmissionRequestedEmail({
-      ...options,
-      portalUrl,
-    });
-
-    if (!this.transporter) {
-      logger.info(
-        { assignmentTitle: options.assignmentTitle },
-        'SMTP not configured in environment. Resubmission request email skipped in development.',
-      );
-      return;
-    }
-
-    try {
-      await this.transporter.sendMail({
-        from: env.SMTP_FROM,
-        to: options.to,
-        subject,
-        text,
-        html,
-      });
-
-      logger.info(
-        { assignmentTitle: options.assignmentTitle },
-        'Resubmission requested email dispatched successfully via SMTP',
-      );
-    } catch (error) {
-      logger.error(
-        { err: error, event: 'EMAIL_DISPATCH_FAILURE', service: 'smtp' },
-        'Failed to dispatch resubmission requested email',
-      );
-    }
+  public async sendResubmissionRequestedEmail(
+    options: SendResubmissionRequestedOptions,
+  ): Promise<void> {
+    await this.enqueueOrDispatch({ type: 'RESUBMISSION_REQUESTED', payload: options });
   }
 
   public async sendCourseAllocatedEmail(options: SendCourseAllocatedOptions): Promise<void> {
-    const portalUrl = `${env.FRONTEND_URL}/mentee/courses`;
-    const { subject, text, html } = renderCourseAllocatedEmail({
-      ...options,
-      portalUrl,
-    });
-
-    if (!this.transporter) {
-      logger.info(
-        { userId: options.userId, courseTitle: options.courseTitle },
-        'SMTP not configured in environment. Course allocation notification skipped in development.',
-      );
-      return;
-    }
-
-    try {
-      await this.transporter.sendMail({
-        from: env.SMTP_FROM,
-        to: options.to,
-        subject,
-        text,
-        html,
-      });
-
-      logger.info(
-        { userId: options.userId, courseTitle: options.courseTitle },
-        'Course allocation email dispatched successfully via SMTP',
-      );
-    } catch (error) {
-      logger.error(
-        { err: error, event: 'EMAIL_DISPATCH_FAILURE', service: 'smtp' },
-        'Failed to dispatch course allocation email',
-      );
-    }
+    await this.enqueueOrDispatch({ type: 'COURSE_ALLOCATED', payload: options });
   }
 
   public async sendCourseDeadlineChangedEmail(
     options: SendCourseDeadlineChangedOptions,
   ): Promise<void> {
-    const portalUrl = `${env.FRONTEND_URL}/mentee/courses`;
-    const { subject, text, html } = renderCourseDeadlineChangedEmail({
-      ...options,
-      portalUrl,
-    });
-
-    if (!this.transporter) {
-      logger.info(
-        { userId: options.userId, courseTitle: options.courseTitle },
-        'SMTP not configured in environment. Course deadline change notification skipped in development.',
-      );
-      return;
-    }
-
-    try {
-      await this.transporter.sendMail({
-        from: env.SMTP_FROM,
-        to: options.to,
-        subject,
-        text,
-        html,
-      });
-
-      logger.info(
-        { userId: options.userId, courseTitle: options.courseTitle },
-        'Course deadline change email dispatched successfully via SMTP',
-      );
-    } catch (error) {
-      logger.error(
-        { err: error, event: 'EMAIL_DISPATCH_FAILURE', service: 'smtp' },
-        'Failed to dispatch course deadline change email',
-      );
-    }
+    await this.enqueueOrDispatch({ type: 'COURSE_DEADLINE_CHANGED', payload: options });
   }
 
   public async sendAllocationCompletedEmail(
     options: SendAllocationCompletedOptions,
   ): Promise<void> {
-    const portalUrl = `${env.FRONTEND_URL}/mentor/mentees`;
-    const { subject, text, html } = renderAllocationCompletedEmail({
-      ...options,
-      portalUrl,
-    });
-
-    if (!this.transporter) {
-      logger.info(
-        { courseTitle: options.courseTitle },
-        'SMTP not configured in environment. Course completion notification skipped in development.',
-      );
-      return;
-    }
-
-    try {
-      await this.transporter.sendMail({
-        from: env.SMTP_FROM,
-        to: options.to,
-        subject,
-        text,
-        html,
-      });
-
-      logger.info(
-        { courseTitle: options.courseTitle },
-        'Course completion email dispatched successfully via SMTP',
-      );
-    } catch (error) {
-      logger.error(
-        { err: error, event: 'EMAIL_DISPATCH_FAILURE', service: 'smtp' },
-        'Failed to dispatch course completion email',
-      );
-    }
+    await this.enqueueOrDispatch({ type: 'ALLOCATION_COMPLETED', payload: options });
   }
 
   public async sendTopicDeadlineChangedEmail(
     options: SendTopicDeadlineChangedOptions,
   ): Promise<void> {
-    const portalUrl = `${env.FRONTEND_URL}/mentee/courses`;
-    const { subject, text, html } = renderTopicDeadlineChangedEmail({
-      ...options,
-      portalUrl,
-    });
-
-    if (!this.transporter) {
-      logger.info(
-        { courseTitle: options.courseTitle, topicTitle: options.topicTitle },
-        'SMTP not configured in environment. Topic deadline change notification skipped in development.',
-      );
-      return;
-    }
-
-    try {
-      await this.transporter.sendMail({
-        from: env.SMTP_FROM,
-        to: options.to,
-        subject,
-        text,
-        html,
-      });
-
-      logger.info(
-        { courseTitle: options.courseTitle, topicTitle: options.topicTitle },
-        'Topic deadline change email dispatched successfully via SMTP',
-      );
-    } catch (error) {
-      logger.error(
-        { err: error, event: 'EMAIL_DISPATCH_FAILURE', service: 'smtp' },
-        'Failed to dispatch topic deadline change email',
-      );
-    }
+    await this.enqueueOrDispatch({ type: 'TOPIC_DEADLINE_CHANGED', payload: options });
   }
 }
 
